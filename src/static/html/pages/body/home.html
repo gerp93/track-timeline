@@ -1,17 +1,40 @@
 {{define "body"}}
+<link
+    rel="stylesheet"
+    href="/gs/css/home.css"
+/>
 <div id="home">
     <h1>Track Timeline</h1>
-    <h4>Hear a song. Place it in history.</h4>
-
-    <div class="home-links">
+    <div id="home-buttons">
         {{if .LoggedIn}}
-        <a href="/track-timeline/lobbies"><button>Play</button></a>
-        <a href="/decks"><button>Song Decks</button></a>
-        <a href="/stats"><button>Stats</button></a>
+        <div>
+            <a href="/track-timeline/lobbies"><button>Game Lobbies</button></a>
+        </div>
+        <div>
+            <a href="/decks"><button>Song Decks</button></a>
+        </div>
+        <div>
+            <a href="/stats"><button>Statistics</button></a>
+        </div>
+        <div>
+            <a href="/account"><button>Account</button></a>
+        </div>
         {{else}}
-        <a href="/login"><button>Login to Play</button></a>
+        <div>
+            <a href="/login"><button>Login</button></a>
+        </div>
         {{end}}
-        <a href="/about"><button class="btn-small">How to Play</button></a>
+        <div>
+            <a href="/about"><button>About</button></a>
+        </div>
+        {{if .User.IsAdmin}}
+        <div>
+            <a href="/users"><button>Users</button></a>
+        </div>
+        <div>
+            <a href="/categories"><button>Genres</button></a>
+        </div>
+        {{end}}
     </div>
 </div>
 {{end}}
