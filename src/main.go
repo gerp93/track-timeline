@@ -14,9 +14,11 @@ import (
 	gsStatic "github.com/gerp93/gameshell-framework/static"
 	gsWebsocket "github.com/gerp93/gameshell-framework/websocket"
 
+	apiAccess "github.com/gerp93/track-timeline/api/access"
 	apiCard "github.com/gerp93/track-timeline/api/card"
 	apiCategory "github.com/gerp93/track-timeline/api/category"
 	apiPages "github.com/gerp93/track-timeline/api/pages"
+	apiTrackTimeline "github.com/gerp93/track-timeline/api/tracktimeline"
 	"github.com/gerp93/track-timeline/database"
 	"github.com/gerp93/track-timeline/game"
 	"github.com/gerp93/track-timeline/static"
@@ -92,6 +94,39 @@ func main() {
 	// Go's ParseForm only reads the body for POST/PUT/PATCH.
 	http.Handle("POST /api/category/create", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCategory.Create)))
 	http.Handle("POST /api/category/{categoryId}/delete", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCategory.DeleteReassign)))
+
+	// track-timeline pages
+	http.Handle("GET /track-timeline/lobbies", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.TrackTimelineLobbies)))
+	http.Handle("GET /track-timeline/{lobbyId}", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.TrackTimelineLobby)))
+	http.Handle("GET /track-timeline/{lobbyId}/access", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.TrackTimelineLobbyAccess)))
+
+	// lobby setup
+	http.Handle("POST /api/track-timeline/create", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.Create)))
+	http.Handle("POST /api/track-timeline/search", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.Search)))
+	http.Handle("POST /api/track-timeline/card-count", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.CardCount)))
+
+	// gameplay
+	http.Handle("POST /api/track-timeline/{lobbyId}/start", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.StartGame)))
+	http.Handle("POST /api/track-timeline/{lobbyId}/reset", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.ResetGame)))
+	http.Handle("POST /api/track-timeline/{lobbyId}/play-song", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.PlaySong)))
+	http.Handle("POST /api/track-timeline/{lobbyId}/place-card", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.PlaceCard)))
+	http.Handle("POST /api/track-timeline/{lobbyId}/challenge", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.Challenge)))
+	http.Handle("POST /api/track-timeline/{lobbyId}/close-challenge", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.CloseChallenge)))
+	http.Handle("POST /api/track-timeline/{lobbyId}/guess", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.SubmitGuess)))
+	http.Handle("POST /api/track-timeline/{lobbyId}/skip-card", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.SkipCard)))
+	http.Handle("POST /api/track-timeline/{lobbyId}/timeout", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.TimeoutPass)))
+	http.Handle("PUT /api/track-timeline/{lobbyId}/message", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.SetLobbyMessage)))
+
+	// gameplay fragments
+	http.Handle("GET /api/track-timeline/{lobbyId}/current-card", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.GetCurrentCard)))
+	http.Handle("GET /api/track-timeline/{lobbyId}/timeline", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.GetTimeline)))
+	http.Handle("GET /api/track-timeline/{lobbyId}/players", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.GetPlayers)))
+	http.Handle("GET /api/track-timeline/{lobbyId}/draw-pile-count", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.GetDrawPileCount)))
+	http.Handle("GET /api/track-timeline/{lobbyId}/decks", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.GetDecks)))
+
+	// access gates
+	http.Handle("POST /api/access/lobby/{lobbyId}", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiAccess.Lobby)))
+	http.Handle("POST /api/access/deck/{deckId}", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiAccess.Deck)))
 
 	// websocket (no middleware wrapper; reads {lobbyId} from the path itself)
 	http.HandleFunc("GET /ws/lobby/{lobbyId}", gsWebsocket.ServeWs)

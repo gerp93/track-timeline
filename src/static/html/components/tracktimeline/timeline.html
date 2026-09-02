@@ -1,0 +1,80 @@
+{{$root := .}}
+<div class="board">
+    {{if eq .GameStatus "active"}}
+    <div class="board-banner">
+        {{if eq .RoundPhase "listening"}}
+            {{if $root.CanPlace}}
+            Your turn — listen, then choose where it goes.
+            {{else}}
+            Waiting for the player on turn to place the song.
+            {{end}}
+        {{else if eq .RoundPhase "challenge"}}
+            {{if $root.CanChallenge}}
+            Challenge window — spend a token to place it yourself.
+            {{else}}
+            Challenge window open.
+            {{end}}
+        {{else}}
+            Revealed.
+        {{end}}
+    </div>
+    {{end}}
+
+    {{range .Timelines}}
+    {{$player := .}}
+    <div class="player-row {{if .IsMe}}is-me{{end}} {{if .IsCurrent}}is-current{{end}}">
+        <div class="player-row-header">
+            <span class="player-name">{{.PlayerName}}</span>
+            <span class="player-tokens" title="Tokens">
+                {{.TokenCount}} <span class="bi bi-coin"></span>
+            </span>
+            <span class="player-count">{{len .Timeline}} song(s)</span>
+            {{if .HasPlaced}}
+            <span class="player-placed" title="Has committed a placement">
+                {{if .IsChallenge}}<span class="bi bi-shield-fill"></span> challenged{{else}}<span class="bi bi-check2"></span> placed{{end}}
+            </span>
+            {{end}}
+        </div>
+
+        <div class="timeline-strip">
+            {{$canAct := false}}
+            {{if and $player.IsMe $root.CanPlace}}{{$canAct = true}}{{end}}
+            {{if and $player.IsMe $root.CanChallenge}}{{$canAct = true}}{{end}}
+
+            {{if $canAct}}
+            <button
+                class="place-slot"
+                hx-post="/api/track-timeline/{{$root.LobbyId}}/{{if $root.CanChallenge}}challenge{{else}}place-card{{end}}"
+                hx-vals='{"position": 0}'
+                hx-swap="none"
+                title="Place before everything"
+            >+</button>
+            {{end}}
+
+            {{range $index, $card := .Timeline}}
+            <div class="timeline-card {{if $card.IsLastPlaced}}is-last-placed{{end}}">
+                <div class="card-year">{{$card.ReleaseYear}}</div>
+                <div class="card-artist">{{$card.Artist}}</div>
+                <div class="card-title">{{$card.Title}}</div>
+            </div>
+
+            {{if $canAct}}
+            <button
+                class="place-slot"
+                hx-post="/api/track-timeline/{{$root.LobbyId}}/{{if $root.CanChallenge}}challenge{{else}}place-card{{end}}"
+                hx-vals='{"position": {{add $index 1}}}'
+                hx-swap="none"
+                title="Place here"
+            >+</button>
+            {{end}}
+            {{end}}
+
+            {{if and $player.HasPlaced (ge $player.PlacedAt 0)}}
+            <div class="placement-marker">
+                placed at slot {{$player.PlacedAt}}
+            </div>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+</div>

@@ -1,0 +1,238 @@
+{{define "body"}}
+<div style="display: grid; grid-auto-flow: column">
+    <h2>Lobbies</h2>
+    <div style="text-align: right;">
+        <button onclick="document.getElementById('lobby-create-dialog').showModal()">
+            <span class="bi bi-plus-circle"></span> New Game
+        </button>
+    </div>
+</div>
+
+<form id="lobby-search-form" hx-post="/api/track-timeline/search" hx-target="#lobby-rows" hx-trigger="load, submit">
+    <span>
+        <label for="lobbySearch">Search</label>
+        <input
+            type="text"
+            id="lobbySearch"
+            name="name"
+            maxlength="255"
+            placeholder="Lobby name"
+            autocomplete="off"
+        />
+    </span>
+    <button type="submit"><span class="bi bi-search"></span></button>
+</form>
+
+<table>
+    <thead>
+        <tr>
+            <th>Lobby</th>
+            <th>Players</th>
+            <th>Status</th>
+            <th></th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody id="lobby-rows"></tbody>
+</table>
+
+<dialog id="lobby-create-dialog">
+    <div style="display: grid; grid-auto-flow: column">
+        <div><h3>New Game</h3></div>
+        <div>
+            <span
+                class="bi bi-x-lg close-button"
+                onclick="document.getElementById('lobby-create-dialog').close()"
+            ></span>
+        </div>
+    </div>
+
+    <form id="lobby-create-form" hx-post="/api/track-timeline/create" hx-target="find .htmx-result">
+        <div class="form-input">
+            <label for="lobbyName">Lobby Name</label>
+            <input
+                type="text"
+                id="lobbyName"
+                name="name"
+                maxlength="255"
+                placeholder="Friday Night"
+                required="required"
+                autocomplete="off"
+            />
+
+            <label for="cardsToWin">Songs to Win</label>
+            <input
+                type="number"
+                id="cardsToWin"
+                name="cardsToWin"
+                min="5"
+                max="20"
+                value="10"
+                required="required"
+                autocomplete="off"
+                onchange="ttRecalcCount()"
+            />
+
+            <label for="startingTokens">Starting Tokens</label>
+            <input
+                type="number"
+                id="startingTokens"
+                name="startingTokens"
+                min="0"
+                max="5"
+                value="2"
+                autocomplete="off"
+            />
+        </div>
+
+        <details>
+            <summary>Lobby message and password</summary>
+            <div class="form-input">
+                <label for="lobbyMessageNew">Message</label>
+                <input
+                    type="text"
+                    id="lobbyMessageNew"
+                    name="message"
+                    maxlength="255"
+                    autocomplete="off"
+                />
+                <label for="lobbyPassword">Password</label>
+                <input
+                    type="password"
+                    id="lobbyPassword"
+                    name="password"
+                    maxlength="255"
+                    autocomplete="new-password"
+                />
+            </div>
+        </details>
+
+        <h4>Decks</h4>
+        {{if .Decks}}
+        <div class="checkbox-list">
+            {{range .Decks}}
+            <label>
+                <input
+                    type="checkbox"
+                    name="deckId"
+                    value="{{.Id}}"
+                    onchange="ttRecalcCount()"
+                />
+                {{.Name}}
+            </label>
+            {{end}}
+        </div>
+        {{else}}
+        <p>You have no decks yet. <a href="/decks">Create one</a> and add some songs first.</p>
+        {{end}}
+
+        {{if .Categories}}
+        <h4>Exclude genres</h4>
+        <div class="checkbox-list">
+            {{range .Categories}}
+            <label>
+                <input
+                    type="checkbox"
+                    name="excludedCategoryId"
+                    value="{{.Id}}"
+                    onchange="ttRecalcCount()"
+                />
+                {{.Name}}
+            </label>
+            {{end}}
+        </div>
+        {{end}}
+
+        <h4>Eras</h4>
+        <p class="hint">Leave empty to allow every year.</p>
+        <div id="era-rows"></div>
+        <button type="button" class="btn-small" onclick="ttAddEraRow()">
+            <span class="bi bi-plus"></span> Add Era
+        </button>
+
+        <p id="tt-count-estimate" class="hint">Select a deck to see how many songs match.</p>
+
+        <div class="htmx-result"></div>
+        <input type="submit" value="Create Game" />
+    </form>
+</dialog>
+
+<script>
+    function ttAddEraRow() {
+        const container = document.getElementById("era-rows");
+        const row = document.createElement("div");
+        row.className = "era-row";
+
+        const from = document.createElement("input");
+        from.type = "number";
+        from.name = "fromYear";
+        from.placeholder = "From";
+        from.autocomplete = "off";
+        from.addEventListener("change", ttRecalcCount);
+
+        const to = document.createElement("input");
+        to.type = "number";
+        to.name = "toYear";
+        to.placeholder = "To";
+        to.autocomplete = "off";
+        to.addEventListener("change", ttRecalcCount);
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "btn-small";
+        remove.textContent = "Remove";
+        remove.addEventListener("click", () => {
+            row.remove();
+            ttRecalcCount();
+        });
+
+        row.appendChild(from);
+        row.appendChild(to);
+        row.appendChild(remove);
+        container.appendChild(row);
+    }
+
+    let ttCountTimer = null;
+
+    function ttRecalcCount() {
+        if (ttCountTimer) clearTimeout(ttCountTimer);
+        ttCountTimer = setTimeout(ttDoRecalcCount, 250);
+    }
+
+    function ttDoRecalcCount() {
+        const form = document.getElementById("lobby-create-form");
+        const estimate = document.getElementById("tt-count-estimate");
+        if (!form || !estimate) return;
+
+        const data = new FormData(form);
+        const params = new URLSearchParams();
+        for (const name of ["deckId", "excludedCategoryId", "fromYear", "toYear"]) {
+            for (const value of data.getAll(name)) {
+                params.append(name, value);
+            }
+        }
+
+        if (params.getAll("deckId").length === 0) {
+            estimate.textContent = "Select a deck to see how many songs match.";
+            return;
+        }
+
+        fetch("/api/track-timeline/card-count", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: params.toString(),
+        })
+            .then((r) => r.text())
+            .then((count) => {
+                const matching = parseInt(count) || 0;
+                const target = parseInt(document.getElementById("cardsToWin").value) || 10;
+                const needed = target * 4;
+                estimate.textContent = matching + " song(s) match. At least " + needed + " are needed to win with " + target + ".";
+                estimate.className = matching >= needed ? "hint" : "hint hint-warn";
+            })
+            .catch(() => {
+                estimate.textContent = "Could not check how many songs match.";
+            });
+    }
+</script>
+{{end}}

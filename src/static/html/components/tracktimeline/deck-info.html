@@ -1,0 +1,9 @@
+{{if .Decks}}
+<ul class="deck-info-list">
+    {{range .Decks}}
+    <li>{{.Name}} &mdash; {{.RemainingCount}} of {{.TotalCount}} left</li>
+    {{end}}
+</ul>
+{{else}}
+<span>No decks.</span>
+{{end}}

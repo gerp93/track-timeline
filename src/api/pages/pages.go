@@ -245,3 +245,187 @@ func Deck(w http.ResponseWriter, r *http.Request) {
 		RowCount:     rowCount,
 	})
 }
+
+// TrackTimelineLobbies is the lobby list and the new-game form.
+func TrackTimelineLobbies(w http.ResponseWriter, r *http.Request) {
+	basePageData := gsApi.GetBasePageData(r)
+	basePageData.PageTitle = "Lobbies"
+
+	decks, err := gsDatabase.GetReadableDecks(basePageData.User.Id)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get decks."))
+		return
+	}
+
+	categories, err := database.GetCategories()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get genres."))
+		return
+	}
+
+	tmpl, err := parseChrome("html/pages/body/track-timeline-lobbies.html", nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to parse page template."))
+		return
+	}
+
+	type data struct {
+		gsApi.BasePageData
+		Decks      []gsDatabase.Deck
+		Categories []database.Category
+	}
+
+	_ = tmpl.ExecuteTemplate(w, "base", data{
+		BasePageData: basePageData,
+		Decks:        decks,
+		Categories:   categories,
+	})
+}
+
+// TrackTimelineLobby is the game board. Visiting is what joins you to the
+// lobby, so a player who follows a link is seated without a separate step.
+func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
+	basePageData := gsApi.GetBasePageData(r)
+
+	lobbyId, err := uuid.Parse(r.PathValue("lobbyId"))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Invalid lobby."))
+		return
+	}
+
+	userId := basePageData.User.Id
+	hasAccess, err := gsDatabase.UserHasLobbyAccess(userId, lobbyId)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to check lobby access."))
+		return
+	}
+	if !hasAccess {
+		http.Redirect(w, r, "/track-timeline/"+lobbyId.String()+"/access", http.StatusSeeOther)
+		return
+	}
+
+	lobby, err := database.GetLobby(lobbyId)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get lobby."))
+		return
+	}
+	if lobby.Id == uuid.Nil {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("No lobby found."))
+		return
+	}
+	basePageData.PageTitle = lobby.Name
+
+	if _, err := gsDatabase.AddUserToLobby(lobbyId, userId); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to join the lobby."))
+		return
+	}
+
+	game, err := database.GetGame(lobbyId)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get game."))
+		return
+	}
+	if game.Id == uuid.Nil {
+		// A lobby always gets its game and draw pile at creation time, so this
+		// is a lobby made outside that flow and there is nothing to play.
+		http.Redirect(w, r, "/track-timeline/lobbies", http.StatusSeeOther)
+		return
+	}
+
+	drawPileCount, err := database.GetDrawPileCount(game.Id)
+	if err != nil {
+		drawPileCount = 0
+	}
+
+	yearRanges, err := database.GetYearRanges(game.Id)
+	if err != nil {
+		yearRanges = nil
+	}
+
+	turnTimerSeconds, err := gsDatabase.GetLobbyTurnTimerSeconds(lobbyId)
+	if err != nil {
+		turnTimerSeconds = 0
+	}
+
+	winnerName := ""
+	if game.WinnerId.Valid {
+		if user, err := gsDatabase.GetUser(game.WinnerId.UUID); err == nil {
+			winnerName = user.Name
+		}
+	}
+
+	tmpl, err := parseChrome("html/pages/body/track-timeline.html", nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to parse page template."))
+		return
+	}
+
+	type data struct {
+		gsApi.BasePageData
+		Lobby            database.Lobby
+		Game             database.Game
+		DrawPileCount    int
+		YearRanges       []database.YearRange
+		TurnTimerSeconds int
+		WinnerName       string
+	}
+
+	_ = tmpl.ExecuteTemplate(w, "base", data{
+		BasePageData:     basePageData,
+		Lobby:            lobby,
+		Game:             game,
+		DrawPileCount:    drawPileCount,
+		YearRanges:       yearRanges,
+		TurnTimerSeconds: turnTimerSeconds,
+		WinnerName:       winnerName,
+	})
+}
+
+// TrackTimelineLobbyAccess is the password gate for a protected lobby.
+func TrackTimelineLobbyAccess(w http.ResponseWriter, r *http.Request) {
+	basePageData := gsApi.GetBasePageData(r)
+
+	lobbyId, err := uuid.Parse(r.PathValue("lobbyId"))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Invalid lobby."))
+		return
+	}
+
+	lobby, err := database.GetLobby(lobbyId)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get lobby."))
+		return
+	}
+	if lobby.Id == uuid.Nil {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("No lobby found."))
+		return
+	}
+	basePageData.PageTitle = lobby.Name
+
+	tmpl, err := parseChrome("html/pages/body/lobby-access.html", nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to parse page template."))
+		return
+	}
+
+	type data struct {
+		gsApi.BasePageData
+		Lobby database.Lobby
+	}
+
+	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Lobby: lobby})
+}

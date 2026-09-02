@@ -1,0 +1,21 @@
+{{if .Lobbies}}
+{{range .Lobbies}}
+<tr>
+    <td>{{.Name}}</td>
+    <td>{{.PlayerCount}}</td>
+    <td>
+        {{if eq .GameStatus "active"}}In progress
+        {{else if eq .GameStatus "finished"}}Finished
+        {{else}}Waiting{{end}}
+    </td>
+    <td>{{if .HasPassword}}<span class="bi bi-lock-fill" title="Password required"></span>{{end}}</td>
+    <td>
+        <a href="/track-timeline/{{.Id}}"><button class="btn-small">Join</button></a>
+    </td>
+</tr>
+{{end}}
+{{else}}
+<tr>
+    <td colspan="5">No lobbies found.</td>
+</tr>
+{{end}}
