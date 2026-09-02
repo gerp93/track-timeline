@@ -1,0 +1,305 @@
+{{define "card-header-actions"}}
+<button onclick="document.getElementById('card-create-dialog').showModal()">
+    <span class="bi bi-plus-circle"></span> Add Song
+</button>
+<button onclick="document.getElementById('card-import-dialog').showModal()">
+    <span class="bi bi-upload"></span> Import Songs
+</button>
+{{end}}
+{{define "card-management"}}
+{{if eq .RowCount 0}}
+No songs found with that search criteria.
+{{else}}
+<table>
+    <thead>
+        <tr>
+            <th>Edit</th>
+            <th>Year</th>
+            <th>Artist</th>
+            <th>Title</th>
+            <th>Genre</th>
+            <th>Video</th>
+            <th>Delete</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Cards}}
+        {{$card := .}}
+        <tr>
+            <td>
+                <div style="text-align: center;">
+                    <span
+                        title="Edit Song"
+                        class="bi bi-pencil clickable"
+                        onclick="document.getElementById('card-{{.Id}}-update-dialog').showModal()"
+                    ></span>
+                </div>
+                <dialog id="card-{{.Id}}-update-dialog">
+                    <div style="display: grid; grid-auto-flow: column">
+                        <div>
+                            <h3>Edit Song</h3>
+                        </div>
+                        <div>
+                            <span
+                                class="bi bi-x-lg close-button"
+                                onclick="document.getElementById('card-{{.Id}}-update-dialog').close()"
+                            ></span>
+                        </div>
+                    </div>
+                    <form
+                        hx-put="/api/card/{{.Id}}"
+                        hx-target="find .htmx-result"
+                    >
+                        <div class="form-input">
+                            <label for="title{{.Id}}">Title</label>
+                            <input
+                                type="text"
+                                id="title{{.Id}}"
+                                name="title"
+                                maxlength="510"
+                                value="{{.Title}}"
+                                required="required"
+                                autocomplete="off"
+                            />
+                            <label for="artist{{.Id}}">Artist</label>
+                            <input
+                                type="text"
+                                id="artist{{.Id}}"
+                                name="artist"
+                                maxlength="510"
+                                value="{{.Artist}}"
+                                required="required"
+                                autocomplete="off"
+                            />
+                            <label for="year{{.Id}}">Release Year</label>
+                            <input
+                                type="number"
+                                id="year{{.Id}}"
+                                name="year"
+                                placeholder="e.g. 1977"
+                                {{if .ReleaseYear.Valid}}value="{{.ReleaseYear.Int64}}"{{end}}
+                                autocomplete="off"
+                            />
+                            <label for="videoId{{.Id}}">YouTube Link or ID</label>
+                            <input
+                                type="text"
+                                id="videoId{{.Id}}"
+                                name="videoId"
+                                maxlength="255"
+                                value="{{.YouTubeVideoId}}"
+                                required="required"
+                                autocomplete="off"
+                            />
+                            <label for="startSeconds{{.Id}}">Start At (seconds)</label>
+                            <input
+                                type="number"
+                                id="startSeconds{{.Id}}"
+                                name="startSeconds"
+                                min="0"
+                                value="{{.StartOffsetSeconds}}"
+                                autocomplete="off"
+                            />
+                            <label for="category{{.Id}}">Genre</label>
+                            <select
+                                id="category{{.Id}}"
+                                name="categoryId"
+                                required="required"
+                                autocomplete="off"
+                            >
+                                <option value="">-- Select a Genre --</option>
+                                {{range $.Categories}}
+                                <option
+                                    value="{{.Id}}"
+                                    {{if and $card.CategoryId.Valid (eq (printf "%s" .Id) (printf "%s" $card.CategoryId.UUID))}}selected{{end}}
+                                >{{.Name}}</option>
+                                {{end}}
+                            </select>
+                        </div>
+                        <br />
+                        <div class="htmx-result"></div>
+                        <input
+                            type="submit"
+                            value="Update Song"
+                        />
+                    </form>
+                </dialog>
+            </td>
+            <td>{{if .ReleaseYear.Valid}}{{.ReleaseYear.Int64}}{{else}}<em>none</em>{{end}}</td>
+            <td>{{.Artist}}</td>
+            <td>{{.Title}}</td>
+            <td>{{if .CategoryName.Valid}}{{.CategoryName.String}}{{else}}<em>none</em>{{end}}</td>
+            <td>
+                <a
+                    href="https://www.youtube.com/watch?v={{.YouTubeVideoId}}"
+                    target="_blank"
+                    title="Open on YouTube to check this link still plays"
+                >
+                    <span class="bi bi-box-arrow-up-right"></span>
+                </a>
+            </td>
+            <td>
+                <div style="text-align: center;">
+                    <span
+                        title="Delete"
+                        class="bi bi-trash clickable"
+                        hx-delete="/api/card/{{.Id}}"
+                        hx-confirm="Are you sure you want to delete this song?"
+                    ></span>
+                </div>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{end}}
+<dialog id="card-create-dialog">
+    <div style="display: grid; grid-auto-flow: column">
+        <div>
+            <h3>Add Song</h3>
+        </div>
+        <div>
+            <span
+                class="bi bi-x-lg close-button"
+                onclick="document.getElementById('card-create-dialog').close()"
+            ></span>
+        </div>
+    </div>
+    <form
+        hx-post="/api/card/create"
+        hx-target="find .htmx-result"
+    >
+        <div class="form-input">
+            <input
+                type="text"
+                id="newCardDeckId"
+                name="deckId"
+                value="{{.Deck.Id}}"
+                hidden
+            />
+            <label for="newCardTitle">Title</label>
+            <input
+                type="text"
+                id="newCardTitle"
+                name="title"
+                maxlength="510"
+                placeholder="Song Title"
+                required="required"
+                autocomplete="off"
+            />
+            <label for="newCardArtist">Artist</label>
+            <input
+                type="text"
+                id="newCardArtist"
+                name="artist"
+                maxlength="510"
+                placeholder="Performing Artist"
+                required="required"
+                autocomplete="off"
+            />
+            <label for="newCardYear">Release Year</label>
+            <input
+                type="number"
+                id="newCardYear"
+                name="year"
+                placeholder="e.g. 1977"
+                autocomplete="off"
+            />
+            <label for="newCardVideoId">YouTube Link or ID</label>
+            <input
+                type="text"
+                id="newCardVideoId"
+                name="videoId"
+                maxlength="255"
+                placeholder="Paste the YouTube link"
+                required="required"
+                autocomplete="off"
+            />
+            <label for="newCardStartSeconds">Start At (seconds)</label>
+            <input
+                type="number"
+                id="newCardStartSeconds"
+                name="startSeconds"
+                min="0"
+                value="0"
+                autocomplete="off"
+            />
+            <label for="newCardCategory">Genre</label>
+            <select
+                id="newCardCategory"
+                name="categoryId"
+                required="required"
+                autocomplete="off"
+            >
+                <option value="">-- Select a Genre --</option>
+                {{range .Categories}}
+                <option value="{{.Id}}">{{.Name}}</option>
+                {{end}}
+            </select>
+        </div>
+        <br />
+        <p class="hint">
+            A song with no release year is kept but never dealt, so you can
+            add it now and fill the year in later.
+        </p>
+        <div class="htmx-result"></div>
+        <input
+            type="submit"
+            value="Add"
+        />
+    </form>
+</dialog>
+<dialog id="card-import-dialog">
+    <div style="display: grid; grid-auto-flow: column">
+        <div>
+            <h3>Import Songs</h3>
+        </div>
+        <div>
+            <span
+                class="bi bi-x-lg close-button"
+                onclick="document.getElementById('card-import-dialog').close()"
+            ></span>
+        </div>
+    </div>
+    <p>
+        Upload a <code>.json</code> file containing an array of songs. Each
+        entry may use exactly these keys:
+    </p>
+    <pre>{
+  "title": "Heroes",
+  "artist": "David Bowie",
+  "year": 1977,
+  "videoId": "https://youtu.be/...",
+  "startSeconds": 0,
+  "category": "Rock"
+}</pre>
+    <p>
+        <code>videoId</code> accepts a YouTube link or a bare video ID.
+        <code>year</code>, <code>startSeconds</code> and <code>category</code>
+        are optional. Songs whose video is already in this deck are skipped,
+        and an unrecognized genre imports the song without one. Max 1000 songs,
+        2&nbsp;MB per upload.
+    </p>
+    <form
+        hx-post="/api/deck/{{.Deck.Id}}/card-import"
+        hx-target="find .htmx-result"
+        hx-encoding="multipart/form-data"
+    >
+        <div class="form-input">
+            <label for="cardImportFile">JSON File</label>
+            <input
+                type="file"
+                id="cardImportFile"
+                name="file"
+                accept=".json,application/json"
+                required="required"
+            />
+        </div>
+        <br />
+        <div class="htmx-result"></div>
+        <input
+            type="submit"
+            value="Import"
+        />
+    </form>
+</dialog>
+{{end}}

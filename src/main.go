@@ -14,6 +14,8 @@ import (
 	gsStatic "github.com/gerp93/gameshell-framework/static"
 	gsWebsocket "github.com/gerp93/gameshell-framework/websocket"
 
+	apiCard "github.com/gerp93/track-timeline/api/card"
+	apiCategory "github.com/gerp93/track-timeline/api/category"
 	apiPages "github.com/gerp93/track-timeline/api/pages"
 	"github.com/gerp93/track-timeline/database"
 	"github.com/gerp93/track-timeline/game"
@@ -73,6 +75,23 @@ func main() {
 	// 404. "{$}" restricts the match to the literal root only.
 	http.Handle("GET /{$}", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.Home)))
 	http.Handle("GET /about", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.About)))
+	http.Handle("GET /categories", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.Categories)))
+	http.Handle("GET /deck/{deckId}", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.Deck)))
+
+	// card (game-owned: a card is a song, so its shape is not the framework's
+	// business)
+	http.Handle("GET /api/deck/{deckId}/card-export", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.GetCardExport)))
+	http.Handle("POST /api/deck/{deckId}/card-import", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.ImportJSON)))
+	http.Handle("POST /api/card/create", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.Create)))
+	http.Handle("PUT /api/card/{cardId}", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.Update)))
+	http.Handle("DELETE /api/card/{cardId}", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.Delete)))
+
+	// genre (admin-managed; MiddlewareForAPIs only enforces login, so the
+	// admin check lives in the handlers). Delete-with-reassign is a POST rather
+	// than a DELETE because it carries a form body naming the destination, and
+	// Go's ParseForm only reads the body for POST/PUT/PATCH.
+	http.Handle("POST /api/category/create", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCategory.Create)))
+	http.Handle("POST /api/category/{categoryId}/delete", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCategory.DeleteReassign)))
 
 	// websocket (no middleware wrapper; reads {lobbyId} from the path itself)
 	http.HandleFunc("GET /ws/lobby/{lobbyId}", gsWebsocket.ServeWs)
