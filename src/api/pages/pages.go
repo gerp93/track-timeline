@@ -429,3 +429,171 @@ func TrackTimelineLobbyAccess(w http.ResponseWriter, r *http.Request) {
 
 	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Lobby: lobby})
 }
+
+// Stats is the statistics hub: links into leaderboard, users, and cards.
+func Stats(w http.ResponseWriter, r *http.Request) {
+	basePageData := gsApi.GetBasePageData(r)
+	basePageData.PageTitle = "Stats"
+
+	tmpl, err := parseChrome("html/pages/body/stats.html", nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to parse page template."))
+		return
+	}
+
+	type data struct {
+		gsApi.BasePageData
+	}
+
+	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData})
+}
+
+// StatsLeaderboard ranks users by wins.
+func StatsLeaderboard(w http.ResponseWriter, r *http.Request) {
+	basePageData := gsApi.GetBasePageData(r)
+	basePageData.PageTitle = "Leaderboard"
+
+	rows, err := database.GetLeaderboard()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get the leaderboard."))
+		return
+	}
+
+	tmpl, err := parseChrome("html/pages/body/stats-leaderboard.html", nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to parse page template."))
+		return
+	}
+
+	type data struct {
+		gsApi.BasePageData
+		Rows []database.LeaderboardRow
+	}
+
+	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Rows: rows})
+}
+
+// StatsUsers lists every user with at least one recorded placement or guess.
+func StatsUsers(w http.ResponseWriter, r *http.Request) {
+	basePageData := gsApi.GetBasePageData(r)
+	basePageData.PageTitle = "Players"
+
+	rows, err := database.GetUserStatsList()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get player stats."))
+		return
+	}
+
+	tmpl, err := parseChrome("html/pages/body/stats-users.html", nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to parse page template."))
+		return
+	}
+
+	type data struct {
+		gsApi.BasePageData
+		Rows []database.UserStatsRow
+	}
+
+	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Rows: rows})
+}
+
+// StatsUser is one player's detail page.
+func StatsUser(w http.ResponseWriter, r *http.Request) {
+	basePageData := gsApi.GetBasePageData(r)
+
+	userId, err := uuid.Parse(r.PathValue("userId"))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Invalid player."))
+		return
+	}
+
+	stats, err := database.GetUserStats(userId)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get player stats."))
+		return
+	}
+	basePageData.PageTitle = stats.UserName
+
+	tmpl, err := parseChrome("html/pages/body/stats-user.html", nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to parse page template."))
+		return
+	}
+
+	type data struct {
+		gsApi.BasePageData
+		Stats database.UserStatsRow
+	}
+
+	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Stats: stats})
+}
+
+// StatsCards lists the songs most often placed wrong.
+func StatsCards(w http.ResponseWriter, r *http.Request) {
+	basePageData := gsApi.GetBasePageData(r)
+	basePageData.PageTitle = "Hardest Songs"
+
+	rows, err := database.GetHardestCards(3)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get song stats."))
+		return
+	}
+
+	tmpl, err := parseChrome("html/pages/body/stats-cards.html", nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to parse page template."))
+		return
+	}
+
+	type data struct {
+		gsApi.BasePageData
+		Rows []database.CardStatsRow
+	}
+
+	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Rows: rows})
+}
+
+// StatsCard is one song's detail page.
+func StatsCard(w http.ResponseWriter, r *http.Request) {
+	basePageData := gsApi.GetBasePageData(r)
+
+	cardId, err := uuid.Parse(r.PathValue("cardId"))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Invalid song."))
+		return
+	}
+
+	stats, err := database.GetCardStats(cardId)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get song stats."))
+		return
+	}
+	basePageData.PageTitle = stats.Title
+
+	tmpl, err := parseChrome("html/pages/body/stats-card.html", nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to parse page template."))
+		return
+	}
+
+	type data struct {
+		gsApi.BasePageData
+		Stats database.CardStatsRow
+	}
+
+	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Stats: stats})
+}

@@ -1,0 +1,27 @@
+{{define "body"}}
+<h2>Players</h2>
+{{if eq (len .Rows) 0}}
+<p>Nobody has played yet.</p>
+{{else}}
+<table>
+    <thead>
+        <tr>
+            <th>Player</th>
+            <th>Wins</th>
+            <th>Placements</th>
+            <th>Guesses</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Rows}}
+        <tr>
+            <td><a href="/stats/user/{{.UserId}}">{{.UserName}}</a></td>
+            <td>{{.Wins}}</td>
+            <td>{{.CorrectPlaces}} / {{.Placements}}</td>
+            <td>{{.CorrectGuesses}} / {{.Guesses}}</td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{end}}
+{{end}}

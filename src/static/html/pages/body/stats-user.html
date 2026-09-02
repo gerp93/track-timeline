@@ -1,0 +1,28 @@
+{{define "body"}}
+<h2>{{.Stats.UserName}}</h2>
+<table>
+    <tbody>
+        <tr><th>Wins</th><td>{{.Stats.Wins}}</td></tr>
+        <tr>
+            <th>Placement Accuracy</th>
+            <td>
+                {{if gt .Stats.Placements 0}}
+                {{.Stats.CorrectPlaces}} / {{.Stats.Placements}}
+                {{else}}
+                <em>no placements yet</em>
+                {{end}}
+            </td>
+        </tr>
+        <tr>
+            <th>Guess Accuracy</th>
+            <td>
+                {{if gt .Stats.Guesses 0}}
+                {{.Stats.CorrectGuesses}} / {{.Stats.Guesses}}
+                {{else}}
+                <em>no guesses yet</em>
+                {{end}}
+            </td>
+        </tr>
+    </tbody>
+</table>
+{{end}}

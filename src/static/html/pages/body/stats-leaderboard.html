@@ -1,0 +1,33 @@
+{{define "body"}}
+<h2>Leaderboard</h2>
+{{if eq (len .Rows) 0}}
+<p>No games have been won yet.</p>
+{{else}}
+<table>
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Player</th>
+            <th>Wins</th>
+            <th>Placement Accuracy</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Rows}}
+        <tr>
+            <td>{{.Rank}}</td>
+            <td><a href="/stats/user/{{.UserId}}">{{.UserName}}</a></td>
+            <td>{{.Wins}}</td>
+            <td>
+                {{if gt .Placements 0}}
+                {{.CorrectPlaces}} / {{.Placements}}
+                {{else}}
+                <em>no data</em>
+                {{end}}
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{end}}
+{{end}}
