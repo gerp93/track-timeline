@@ -1,0 +1,132 @@
+{{define "body"}}
+<div style="display: grid; grid-auto-flow: column">
+    <h2>Genres</h2>
+    <div style="text-align: right;">
+        <button onclick="document.getElementById('category-create-dialog').showModal()">
+            <span class="bi bi-plus-circle"></span> Add Genre
+        </button>
+    </div>
+</div>
+
+<p>
+    Every song belongs to a genre. A lobby can leave genres out of its draw
+    pile, so this list is what players filter by when they set a game up.
+</p>
+
+{{if eq (len .Categories) 0}}
+<p>No genres yet. Add one before authoring songs.</p>
+{{else}}
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Songs</th>
+            <th>Delete</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Categories}}
+        {{$category := .}}
+        <tr>
+            <td>{{.Name}}</td>
+            <td>{{.CardCount}}</td>
+            <td>
+                <div style="text-align: center;">
+                    <span
+                        title="Delete Genre"
+                        class="bi bi-trash clickable"
+                        onclick="document.getElementById('category-{{.Id}}-delete-dialog').showModal()"
+                    ></span>
+                </div>
+                <dialog id="category-{{.Id}}-delete-dialog">
+                    <div style="display: grid; grid-auto-flow: column">
+                        <div>
+                            <h3>Delete {{.Name}}</h3>
+                        </div>
+                        <div>
+                            <span
+                                class="bi bi-x-lg close-button"
+                                onclick="document.getElementById('category-{{.Id}}-delete-dialog').close()"
+                            ></span>
+                        </div>
+                    </div>
+                    <p>
+                        {{if eq .CardCount 0}}
+                        No songs use this genre, so nothing will move.
+                        {{else}}
+                        {{.CardCount}} song(s) use this genre and will be moved
+                        to the genre you pick below.
+                        {{end}}
+                    </p>
+                    <form
+                        hx-post="/api/category/{{.Id}}/delete"
+                        hx-target="find .htmx-result"
+                    >
+                        <div class="form-input">
+                            <label for="reassign{{.Id}}">Move songs to</label>
+                            <select
+                                id="reassign{{.Id}}"
+                                name="reassignToId"
+                                required="required"
+                                autocomplete="off"
+                            >
+                                <option value="">-- Select a Genre --</option>
+                                {{range $.All}}
+                                {{if ne (printf "%s" .Id) (printf "%s" $category.Id)}}
+                                <option value="{{.Id}}">{{.Name}}</option>
+                                {{end}}
+                                {{end}}
+                            </select>
+                        </div>
+                        <br />
+                        <div class="htmx-result"></div>
+                        <input
+                            type="submit"
+                            value="Delete Genre"
+                        />
+                    </form>
+                </dialog>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{end}}
+
+<dialog id="category-create-dialog">
+    <div style="display: grid; grid-auto-flow: column">
+        <div>
+            <h3>Add Genre</h3>
+        </div>
+        <div>
+            <span
+                class="bi bi-x-lg close-button"
+                onclick="document.getElementById('category-create-dialog').close()"
+            ></span>
+        </div>
+    </div>
+    <form
+        hx-post="/api/category/create"
+        hx-target="find .htmx-result"
+    >
+        <div class="form-input">
+            <label for="newCategoryName">Name</label>
+            <input
+                type="text"
+                id="newCategoryName"
+                name="name"
+                maxlength="255"
+                placeholder="e.g. Rock"
+                required="required"
+                autocomplete="off"
+            />
+        </div>
+        <br />
+        <div class="htmx-result"></div>
+        <input
+            type="submit"
+            value="Add"
+        />
+    </form>
+</dialog>
+{{end}}

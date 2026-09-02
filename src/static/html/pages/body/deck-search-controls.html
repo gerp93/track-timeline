@@ -1,0 +1,17 @@
+{{define "card-search-controls"}}
+<span>
+    <label for="search">Search</label>
+    <input
+        type="text"
+        id="search"
+        name="search"
+        maxlength="255"
+        placeholder="Title or Artist"
+        value="{{.Search}}"
+        autocomplete="off"
+    />
+</span>
+<button type="submit">
+    <span class="bi bi-search"></span>
+</button>
+{{end}}

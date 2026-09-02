@@ -1,0 +1,210 @@
+:root {
+    --top-bar-height: 20px;
+    --top-bar-padding: 15px;
+    --content-margin: 20px;
+}
+
+html,
+body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    height: 100%;
+}
+
+img {
+    max-width: 100%;
+}
+
+iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+
+.iframe-container {
+    resize: both;
+    overflow: auto;
+    min-width: 192px;
+    min-height: 108px;
+    max-width: 100%;
+    max-height: 100%;
+    width: min(384px, 100%);
+    height: min(216px, 100%);
+    border: 2px solid;
+}
+
+table {
+    border-collapse: collapse;
+    display: block;
+    overflow: auto;
+}
+
+th,
+td {
+    padding: 5px;
+}
+
+tbody tr {
+    transition: background-color 0.2s ease;
+}
+
+dialog {
+    max-width: 80vw;
+    max-height: 80vh;
+    overflow: auto;
+    border-radius: 4px;
+}
+
+dialog::backdrop {
+    background-color: black;
+    opacity: 0.8;
+}
+
+div.form-input {
+    display: grid;
+    grid-template-columns: max-content max-content;
+    grid-gap: 5px;
+}
+
+div.form-input label {
+    text-align: right;
+    padding: 5px;
+    margin: 5px;
+}
+
+div.form-input label:after {
+    content: ":";
+}
+
+input {
+    padding: 5px;
+    margin: 5px;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+input[type="checkbox"] {
+    cursor: pointer;
+}
+
+input[type="submit"] {
+    cursor: pointer;
+}
+
+textarea {
+    padding: 5px;
+    margin: 5px;
+    max-width: 70vw;
+    border-radius: 4px;
+}
+
+select {
+    padding: 5px;
+    margin: 5px;
+    cursor: pointer;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+button {
+    padding: 5px;
+    margin: 5px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+summary {
+    cursor: pointer;
+}
+
+/* Wrapper for making a button or menu row a real link without the anchor's
+   own styling showing through (see CLAUDE.md — navigation is always <a href>). */
+a.no-style {
+    text-decoration: none;
+    color: inherit;
+}
+
+.clickable {
+    cursor: pointer;
+}
+
+.non-clickable {
+    cursor: not-allowed;
+}
+
+.disabled {
+    opacity: 0.5;
+}
+
+.strike {
+    text-decoration: line-through;
+}
+
+.wrap-new-lines {
+    white-space: pre-wrap;
+}
+
+.close-button {
+    cursor: pointer;
+    float: right;
+}
+
+.danger-zone {
+    margin-top: 30px;
+    border: 2px solid;
+    border-radius: 8px;
+    padding: 15px;
+}
+
+.danger-zone-summary {
+    font-weight: bold;
+    font-size: 16px;
+}
+
+#top-bar {
+    height: var(--top-bar-height);
+    padding: var(--top-bar-padding);
+    display: grid;
+    grid-auto-flow: column;
+    overflow: hidden;
+}
+
+#top-bar-menu {
+    text-align: right;
+    position: absolute;
+    right: 0;
+    min-width: 50px;
+    z-index: 10;
+
+    /* will toggle to block */
+    display: none;
+}
+
+#top-bar-menu div:first-child {
+    border-top: 2px dashed black;
+}
+
+#top-bar-menu div {
+    border-bottom: 2px solid black;
+    border-left: 2px solid black;
+    padding: 10px;
+}
+
+#top-bar-menu .top-bar-menu-link {
+    cursor: pointer;
+}
+
+#content {
+    margin: var(--content-margin);
+    height: calc(100% - (2 * var(--content-margin)) - (2 * var(--top-bar-padding)) - var(--top-bar-height));
+}
+
+#body {
+    max-width: 1920px;
+    margin: auto;
+    height: 100%;
+}
+
+.bottom-padding {
+    padding-bottom: var(--content-margin);
+}

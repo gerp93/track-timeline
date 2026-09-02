@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Build
+        working-directory: ./src
+        run: go build -o track-timeline
+      - uses: actions/upload-artifact@v4
+        with:
+          name: track-timeline
+          path: ./src/track-timeline
+
+  release:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: track-timeline
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: track-timeline
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

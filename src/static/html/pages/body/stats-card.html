@@ -1,0 +1,18 @@
+{{define "body"}}
+<h2>{{.Stats.Title}}</h2>
+<h4>{{.Stats.Artist}}{{if .Stats.ReleaseYear}} &mdash; {{.Stats.ReleaseYear}}{{end}}</h4>
+<table>
+    <tbody>
+        <tr>
+            <th>Placement Accuracy</th>
+            <td>
+                {{if gt .Stats.Attempts 0}}
+                {{.Stats.CorrectPlaces}} / {{.Stats.Attempts}}
+                {{else}}
+                <em>never attempted</em>
+                {{end}}
+            </td>
+        </tr>
+    </tbody>
+</table>
+{{end}}

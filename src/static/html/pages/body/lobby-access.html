@@ -1,0 +1,25 @@
+{{define "body"}}
+<div id="lobby-access">
+    <h3>{{.Lobby.Name}}</h3>
+    <p>This lobby is password protected.</p>
+    <form hx-post="/api/access/lobby/{{.Lobby.Id}}" hx-target="find .htmx-result">
+        <div class="form-input">
+            <label for="lobbyPassword">Password</label>
+            <input
+                type="password"
+                id="lobbyPassword"
+                name="password"
+                maxlength="255"
+                placeholder="Enter Password"
+                required="required"
+                autocomplete="off"
+            />
+        </div>
+        <br />
+        <div class="htmx-result"></div>
+        <input type="submit" value="Join" />
+    </form>
+    <br />
+    <a href="/track-timeline/lobbies"><button class="btn-small">Back to Lobbies</button></a>
+</div>
+{{end}}

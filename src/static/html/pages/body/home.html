@@ -1,0 +1,17 @@
+{{define "body"}}
+<div id="home">
+    <h1>Track Timeline</h1>
+    <h4>Hear a song. Place it in history.</h4>
+
+    <div class="home-links">
+        {{if .LoggedIn}}
+        <a href="/track-timeline/lobbies"><button>Play</button></a>
+        <a href="/decks"><button>Song Decks</button></a>
+        <a href="/stats"><button>Stats</button></a>
+        {{else}}
+        <a href="/login"><button>Login to Play</button></a>
+        {{end}}
+        <a href="/about"><button class="btn-small">How to Play</button></a>
+    </div>
+</div>
+{{end}}

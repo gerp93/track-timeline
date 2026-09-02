@@ -1,0 +1,86 @@
+{{if .CardId}}
+<div class="current-card {{if .Revealed}}is-revealed{{end}}">
+    {{if .Revealed}}
+    <div class="song-reveal">
+        <div class="song-year">{{.Answer.ReleaseYear}}</div>
+        <div class="song-artist">{{.Answer.Artist}}</div>
+        <div class="song-title">{{.Answer.Title}}</div>
+    </div>
+    {{else}}
+    <div class="song-hidden">
+        <div class="song-mystery"><span class="bi bi-music-note-beamed"></span></div>
+        <div class="song-hint">
+            {{if .CategoryName.Valid}}<span class="chip">{{.CategoryName.String}}</span>{{end}}
+            {{if .DeckName}}<span class="chip chip-muted">{{.DeckName}}</span>{{end}}
+        </div>
+    </div>
+    {{end}}
+
+    {{if and (eq .GameStatus "active") (ne .RoundPhase "reveal")}}
+    <div class="song-controls">
+        {{if .IsCurrentPlayer}}
+        <button
+            class="btn-small"
+            hx-post="/api/track-timeline/{{.LobbyId}}/play-song"
+            hx-swap="none"
+            title="Play the song for everyone"
+        >
+            <span class="bi bi-play-fill"></span> Play
+        </button>
+        {{if eq .RoundPhase "listening"}}
+        <button
+            class="btn-small"
+            hx-post="/api/track-timeline/{{.LobbyId}}/skip-card"
+            hx-swap="none"
+            hx-confirm="Skip this song and draw another? Use this when the video will not play."
+            title="The video is dead or blocked"
+        >
+            <span class="bi bi-skip-forward"></span> Skip
+        </button>
+        {{end}}
+        {{end}}
+
+        {{if eq .RoundPhase "challenge"}}
+        <button
+            class="btn-small"
+            hx-post="/api/track-timeline/{{.LobbyId}}/close-challenge"
+            hx-swap="none"
+            title="Stop waiting and reveal the answer"
+        >
+            <span class="bi bi-eye"></span> Reveal Now
+        </button>
+        {{end}}
+    </div>
+
+    {{if not .HasGuessed}}
+    <form
+        class="guess-form"
+        hx-post="/api/track-timeline/{{.LobbyId}}/guess"
+        hx-target="find .htmx-result"
+    >
+        <input
+            type="text"
+            name="guess"
+            maxlength="500"
+            placeholder="Name the artist and title for a token"
+            autocomplete="off"
+        />
+        <button type="submit" class="btn-small">
+            <span class="bi bi-lightbulb"></span> Guess
+        </button>
+        <div class="htmx-result"></div>
+    </form>
+    {{else}}
+    <div class="guess-spent">You have already guessed this song.</div>
+    {{end}}
+    {{end}}
+</div>
+{{else}}
+<div class="current-card is-empty">
+    {{if eq .GameStatus "waiting"}}
+    Waiting for the game to start.
+    {{else}}
+    No songs left in the draw pile.
+    {{end}}
+</div>
+{{end}}

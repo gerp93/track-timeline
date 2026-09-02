@@ -1,0 +1,161 @@
+{{define "body"}}
+<link rel="stylesheet" href="/gs/css/chat.css" />
+<link rel="stylesheet" href="/gs/css/timer.css" />
+<link rel="stylesheet" href="/static/css/track-timeline.css" />
+<script src="/gs/js/chat.js"></script>
+<script src="/gs/js/timer.js"></script>
+<script src="/static/js/track-timeline.js"></script>
+
+<div id="tt-header">
+    <div class="tt-header-title">
+        <h2>{{.Lobby.Name}}</h2>
+        <span
+            title="Edit lobby message"
+            class="bi bi-pencil clickable"
+            onclick="document.getElementById('lobby-message-dialog').showModal()"
+        ></span>
+        <span
+            title="Turn timer"
+            class="bi bi-stopwatch clickable"
+            onclick="document.getElementById('turn-timer-dialog').showModal()"
+        ></span>
+    </div>
+
+    <div class="tt-header-stats">
+        <span>First to <strong>{{.Game.CardsToWin}}</strong></span>
+        <span>Songs left: <strong id="tt-draw-pile-count">{{.DrawPileCount}}</strong></span>
+        <span class="tt-deck-tooltip">
+            Decks
+            <span id="tt-deck-info" class="tt-tooltip-body"></span>
+        </span>
+        <span id="tt-turn-timer-stat" {{if eq .TurnTimerSeconds 0}}style="display: none"{{end}}>
+            Timer: <span id="tt-turn-timer"></span>
+        </span>
+    </div>
+
+    {{if .YearRanges}}
+    <div class="tt-era-chips">
+        {{range .YearRanges}}
+        <span class="chip">{{.FromYear}}&ndash;{{.ToYear}}</span>
+        {{end}}
+    </div>
+    {{end}}
+
+    <div id="tt-lobby-message" {{if not .Lobby.Message.Valid}}style="display: none"{{end}}>{{if .Lobby.Message.Valid}}{{.Lobby.Message.String}}{{end}}</div>
+</div>
+
+<!--
+    The player is deliberately parked off-screen. It has to exist and have real
+    dimensions for YouTube to play it, but showing it would put the song's title
+    and thumbnail on screen, which is the one thing this game is trying to keep
+    quiet until the reveal.
+-->
+<div id="tt-youtube-holder" aria-hidden="true">
+    <div id="tt-youtube-player"></div>
+</div>
+
+<button id="tt-audio-unlock" onclick="ttUnlockAudio()" style="display: none">
+    <span class="bi bi-volume-up"></span> Tap to enable sound
+</button>
+
+<div id="tt-current-card" hx-get="/api/track-timeline/{{.Lobby.Id}}/current-card" hx-trigger="load"></div>
+
+<div id="tt-board" hx-get="/api/track-timeline/{{.Lobby.Id}}/timeline" hx-trigger="load"></div>
+
+<div id="tt-controls">
+    {{if eq .Game.GameStatus "waiting"}}
+    <button hx-post="/api/track-timeline/{{.Lobby.Id}}/start" hx-swap="none">
+        <span class="bi bi-play-circle"></span> Start Game
+    </button>
+    <p class="hint">Everyone who is going to play should join before you start.</p>
+    {{else if eq .Game.GameStatus "finished"}}
+    <h3>{{.WinnerName}} wins!</h3>
+    <button hx-post="/api/track-timeline/{{.Lobby.Id}}/reset" hx-swap="none">
+        <span class="bi bi-arrow-repeat"></span> Play Again
+    </button>
+    {{end}}
+</div>
+
+<!--
+    Outside #tt-controls on purpose: that block is swapped wholesale when the
+    game changes state, and the status line has to survive the swap.
+-->
+<div id="tt-message"></div>
+
+<div id="tt-players" hx-get="/api/track-timeline/{{.Lobby.Id}}/players" hx-trigger="load"></div>
+
+<div id="tt-chat">
+    <div id="chat-messages" class="gs-chat-messages"></div>
+    <form id="chat-form">
+        <input
+            type="text"
+            id="chat-input"
+            maxlength="500"
+            placeholder="Say something"
+            autocomplete="off"
+        />
+        <button type="submit" class="btn-small">Send</button>
+    </form>
+</div>
+
+<dialog id="lobby-message-dialog">
+    <div style="display: grid; grid-auto-flow: column">
+        <div><h3>Lobby Message</h3></div>
+        <div>
+            <span
+                class="bi bi-x-lg close-button"
+                onclick="document.getElementById('lobby-message-dialog').close()"
+            ></span>
+        </div>
+    </div>
+    <form hx-put="/api/track-timeline/{{.Lobby.Id}}/message" hx-target="find .htmx-result">
+        <div class="form-input">
+            <label for="lobbyMessage">Message</label>
+            <textarea
+                id="lobbyMessage"
+                name="message"
+                maxlength="500"
+                cols="40"
+                rows="4"
+                autocomplete="off"
+            >{{if .Lobby.Message.Valid}}{{.Lobby.Message.String}}{{end}}</textarea>
+        </div>
+        <br />
+        <div class="htmx-result"></div>
+        <input type="submit" value="Save" />
+    </form>
+</dialog>
+
+<dialog id="turn-timer-dialog">
+    <div style="display: grid; grid-auto-flow: column">
+        <div><h3>Turn Timer</h3></div>
+        <div>
+            <span
+                class="bi bi-x-lg close-button"
+                onclick="document.getElementById('turn-timer-dialog').close()"
+            ></span>
+        </div>
+    </div>
+    <form hx-put="/api/lobby/{{.Lobby.Id}}/turn-timer" hx-target="find .htmx-result">
+        <div class="form-input">
+            <label for="turnTimerSeconds">Seconds (0 for no timer)</label>
+            <input
+                type="number"
+                id="turnTimerSeconds"
+                name="seconds"
+                min="0"
+                max="300"
+                value="{{.TurnTimerSeconds}}"
+                autocomplete="off"
+            />
+        </div>
+        <br />
+        <div class="htmx-result"></div>
+        <input type="submit" value="Set Timer" />
+    </form>
+</dialog>
+
+<script>
+    initTrackTimeline("{{.Lobby.Id}}", {{.TurnTimerSeconds}});
+</script>
+{{end}}

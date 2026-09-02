@@ -1,0 +1,28 @@
+{{define "body"}}
+<h2>Hardest Songs</h2>
+<p class="hint">Songs attempted at least 3 times, sorted by lowest placement accuracy.</p>
+{{if eq (len .Rows) 0}}
+<p>Not enough games played yet to have a ranking.</p>
+{{else}}
+<table>
+    <thead>
+        <tr>
+            <th>Song</th>
+            <th>Artist</th>
+            <th>Year</th>
+            <th>Accuracy</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Rows}}
+        <tr>
+            <td><a href="/stats/card/{{.CardId}}">{{.Title}}</a></td>
+            <td>{{.Artist}}</td>
+            <td>{{.ReleaseYear}}</td>
+            <td>{{.CorrectPlaces}} / {{.Attempts}}</td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{end}}
+{{end}}
