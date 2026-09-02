@@ -1,0 +1,14 @@
+-- The materialized draw pile for one game, built once at lobby creation from
+-- the selected decks and filters. RELEASE_YEAR is snapshotted so an edit to the
+-- card mid-game cannot change the answer to a card already in play.
+CREATE TABLE IF NOT EXISTS TRACK_TIMELINE_DRAW_PILE(
+    ID UUID NOT NULL DEFAULT UUID(),
+    TRACK_TIMELINE_GAME_ID UUID NOT NULL,
+    CARD_ID UUID NOT NULL,
+    RELEASE_YEAR INT NOT NULL,
+    DRAWN BOOLEAN NOT NULL DEFAULT 0,
+    PRIMARY KEY(ID),
+    FOREIGN KEY(TRACK_TIMELINE_GAME_ID) REFERENCES TRACK_TIMELINE_GAME(ID) ON DELETE CASCADE,
+    FOREIGN KEY(CARD_ID) REFERENCES CARD(ID) ON DELETE CASCADE,
+    CONSTRAINT GAME_CARD_UNIQUE UNIQUE(TRACK_TIMELINE_GAME_ID, CARD_ID)
+);
