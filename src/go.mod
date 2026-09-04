@@ -4,12 +4,10 @@ go 1.24
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.69.0
-	github.com/gerp93/gameshell-framework v0.19.0
+	github.com/gerp93/gameshell-framework v0.20.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 )
-
-replace github.com/gerp93/gameshell-framework => ../../gameshell-framework
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
