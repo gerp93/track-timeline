@@ -22,54 +22,68 @@ type Normalized struct{}
 // one. 0.8 accepts "herose" for "heroes" while rejecting "hero" for "heroes".
 const tokenMatchThreshold = 0.8
 
-// coverageThreshold is the fraction of the authored words that must appear in
-// the guess. Below 1.0 so "Sgt Pepper" can match "Sgt. Pepper's Lonely Hearts
-// Club Band" without the player typing all six words.
-const coverageThreshold = 0.6
-
 // distinctiveTokenLength is how long a word must be before matching it alone
 // identifies an artist. Four letters keeps "Bowie" and "Cash" while rejecting
 // "Boy", "Sun" and similar filler.
 const distinctiveTokenLength = 4
 
 func (Normalized) Judge(_ context.Context, in Input) (Verdict, error) {
-	guessTokens := tokenize(in.Guess)
-	if len(guessTokens) == 0 {
+	titleHave := tokenize(in.TitleGuess)
+	artistHave := tokenize(in.ArtistGuess)
+	if len(titleHave) == 0 && len(artistHave) == 0 {
+		combined := tokenize(in.Guess)
+		titleHave = combined
+		artistHave = combined
+	}
+
+	if len(titleHave) == 0 && len(artistHave) == 0 {
 		return Verdict{}, nil
 	}
 
+	titleCorrect, titlePercent := covered(tokenize(in.Title), titleHave, false, in.MinMatchPercent)
+	artistCorrect, artistPercent := covered(tokenize(in.Artist), artistHave, true, in.MinMatchPercent)
+
 	return Verdict{
-		TitleCorrect:  covered(tokenize(in.Title), guessTokens, false),
-		ArtistCorrect: covered(tokenize(in.Artist), guessTokens, true),
+		TitleCorrect:       titleCorrect,
+		ArtistCorrect:      artistCorrect,
+		TitleMatchPercent:  titlePercent,
+		ArtistMatchPercent: artistPercent,
 	}, nil
 }
 
-// covered reports whether enough of want's words appear among have's.
+// covered reports whether enough of want's words appear among have's, plus how
+// much (0-100) for display.
 //
-// surnameCounts relaxes this for artists: people say "Bowie", not "David
-// Bowie", and the last word of a performer's name is almost always the
+// surnameCounts relaxes the boolean for artists: people say "Bowie", not
+// "David Bowie", and the last word of a performer's name is almost always the
 // identifying one (Bowie, Beatles, Björk, Peppers). Matching it alone is
 // therefore enough, provided it is a distinctive word rather than something
 // like "The" or "Boy". Titles get no such shortcut — the last word of a title
 // carries no special weight, and "Together" should not stand in for "Come
-// Together".
-func covered(want []string, have []string, surnameCounts bool) bool {
+// Together". The surname shortcut counts as a full artist match (100%),
+// because the last name is treated as identifying the performer.
+func covered(want []string, have []string, surnameCounts bool, minMatchPercent int) (bool, float64) {
 	if len(want) == 0 {
-		return false
+		return false, 0
+	}
+	if minMatchPercent == 0 {
+		minMatchPercent = 60
 	}
 
-	matched := 0
-	for _, wantToken := range want {
-		for _, haveToken := range have {
-			if similar(wantToken, haveToken) {
-				matched++
-				break
-			}
-		}
+	matchedWords, similaritySum := orderedCoverage(want, have)
+	percent := 100 * similaritySum / float64(len(want))
+	if percent > 100 {
+		percent = 100
 	}
 
-	if float64(matched)/float64(len(want)) >= coverageThreshold {
-		return true
+	allPresent := unorderedAllPresent(want, have)
+	inOrder := matchedWords == len(want)
+	if allPresent && !inOrder {
+		return false, percent
+	}
+
+	if meetsMatchBar(100*float64(matchedWords)/float64(len(want)), minMatchPercent) {
+		return true, percent
 	}
 
 	if surnameCounts {
@@ -77,24 +91,95 @@ func covered(want []string, have []string, surnameCounts bool) bool {
 		if len(last) >= distinctiveTokenLength {
 			for _, haveToken := range have {
 				if similar(last, haveToken) {
-					return true
+					return true, 100
 				}
 			}
 		}
 	}
 
-	return false
+	return false, percent
+}
+
+// orderedCoverage walks authored words left to right and consumes a matching
+// guess word at or after the previous hit, so "take me on" does not fully
+// cover "take on me".
+func orderedCoverage(want []string, have []string) (int, float64) {
+	matched := 0
+	simSum := 0.0
+	start := 0
+	for _, wantToken := range want {
+		consumed, best := matchWantFrom(have, start, wantToken)
+		if consumed > 0 {
+			matched++
+			simSum += best
+			start += consumed
+		}
+	}
+	return matched, simSum
+}
+
+// matchWantFrom finds wantToken in have[start:], either as one word or as
+// consecutive guess words stuck together ("fire"+"work" = "firework").
+func matchWantFrom(have []string, start int, wantToken string) (consumed int, best float64) {
+	for i := start; i < len(have); i++ {
+		concat := ""
+		for j := i; j < len(have); j++ {
+			concat += have[j]
+			s := tokenSimilarity(wantToken, concat)
+			if s >= tokenMatchThreshold && s > best {
+				best = s
+				consumed = j - start + 1
+				if s == 1 {
+					return consumed, best
+				}
+			}
+			if len(concat) > len(wantToken)+2 {
+				break
+			}
+		}
+		if consumed > 0 {
+			return consumed, best
+		}
+	}
+	return 0, 0
+}
+
+func unorderedAllPresent(want []string, have []string) bool {
+	used := make([]bool, len(have))
+	for _, wantToken := range want {
+		hit := false
+		for i, haveToken := range have {
+			if used[i] {
+				continue
+			}
+			if similar(wantToken, haveToken) {
+				used[i] = true
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return false
+		}
+	}
+	return true
 }
 
 // similar reports whether two words are close enough to be the same word.
 func similar(a, b string) bool {
+	return tokenSimilarity(a, b) >= tokenMatchThreshold
+}
+
+// tokenSimilarity is 1 for an exact match, then 1 minus edit-distance over
+// the longer word. Short words (3 letters or fewer) are all-or-nothing so
+// "in"/"it"/"is" do not collapse together. Used for the displayed match
+// percent so a typo that still clears the boolean bar does not report 100%.
+func tokenSimilarity(a, b string) float64 {
 	if a == b {
-		return true
+		return 1
 	}
-	// Very short words are matched exactly: at two or three letters, one edit
-	// is most of the word, and "in"/"it"/"is" would all collapse together.
 	if len(a) <= 3 || len(b) <= 3 {
-		return false
+		return 0
 	}
 
 	distance := editDistance(a, b)
@@ -102,7 +187,14 @@ func similar(a, b string) bool {
 	if len(b) > longest {
 		longest = len(b)
 	}
-	return 1.0-float64(distance)/float64(longest) >= tokenMatchThreshold
+	if longest == 0 {
+		return 1
+	}
+	s := 1.0 - float64(distance)/float64(longest)
+	if s < 0 {
+		return 0
+	}
+	return s
 }
 
 // tokenize normalizes a string into comparable words: accents folded, bracketed
@@ -119,9 +211,12 @@ func tokenize(s string) []string {
 		switch {
 		case unicode.IsLetter(r) || unicode.IsDigit(r):
 			builder.WriteRune(r)
+		case r == '-':
+			// Hyphens join: "a-ha" and "aha" are the same artist. Turning
+			// them into spaces left "a" (noise) + "ha", so "aha" scored 0.
 		default:
-			// Everything else, including apostrophes and hyphens, becomes a
-			// separator: "rock'n'roll" and "rock n roll" should tokenize alike.
+			// Apostrophes and other punctuation become separators so
+			// "rock'n'roll" and "rock n roll" tokenize alike.
 			builder.WriteRune(' ')
 		}
 	}
@@ -150,7 +245,7 @@ func tokenize(s string) []string {
 // knows the song. "by" matters especially: players type "Heroes by Bowie".
 var noiseWords = map[string]bool{
 	"a": true, "an": true, "and": true, "by": true, "for": true,
-	"in": true, "of": true, "on": true, "or": true, "to": true,
+	"in": true, "of": true, "or": true, "to": true,
 }
 
 func isNoiseWord(s string) bool {

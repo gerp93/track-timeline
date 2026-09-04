@@ -36,14 +36,9 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		tokens = 0
 	}
 
-	hasPlaced := false
-	if placements, err := database.GetPlacements(ctx.Game.Id); err == nil {
-		for _, placement := range placements {
-			if placement.PlayerId == ctx.Player.Id {
-				hasPlaced = true
-				break
-			}
-		}
+	hasPlaced, err := database.HasPlaced(ctx.Game.Id, ctx.Player.Id)
+	if err != nil {
+		hasPlaced = false
 	}
 
 	isCurrentPlayer := ctx.Game.CurrentPlayerId.Valid && ctx.Game.CurrentPlayerId.UUID == ctx.Player.Id
@@ -61,14 +56,20 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Only the reveal fragment is given the answer, and only once the phase
-	// says so.
+	// says so. A finished game keeps the vinyl but swaps the answer for a
+	// YOU WON/LOST banner, so the answer must not ride along in that HTML.
 	var answer database.CurrentCardAnswer
-	revealed := ctx.Game.RoundPhase == database.PhaseReveal
+	revealed := ctx.Game.RoundPhase == database.PhaseReveal &&
+		ctx.Game.GameStatus != database.StatusFinished
 	if revealed {
 		if fetched, err := database.GetCurrentCardAnswer(ctx.Game.Id); err == nil {
 			answer = fetched
 		}
 	}
+
+	isWinner := ctx.Game.GameStatus == database.StatusFinished &&
+		ctx.Game.WinnerId.Valid &&
+		ctx.Game.WinnerId.UUID == ctx.UserId
 
 	type data struct {
 		database.CurrentCard
@@ -78,9 +79,12 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		GameStatus      string
 		RoundPhase      string
 		IsCurrentPlayer bool
+		IsWinner        bool
 		HasPlaced       bool
 		HasGuessed      bool
+		ReplayUsed      bool
 		TokenCount      int
+		GuessMode       string
 	}
 
 	_ = tmpl.Execute(w, data{
@@ -91,9 +95,12 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		GameStatus:      ctx.Game.GameStatus,
 		RoundPhase:      ctx.Game.RoundPhase,
 		IsCurrentPlayer: isCurrentPlayer,
+		IsWinner:        isWinner,
 		HasPlaced:       hasPlaced,
 		HasGuessed:      hasGuessed,
+		ReplayUsed:      ctx.Game.ReplayUsed,
 		TokenCount:      tokens,
+		GuessMode:       ctx.Game.GuessMode,
 	})
 }
 
@@ -110,8 +117,8 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Rival placement positions stay hidden until the reveal: seeing where
-	// someone else guessed before choosing your own would make a challenge a
-	// copy rather than a judgement.
+	// someone else guessed before choosing your own (or before your own
+	// steal turn) would make it a copy rather than a judgement.
 	revealPositions := ctx.Game.RoundPhase == database.PhaseReveal
 
 	timelines, err := database.GetAllPlayerTimelines(ctx.Game.Id, currentPlayerId, ctx.Player.Id, revealPositions)
@@ -126,25 +133,24 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 		tokens = 0
 	}
 
-	hasPlaced := false
-	if placements, err := database.GetPlacements(ctx.Game.Id); err == nil {
-		for _, placement := range placements {
-			if placement.PlayerId == ctx.Player.Id {
-				hasPlaced = true
-				break
-			}
-		}
+	hasPlaced, err := database.HasPlaced(ctx.Game.Id, ctx.Player.Id)
+	if err != nil {
+		hasPlaced = false
 	}
 
 	isCurrentPlayer := ctx.Game.CurrentPlayerId.Valid && ctx.Game.CurrentPlayerId.UUID == ctx.Player.Id
 
-	// A player may place when it is their turn during listening, or challenge
-	// during the window if they hold a token and have not already acted.
+	// A player may place when it is their turn during listening, or attempt a
+	// steal when they are specifically the one who claimed the sole steal
+	// attempt this round.
 	canPlace := isCurrentPlayer && ctx.Game.RoundPhase == database.PhaseListening && !hasPlaced
-	canChallenge := !isCurrentPlayer && ctx.Game.RoundPhase == database.PhaseChallenge && !hasPlaced && tokens > 0
+	canSteal := ctx.Game.RoundPhase == database.PhaseStealTurn &&
+		ctx.Game.StealerPlayerId.Valid &&
+		ctx.Game.StealerPlayerId.UUID == ctx.Player.Id
 
 	tmpl, err := template.New("timeline.html").Funcs(template.FuncMap{
 		"add": func(a, b int) int { return a + b },
+		"sub": func(a, b int) int { return a - b },
 	}).ParseFS(static.StaticFiles, "html/components/tracktimeline/timeline.html")
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -153,53 +159,26 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type data struct {
-		Timelines    []database.PlayerTimeline
-		LobbyId      uuid.UUID
-		GameStatus   string
-		RoundPhase   string
-		CanPlace     bool
-		CanChallenge bool
-		TokenCount   int
+		Timelines   []database.PlayerTimeline
+		LobbyId     uuid.UUID
+		GameStatus  string
+		RoundPhase  string
+		CanPlace    bool
+		CanSteal    bool
+		TokenCount  int
+		CardsToWin  int
 	}
 
 	_ = tmpl.Execute(w, data{
-		Timelines:    timelines,
-		LobbyId:      ctx.LobbyId,
-		GameStatus:   ctx.Game.GameStatus,
-		RoundPhase:   ctx.Game.RoundPhase,
-		CanPlace:     canPlace,
-		CanChallenge: canChallenge,
-		TokenCount:   tokens,
+		Timelines:  timelines,
+		LobbyId:    ctx.LobbyId,
+		GameStatus: ctx.Game.GameStatus,
+		RoundPhase: ctx.Game.RoundPhase,
+		CanPlace:   canPlace,
+		CanSteal:   canSteal,
+		TokenCount: tokens,
+		CardsToWin: ctx.Game.CardsToWin,
 	})
-}
-
-// GetPlayers renders the player list with timeline sizes and token counts.
-func GetPlayers(w http.ResponseWriter, r *http.Request) {
-	ctx, ok := loadContext(w, r)
-	if !ok {
-		return
-	}
-
-	players, err := database.GetPlayers(ctx.Game.Id)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to get players."))
-		return
-	}
-
-	tmpl, err := template.ParseFS(static.StaticFiles, "html/components/tracktimeline/players.html")
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to parse template."))
-		return
-	}
-
-	type data struct {
-		Players    []database.Player
-		CardsToWin int
-	}
-
-	_ = tmpl.Execute(w, data{Players: players, CardsToWin: ctx.Game.CardsToWin})
 }
 
 // GetDrawPileCount returns the bare number of songs left.

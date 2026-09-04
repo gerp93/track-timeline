@@ -1,0 +1,15 @@
+-- Append-only log of Claude API genre assignments from the Library Ungenred
+-- tab. No foreign keys: the report should still list title/artist/genre after
+-- a card is deleted.
+CREATE TABLE IF NOT EXISTS TRACK_TIMELINE_LOG_GENRE_ASSIGN(
+    ID UUID NOT NULL DEFAULT UUID(),
+    CREATED_ON_DATE DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    CARD_ID UUID NOT NULL,
+    TITLE VARCHAR(255) NOT NULL,
+    ARTIST VARCHAR(255) NOT NULL,
+    DECK_NAME VARCHAR(255) NOT NULL,
+    GENRE_NAME VARCHAR(255) NOT NULL DEFAULT '',
+    SUCCESS BOOLEAN NOT NULL,
+    ERROR_TEXT VARCHAR(512) NOT NULL DEFAULT '',
+    PRIMARY KEY(ID)
+);

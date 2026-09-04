@@ -1,27 +1,69 @@
 /* Track Timeline lobby styles. Colours come from the framework's theme
    variables (/gs/css/colors.css) so every theme keeps working. */
 
-#tt-header {
-    margin-bottom: 1rem;
+/* The lobby name/stats header and the current-card fragment together form one
+   "turntable deck" panel — a single bordered frame around both, styled a
+   shade lighter than the page background (--color-bg-hover) so it reads as
+   a raised deck sitting on the page, in every theme. */
+.turntable-card {
+    position: relative;
+    margin: 1rem 0;
+    padding: 1.1rem 1.25rem 2.75rem;
+    border: 1px solid currentColor;
+    border-radius: 12px;
+    background: var(--color-bg-hover);
 }
 
-.tt-header-title {
+.header-bar {
+    padding-bottom: 0.85rem;
+    margin-bottom: 0.85rem;
+    border-bottom: 1px solid currentColor;
+}
+
+.header-bar-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.title-group {
     display: flex;
     align-items: center;
     gap: 0.5rem;
 }
 
-.tt-header-title h2 {
+.title-group h2 {
     margin: 0;
+    font-size: 1.3rem;
 }
 
-.tt-header-stats {
+.icon-btn {
+    opacity: 0.75;
+}
+
+.icon-btn:hover {
+    opacity: 1;
+}
+
+.stats-badges {
     display: flex;
     flex-wrap: wrap;
-    gap: 1rem;
-    margin-top: 0.25rem;
-    font-size: 0.9rem;
-    opacity: 0.85;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+}
+
+.badge {
+    background: var(--color-bg);
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    padding: 0.25rem 0.6rem;
+    opacity: 0.9;
+}
+
+.badge strong {
+    opacity: 1;
 }
 
 .tt-deck-tooltip {
@@ -34,13 +76,19 @@
     display: none;
     position: absolute;
     top: 1.4rem;
-    left: 0;
+    /* Opens leftward off the badge's right edge, not rightward off its left
+       edge: this badge sits at the right end of .stats-badges (which is
+       itself right-aligned via space-between), so a left-anchored popover
+       would run straight off the edge of the viewport. */
+    right: 0;
+    width: max-content;
+    max-width: min(14rem, calc(100vw - 2rem));
     z-index: 10;
-    min-width: 14rem;
     padding: 0.5rem;
     border: 1px solid currentColor;
     border-radius: 4px;
-    background: var(--background-color, #222);
+    background: var(--color-bg);
+    box-sizing: border-box;
 }
 
 .tt-deck-tooltip:hover .tt-tooltip-body {
@@ -99,58 +147,341 @@
 
 /* ------------------------------------------------------------ current card */
 
-.current-card {
-    margin: 1rem 0;
-    padding: 1rem;
-    border: 1px solid currentColor;
-    border-radius: 6px;
-    text-align: center;
-}
-
 .current-card.is-empty {
+    padding: 1.5rem 0;
+    text-align: center;
     opacity: 0.7;
 }
 
-.song-mystery {
-    font-size: 3rem;
-    opacity: 0.5;
+/* The turntable deck's own layout: a fixed-width platter on the left, the
+   controls (tags, transport buttons, guess fields) filling the rest. Stacks
+   to one column on narrow viewports. */
+#tt-current-card {
+    position: relative;
+    /* Keep body copy out of the absolute equalizer in the bottom-right. */
+    padding-right: 3.25rem;
+    padding-bottom: 2.5rem;
 }
 
-.song-hint {
-    margin-top: 0.5rem;
+.deck-stage {
+    display: grid;
+    grid-template-columns: minmax(8rem, 11rem) 1fr;
+    gap: 1.25rem;
+    align-items: start;
 }
 
-.song-reveal .song-year {
+@media (max-width: 32rem) {
+    .deck-stage {
+        grid-template-columns: 1fr;
+        justify-items: center;
+    }
+}
+
+.platter-container {
+    display: flex;
+    justify-content: center;
+    padding-top: 0.25rem;
+}
+
+/* A tonearm mounted on a pivot above the platter, hanging down over its
+   right portion — resting swung right, off the disc, until playback starts,
+   then swinging left onto the record — same is-active/is-spinning trigger
+   as the visualizer and the record itself (see syncPlaybackUI). One
+   rotating unit: the shaft is a bar anchored at its own top edge (the
+   pivot, transform-origin: 50% 0%), so the headshell nested at its bottom
+   end travels with it automatically instead of needing its own
+   separately-computed position. Anchored to .platter-ring (the disc's own
+   bounding box, see .platter-ring's position: relative) rather than
+   .platter-container: the container can be wider than the ring's own capped
+   max-width and centers it, so anchoring to the container left the pivot
+   floating in that slack space instead of mounted to the platter's actual
+   edge. */
+.tt-tonearm {
+    position: absolute;
+    /* Mounted low on the platter's right side, the way a real turntable's
+       pivot sits back beside the platter rather than above it. It stays
+       clear of the disc because a circle inscribed in a square box never
+       fills the box's corners: at this height the disc's right edge has
+       curved back inward well short of the ring box's own right edge, so
+       the pivot lands in that gap, off the record's face. */
+    top: 1.8rem;
+    right: -0.2rem;
+    width: 0.3rem;
+    /* Long enough to reach across the record when it swings in, without
+       overshooting the platter. */
+    height: 3.75rem;
+    transform-origin: 50% 0%;
+    /* Unrotated, the shaft points straight down (south) from the pivot. A
+       *negative* (counter-clockwise) rotation swings the free end from
+       south toward east (right), off the disc -- that's resting. Going
+       *positive* instead (clockwise, south toward west) is what brings it
+       left, over the disc's surface. */
+    transform: rotate(-12deg);
+    transition: transform 0.5s ease;
+    z-index: 2;
+}
+
+.tt-tonearm.is-active {
+    transform: rotate(25.5deg);
+}
+
+.tt-tonearm-shaft {
+    position: absolute;
+    inset: 0;
+    background: var(--color-text);
+    border-radius: 2px;
+}
+
+/* The pivot/mounting base, drawn at the shaft's anchored (top) end. */
+.tt-tonearm-shaft::after {
+    content: "";
+    position: absolute;
+    top: -0.35rem;
+    left: 50%;
+    width: 0.7rem;
+    height: 0.7rem;
+    background: var(--color-text);
+    border-radius: 50%;
+    transform: translateX(-50%);
+}
+
+.tt-tonearm-head {
+    position: absolute;
+    bottom: -0.55rem;
+    left: 50%;
+    width: 0.55rem;
+    height: 1rem;
+    background: var(--color-text);
+    border-radius: 2px;
+    transform: translateX(-50%) rotate(25deg);
+}
+
+.platter-ring {
+    position: relative;
+    width: 100%;
+    max-width: 9rem;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: var(--color-bg);
+    border: 1px solid currentColor;
+    box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem;
+    box-sizing: border-box;
+}
+
+/* A record that spins while the song is actually playing (see
+   track-timeline.js's syncRecordSpin, driven off the YouTube player's own
+   state). The grooves are a fixed near-black, like the vinyl and cassette
+   shells below — physical media stays physical-colored in every theme; only
+   the label and the ring around it pick up the active theme's colors. */
+.tt-record {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background:
+        repeating-radial-gradient(circle at center,
+            #161616 0, #161616 2px,
+            #2b2b2b 2px, #2b2b2b 4px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tt-record.is-spinning {
+    animation: tt-record-spin 2.2s linear infinite;
+}
+
+@keyframes tt-record-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.tt-record-label {
+    position: relative;
+    width: 42%;
+    height: 42%;
+    border-radius: 50%;
+    /* Not currentColor: this element also sets its own `color` for text
+       contrast, and currentColor always resolves against an element's own
+       computed color, not its parent's -- self-referencing here would make
+       the background match the (invisible) text instead of the theme's
+       accent. --color-text is the actual accent to pick up. */
+    background: var(--color-text);
+    color: var(--color-bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.15rem;
+}
+
+/* "TRACK" above the spindle hole, "TIMELINE" below it -- plain stacked text,
+   not curved: an SVG arc here repeatedly proved fragile (upside-down text,
+   cramped/overlapping letters) for what's a purely decorative label. */
+.tt-record-label-word {
+    font-weight: 800;
+    font-size: 0.5rem;
+    letter-spacing: 0.03rem;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+/* The spindle hole, showing through a label that's otherwise a solid disc —
+   real records have this cut out, not printed over. */
+.tt-record-label-hole {
+    width: 18%;
+    height: 18%;
+    border-radius: 50%;
+    background: var(--color-bg);
+}
+
+.controls-panel {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.genre-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.reveal-info {
+    text-align: left;
+}
+
+.reveal-info .song-year {
     font-size: 2.5rem;
     font-weight: bold;
+    line-height: 1.1;
 }
 
-.song-reveal .song-artist {
-    font-size: 1.2rem;
+.reveal-info .song-artist {
+    font-size: 1.1rem;
 }
 
-.song-reveal .song-title {
-    font-size: 1rem;
+.reveal-info .song-title {
+    font-size: 0.95rem;
     opacity: 0.85;
 }
 
-.song-controls {
-    margin-top: 0.75rem;
+.action-buttons {
     display: flex;
-    justify-content: center;
     gap: 0.5rem;
 }
 
-.guess-form {
-    margin-top: 0.75rem;
+.btn-primary {
+    flex: 2;
+    font-weight: bold;
+}
+
+.btn-secondary {
+    flex: 1;
+}
+
+.options-group {
     display: flex;
-    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.25rem;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    opacity: 0.85;
+    cursor: pointer;
+    max-width: 100%;
+    line-height: 1.35;
+    text-wrap: pretty;
+}
+
+.checkbox-label input {
+    margin-top: 0.15rem;
+    flex-shrink: 0;
+}
+
+.checkbox-label.is-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* A purely decorative equalizer in the turntable card's otherwise-empty
+   bottom-right corner, reacting to actual playback state via
+   syncPlaybackUI's .is-active toggle (same trigger as the spinning record).
+   Anchored to #tt-current-card (position: relative + reserved padding) so
+   body copy never runs underneath it. */
+.tt-visualizer {
+    position: absolute;
+    right: 0.35rem;
+    bottom: 0.35rem;
+    display: flex;
+    align-items: flex-end;
+    gap: 0.25rem;
+    height: 2rem;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.tt-visualizer span {
+    display: block;
+    width: 0.3rem;
+    height: 15%;
+    border-radius: 2px;
+    background: var(--color-text);
+    opacity: 0.5;
+    transition: height 0.15s ease;
+}
+
+.tt-visualizer.is-active span {
+    opacity: 1;
+    animation-name: tt-eq-bounce;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+}
+
+.tt-visualizer span:nth-child(1) { animation-duration: 0.8s; animation-delay: 0s; }
+.tt-visualizer span:nth-child(2) { animation-duration: 1.1s; animation-delay: 0.15s; }
+.tt-visualizer span:nth-child(3) { animation-duration: 0.7s; animation-delay: 0.3s; }
+.tt-visualizer span:nth-child(4) { animation-duration: 1s; animation-delay: 0.05s; }
+.tt-visualizer span:nth-child(5) { animation-duration: 0.9s; animation-delay: 0.2s; }
+
+@keyframes tt-eq-bounce {
+    0%, 100% { height: 15%; }
+    50% { height: 100%; }
+}
+
+.guess-form {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
 }
 
-.guess-form input[type="text"] {
-    min-width: 16rem;
+.guess-fields {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.guess-fields input[type="text"] {
+    min-width: 7rem;
+    flex: 1;
+}
+
+.guess-by {
+    opacity: 0.7;
 }
 
 .guess-spent {
@@ -159,77 +490,240 @@
     opacity: 0.7;
 }
 
+.guess-hint {
+    margin: 0.35rem 0 0;
+    font-size: 0.85rem;
+    opacity: 0.75;
+    flex-basis: 100%;
+}
+
+.guess-hint.field-error {
+    color: var(--color-danger, #c0392b);
+    opacity: 1;
+    margin-top: 0.2rem;
+}
+
 /* ------------------------------------------------------------------- board */
 
 .board-banner {
-    margin-bottom: 0.5rem;
+    margin: 0 0 0.2rem;
     font-weight: bold;
+    font-size: 0.85rem;
+    line-height: 1.2;
 }
 
-.player-row {
-    margin-bottom: 0.75rem;
-    padding: 0.5rem;
-    border: 1px solid transparent;
-    border-radius: 6px;
-}
-
-.player-row.is-current {
-    border-color: currentColor;
-}
-
-.player-row.is-me .player-name {
-    font-weight: bold;
-}
-
-.player-row-header {
+.timeline-section {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
+    flex-direction: column;
+    gap: 0;
+}
+
+/* One horizontal strip per player: name | cassettes… | count — no stacked
+   header row, so four shelves fit without scrolling. */
+.player-card {
+    display: flex;
+    flex-direction: row;
     align-items: center;
-    font-size: 0.9rem;
+    gap: 0.4rem;
+    background: var(--color-bg-hover);
+    border: 1px solid transparent;
+    border-radius: 0;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    padding: 0.2rem 0.35rem;
+    min-height: 0;
+}
+
+.player-card:first-child {
+    border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+}
+
+.player-card.is-current {
+    border-color: currentColor;
+    border-radius: 4px;
+}
+
+.player-card.is-me .player-name {
+    font-weight: bold;
+}
+
+.player-name {
+    flex: 0 0 4.5rem;
+    max-width: 4.5rem;
+    font-size: 0.75rem;
+    line-height: 1.15;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tt-self-status {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.currency-badge {
+    background: var(--color-bg);
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    padding: 0.1rem 0.55rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.btn-buy {
+    background: transparent;
+    border: 1px solid currentColor;
+    color: currentColor;
+    border-radius: 6px;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-buy:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.tt-self-status .btn-buy.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
 }
 
 .player-placed {
     opacity: 0.8;
+    font-size: 0.7rem;
 }
 
-.timeline-strip {
-    display: flex;
-    align-items: stretch;
-    gap: 0.25rem;
-    margin-top: 0.5rem;
-    overflow-x: auto;
-    padding-bottom: 0.25rem;
-}
-
-.timeline-card {
+.song-count {
     flex: 0 0 auto;
-    min-width: 7rem;
-    max-width: 10rem;
-    padding: 0.4rem;
+    font-size: 0.7rem;
+    opacity: 0.75;
+    white-space: nowrap;
+}
+
+.song-count::after {
+    content: "";
+}
+
+.song-count::before {
+    content: "";
+}
+
+/* Numeric count only — saves width on the inline strip. */
+.player-card > .song-count {
+    min-width: 1.25rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.timeline-track {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    overflow-x: auto;
+    min-width: 0;
+    padding: 0;
+}
+
+/* An insertion point between two cassettes on the shelf. */
+.drop-zone {
+    flex: 0 0 auto;
+    width: 1.5rem;
+    height: 2.6rem;
+    border: 1px dashed currentColor;
+    border-radius: 4px;
+    opacity: 0.5;
+    font-size: 0.9rem;
+    cursor: pointer;
+    align-self: center;
+}
+
+.drop-zone:hover {
+    opacity: 1;
+}
+
+.drop-zone.is-disabled {
+    opacity: 0.2;
+    cursor: not-allowed;
+}
+
+/* A placed card renders as a little cassette tape — a fixed-color plastic
+   shell and reels (physical media stays physical-colored in every theme,
+   same reasoning as the vinyl platter above), with a paper sticker label
+   whose accent stripe and text pick up the active theme via currentColor. */
+.cassette-card {
+    position: relative;
+    flex: 0 0 auto;
+    width: 7.5rem;
+    background: linear-gradient(135deg, #2a2b32, #18191e);
     border: 1px solid currentColor;
     border-radius: 4px;
-    font-size: 0.8rem;
+    padding: 0.2rem 0.25rem;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    box-shadow: none;
 }
 
-.timeline-card.is-last-placed {
+.cassette-card.is-last-placed {
     outline: 2px solid currentColor;
+    outline-offset: 1px;
 }
 
-.timeline-card .card-year {
-    font-weight: bold;
-    font-size: 1rem;
+.cassette-year {
+    align-self: stretch;
+    text-align: center;
+    background: var(--color-text);
+    color: var(--color-bg);
+    border-radius: 2px;
+    padding: 0;
+    font-size: 0.95rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    line-height: 1.25;
 }
 
-.timeline-card .card-title {
-    opacity: 0.8;
+.cassette-label {
+    background: #e9e4d8;
+    border-left: 2px solid currentColor;
+    border-radius: 2px;
+    padding: 0.1rem 0.25rem;
+    overflow: hidden;
 }
 
-.place-slot {
-    flex: 0 0 auto;
-    width: 2rem;
-    font-size: 1.1rem;
-    cursor: pointer;
+.cassette-artist {
+    display: block;
+    font-size: 0.58rem;
+    font-weight: 700;
+    color: #222;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cassette-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 0.58rem;
+    font-weight: 800;
+    color: #000;
+    line-height: 1.15;
+}
+
+/* Tape window removed from the compact shelf layout — year + label is enough. */
+.cassette-window,
+.tape-hub,
+.tape-strip {
+    display: none;
 }
 
 .placement-marker {
@@ -245,14 +739,6 @@
 #tt-message {
     min-height: 1.5rem;
     margin: 0.5rem 0;
-    font-weight: bold;
-}
-
-.player-table {
-    margin-top: 1rem;
-}
-
-.player-table tr.is-current {
     font-weight: bold;
 }
 
@@ -273,7 +759,7 @@
     padding: 2rem 3rem;
     border: 2px solid currentColor;
     border-radius: 8px;
-    background: var(--background-color, #222);
+    background: var(--color-bg);
     text-align: center;
     max-width: 90vw;
 }
@@ -296,6 +782,12 @@
     margin-top: 0.75rem;
 }
 
+.tt-popup-guess {
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+    opacity: 0.85;
+}
+
 .tt-popup-next {
     margin-top: 0.5rem;
     font-size: 0.9rem;
@@ -307,6 +799,108 @@
     max-width: 20rem;
     max-height: 20rem;
     margin: 0.75rem auto 0;
+    border-radius: 8px;
+}
+
+.tt-popup-celebration {
+    max-width: 20rem;
+    margin: 0.5rem auto 0;
+    font-size: 0.95rem;
+    line-height: 1.35;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+}
+
+.tt-win-video-backdrop {
+    cursor: default;
+    z-index: 120;
+}
+
+.tt-win-video-popup {
+    max-width: min(90vw, 44rem);
+    padding: 1.25rem 1.5rem 1.5rem;
+}
+
+.tt-win-video-frame-wrap {
+    position: relative;
+    width: min(80vw, 640px);
+    height: min(45vw, 360px);
+    margin: 0 auto;
+    background: #000;
+}
+
+.tt-win-video-frame {
+    width: 100%;
+    height: 100%;
+}
+
+.tt-win-video-frame iframe {
+    width: 100%;
+    height: 100%;
+}
+
+.tt-win-video-clickshield {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+}
+
+.tt-win-video-caption {
+    margin-top: 1rem;
+    font-size: 1.6rem;
+    font-weight: bold;
+}
+
+.tt-win-video-tap {
+    display: block;
+    margin: 0.75rem auto 0;
+    padding: 0.5rem 1.25rem;
+    font: inherit;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.tt-confirm-actions {
+    display: flex;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+}
+
+.tt-steal-popup {
+    border-color: #c0392b;
+}
+
+.tt-steal-countdown {
+    font-size: 2.5rem;
+    font-weight: bold;
+    margin-top: 0.5rem;
+}
+
+.tt-steal-join-button {
+    margin-top: 1rem;
+}
+
+/* Non-blocking variant, used for the active stealer's own turn and for the
+   regular turn timer so the board's +-slot buttons underneath (their actual
+   placement UI) stay clickable instead of being covered by a full-screen
+   backdrop. */
+.tt-steal-banner-wrap {
+    position: fixed;
+    top: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    pointer-events: none;
+}
+
+.tt-steal-banner {
+    padding: 0.75rem 1.5rem;
+    border: 2px solid #c0392b;
+    border-radius: 8px;
+    background: var(--color-bg);
+    text-align: center;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
 }
 
 /* ------------------------------------------------------------------- forms */
@@ -338,16 +932,56 @@
     font-weight: bold;
 }
 
+/* The whole page is a fixed-height grid: the game area scrolls internally if
+   it overflows, and chat is a fixed-height row pinned to the bottom of the
+   viewport — same layout timeline-trivia uses, so a lobby's chat is always
+   visible and never has to be scrolled to. */
+#tt-page {
+    height: 100%;
+    display: grid;
+    grid-template-rows: 1fr 12rem;
+    grid-template-areas:
+        "main"
+        "chat";
+    gap: 0.5rem;
+}
+
+#tt-main {
+    grid-area: main;
+    overflow-y: auto;
+    min-height: 0;
+    /* Keep bordered panels (.turntable-card, .player-card) off the scrollbar. */
+    padding-right: 0.5rem;
+}
+
 #tt-chat {
-    margin-top: 1rem;
+    grid-area: chat;
+    display: grid;
+    grid-template-rows: 1fr auto;
+    border: 1px solid currentColor;
+    border-radius: 8px;
+    overflow: hidden;
+    min-height: 0;
+}
+
+#chat-messages {
+    overflow-y: auto;
+    padding: 0.5rem;
 }
 
 #chat-form {
     display: flex;
     gap: 0.5rem;
-    margin-top: 0.5rem;
+    padding: 0.5rem;
+    border-top: 1px solid currentColor;
 }
 
 #chat-input {
     flex: 1;
+}
+
+@media (max-width: 32rem) {
+    #tt-page {
+        grid-template-rows: 1fr 9rem;
+    }
 }

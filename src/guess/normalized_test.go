@@ -119,6 +119,126 @@ func TestNormalizedJudge(t *testing.T) {
 	}
 }
 
+func TestSplitFieldsTitleTypoIsNot100(t *testing.T) {
+	var judge Normalized
+	verdict, err := judge.Judge(context.Background(), Input{
+		TitleGuess:  "killer quee",
+		ArtistGuess: "queen",
+		Title:       "Killer Queen",
+		Artist:      "Queen",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verdict.TitleCorrect || !verdict.ArtistCorrect {
+		t.Fatalf("expected a qualifying guess, got %+v", verdict)
+	}
+	if verdict.TitleMatchPercent >= 100 {
+		t.Errorf("title typo reported as %.0f%%, want under 100", verdict.TitleMatchPercent)
+	}
+	if verdict.ArtistMatchPercent != 100 {
+		t.Errorf("artist MatchPercent = %.0f, want 100", verdict.ArtistMatchPercent)
+	}
+}
+
+func TestHyphenatedArtistMatchesWithoutDash(t *testing.T) {
+	var judge Normalized
+	verdict, err := judge.Judge(context.Background(), Input{
+		TitleGuess:  "take on me",
+		ArtistGuess: "aha",
+		Title:       "Take On Me",
+		Artist:      "a-ha",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verdict.TitleCorrect {
+		t.Fatal("expected take on me to match Take On Me")
+	}
+	if !verdict.ArtistCorrect {
+		t.Fatalf("expected aha to match a-ha, got artist %.0f%%", verdict.ArtistMatchPercent)
+	}
+}
+
+func TestScrambledTitleOrderIsNotAWin(t *testing.T) {
+	var judge Normalized
+	verdict, err := judge.Judge(context.Background(), Input{
+		TitleGuess:  "take me on",
+		ArtistGuess: "a-ha",
+		Title:       "Take On Me",
+		Artist:      "a-ha",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verdict.TitleCorrect {
+		t.Fatal("take me on should not count as Take On Me")
+	}
+	if verdict.TitleMatchPercent >= 100 {
+		t.Errorf("scrambled order reported as %.0f%%, want under 100", verdict.TitleMatchPercent)
+	}
+}
+
+func TestSplitCompoundTitleMatches(t *testing.T) {
+	var judge Normalized
+	verdict, err := judge.Judge(context.Background(), Input{
+		TitleGuess:  "fire work",
+		ArtistGuess: "katy perry",
+		Title:       "Firework",
+		Artist:      "Katy Perry",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verdict.TitleCorrect {
+		t.Fatalf("fire work should match Firework, got %.0f%%", verdict.TitleMatchPercent)
+	}
+}
+
+func TestSurnameCountsAsFullArtistMatch(t *testing.T) {
+	var judge Normalized
+	verdict, err := judge.Judge(context.Background(), Input{
+		TitleGuess:  "firework",
+		ArtistGuess: "perry",
+		Title:       "Firework",
+		Artist:      "Katy Perry",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verdict.ArtistCorrect {
+		t.Fatal("Perry should still count as Katy Perry")
+	}
+	if verdict.ArtistMatchPercent != 100 {
+		t.Errorf("surname-only artist reported as %.0f%%, want 100", verdict.ArtistMatchPercent)
+	}
+}
+
+func TestMinMatchPercentCoverage(t *testing.T) {
+	var judge Normalized
+	in := Input{
+		Guess:  "alpha bravo charlie",
+		Title:  "Alpha Bravo Charlie Delta",
+		Artist: "Whoever",
+	}
+	loose, err := judge.Judge(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loose.TitleCorrect {
+		t.Fatal("3 of 4 title words should pass the default 60% bar")
+	}
+
+	in.MinMatchPercent = 90
+	strict, err := judge.Judge(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strict.TitleCorrect {
+		t.Fatal("3 of 4 title words should fail a 90% bar")
+	}
+}
+
 // failingJudge stands in for a Judge whose backing service is unavailable.
 type failingJudge struct{}
 

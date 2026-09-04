@@ -55,7 +55,7 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 		t.Fatalf("create category: %v", err)
 	}
 	year := sql.NullInt64{Int64: 1969, Valid: true}
-	cardId, err := database.CreateCard(deckId, "renderVideoId", 0, "Render Song", "Render Artist",
+	cardId, err := database.CreateCard(deckId, "renderVideoId", "Render Song", "Render Artist",
 		year, uuid.NullUUID{UUID: categoryId, Valid: true})
 	if err != nil {
 		t.Fatalf("create card: %v", err)
@@ -88,7 +88,7 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 	if _, err := gsDatabase.AddUserToLobby(lobbyId, userId); err != nil {
 		t.Fatalf("join lobby: %v", err)
 	}
-	gameId, err := database.CreateGame(lobbyId, 10, 2)
+	gameId, err := database.CreateGame(lobbyId, 10, 2, database.GuessModeBoth, database.DefaultGuessMatchPercent, database.GuessJudgeLocal, database.PlaybackSample, 20)
 	if err != nil {
 		t.Fatalf("create game: %v", err)
 	}
@@ -118,9 +118,11 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 	}{
 		{"Login", gsApiPages.Login, "/login", true, nil, []string{"User Login"}},
 		{"Users", gsApiPages.Users, "/users", false, nil, []string{"render_admin"}},
-		{"Decks", gsApiPages.Decks, "/decks", false, nil, []string{"render deck"}},
+		{"Decks", apiPages.Decks, "/decks", false, nil, []string{"render deck", "Library Issues"}},
 		{"Account", gsApiPages.Account, "/account", false, nil, []string{"Win Celebration", "render_admin"}},
 		{"Categories", apiPages.Categories, "/categories", false, nil, []string{"Render Genre"}},
+		{"DeadVideos", apiPages.DeadVideos, "/videos", false, nil, []string{"Library", "Dead Videos (", "Duplicates (", "Ungenred ("}},
+		{"GuessTest", apiPages.GuessTest, "/guess-test", false, nil, []string{"Quizmaster Testing", "Find song", "Heuristic match required", "Claude config", "claude-haiku-4-5"}},
 		{
 			"Deck", apiPages.Deck, "/deck/{deckId}", false,
 			func(r *http.Request) { r.SetPathValue("deckId", deckId.String()) },
@@ -128,7 +130,7 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 		},
 		{
 			"TrackTimelineLobbies", apiPages.TrackTimelineLobbies, "/track-timeline/lobbies", false, nil,
-			[]string{"render deck", "Render Genre"},
+			[]string{"render deck", "Render Genre", "AI Judge"},
 		},
 		{
 			"TrackTimelineLobby", apiPages.TrackTimelineLobby, "/track-timeline/{lobbyId}", false,

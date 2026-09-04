@@ -109,8 +109,8 @@ triggers.
   `gameshell-framework` and are mounted by `gsBootstrap.MountFeatures` when
   `Features.Decks` is true. This repo does not duplicate any of that.
 - **Cards are game-owned**: `CARD(ID, CREATED_ON_DATE, CHANGED_ON_DATE,
-  DECK_ID FK→DECK ON DELETE CASCADE, YOUTUBE_VIDEO_ID, START_OFFSET_SECONDS,
-  TITLE, ARTIST, RELEASE_YEAR INT NULL, CATEGORY_ID)` + `AUDIT_CARD`, with
+  DECK_ID FK→DECK ON DELETE CASCADE, YOUTUBE_VIDEO_ID, TITLE, ARTIST,
+  RELEASE_YEAR INT NULL, CATEGORY_ID)` + `AUDIT_CARD`, with
   CRUD in `database/card.go` and handlers in `api/card`. `RELEASE_YEAR` is
   **authored data** entered when the card is created/edited — there is no
   scraping/inference of a song's year, and a card with a NULL year is simply

@@ -7,6 +7,11 @@ CREATE TABLE IF NOT EXISTS TRACK_TIMELINE_DRAW_PILE(
     CARD_ID UUID NOT NULL,
     RELEASE_YEAR INT NOT NULL,
     DRAWN BOOLEAN NOT NULL DEFAULT 0,
+    -- Random permutation assigned once at pile build (see ShuffleDrawPile).
+    -- Draws pull the lowest undrawn SHUFFLE_ORDER rather than re-rolling
+    -- ORDER BY RAND() each time, so the bag is fair and repeatable within a
+    -- game without depending on the database's RNG per draw.
+    SHUFFLE_ORDER INT NOT NULL DEFAULT 0,
     PRIMARY KEY(ID),
     FOREIGN KEY(TRACK_TIMELINE_GAME_ID) REFERENCES TRACK_TIMELINE_GAME(ID) ON DELETE CASCADE,
     FOREIGN KEY(CARD_ID) REFERENCES CARD(ID) ON DELETE CASCADE,

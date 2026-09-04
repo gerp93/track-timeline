@@ -113,6 +113,11 @@ button {
     border-radius: 4px;
 }
 
+button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 summary {
     cursor: pointer;
 }
@@ -207,4 +212,324 @@ a.no-style {
 
 .bottom-padding {
     padding-bottom: var(--content-margin);
+}
+
+.guess-compare {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+}
+
+.guess-compare > div {
+    flex: 1;
+    min-width: 16rem;
+}
+
+.guess-test-layout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem;
+    align-items: flex-start;
+}
+
+.guess-test-form {
+    flex: 1;
+    min-width: 18rem;
+}
+
+.guess-test-claude {
+    flex: 1;
+    min-width: 18rem;
+    max-width: 40rem;
+}
+
+.guess-test-prompt {
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+    padding: 0.75rem;
+    border: 1px solid;
+    font-size: 0.85rem;
+    max-height: 70vh;
+    overflow: auto;
+}
+
+/* Nested under .htmx-result-good so lose/disagree still read red. */
+.htmx-result .guess-verdict-ok {
+    color: var(--color-accent-green);
+}
+
+.htmx-result .guess-verdict-no {
+    color: var(--color-accent-red);
+}
+
+/* Dead Videos admin: keep link actions on one row and stop the video
+   column from crushing Title/Artist/Deck/Status. */
+.dead-videos-table {
+    width: 100%;
+}
+
+.dead-videos-table .dead-col-check {
+    width: 2rem;
+}
+
+.dead-videos-table .dead-col-title,
+.dead-videos-table .dead-col-artist {
+    max-width: 14rem;
+    word-break: break-word;
+}
+
+.dead-videos-table .dead-col-deck,
+.dead-videos-table .dead-col-status {
+    white-space: nowrap;
+}
+
+.dead-videos-table .dead-col-link {
+    min-width: 28rem;
+}
+
+.dead-video-link-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.dead-video-link-row form {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0;
+}
+
+.dead-video-link-row input[type="text"] {
+    min-width: 12rem;
+    max-width: 18rem;
+}
+
+.tt-dead-video-preview {
+    margin-top: 0.35rem;
+}
+
+.dead-video-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    margin: 0.75rem 0;
+}
+
+.dead-video-toolbar-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.65rem;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+}
+
+.library-dup-exact-actions {
+    display: grid;
+    grid-template-columns: max-content auto;
+    align-items: center;
+    column-gap: 0.75rem;
+    row-gap: 0.4rem;
+}
+
+.library-dup-exact-actions .dead-video-toolbar-label {
+    min-width: 0;
+    margin-right: 0;
+}
+
+.dead-video-toolbar-label {
+    font-size: 0.8rem;
+    font-weight: bold;
+    letter-spacing: 0.02em;
+    margin-right: 0.25rem;
+    opacity: 0.8;
+    min-width: 11rem;
+}
+
+.dead-video-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.75rem 0;
+}
+
+.dead-video-toolbar-toggle {
+    margin-left: 0.35rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.dead-video-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+    margin-top: 0.35rem;
+}
+
+.dead-video-quota {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    align-items: flex-start;
+    width: fit-content;
+    max-width: 100%;
+    margin: 0.75rem 0 1rem;
+    padding: 0.65rem 0.9rem;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+}
+
+.dead-video-quota-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.dead-video-quota-num {
+    font-weight: bold;
+    margin-right: 0.25rem;
+}
+
+.dead-video-quota-notes {
+    font-size: 0.85rem;
+    opacity: 0.85;
+    display: grid;
+    gap: 0.15rem;
+}
+
+.library-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin: 0.75rem 0 1rem;
+    border-bottom: 1px solid currentColor;
+    padding-bottom: 0.35rem;
+}
+
+.library-tab {
+    text-decoration: none;
+    color: inherit;
+    opacity: 0.7;
+    padding: 0.25rem 0.6rem;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -0.35rem;
+}
+
+.library-tab:hover {
+    opacity: 1;
+}
+
+.library-tab-active {
+    opacity: 1;
+    font-weight: bold;
+    border-bottom-color: currentColor;
+}
+
+.library-subtabs {
+    display: flex;
+    gap: 0.35rem;
+    margin: 0 0 1rem;
+    flex-wrap: wrap;
+}
+
+.library-subtab {
+    text-decoration: none;
+    color: inherit;
+    opacity: 0.7;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid currentColor;
+    border-radius: 0.25rem;
+    font-size: 0.95rem;
+}
+
+.library-subtab:hover {
+    opacity: 1;
+}
+
+.library-subtab-active {
+    opacity: 1;
+    font-weight: bold;
+}
+
+.library-genre-assign {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+}
+
+.library-genre-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    justify-content: flex-end;
+}
+
+.htmx-indicator {
+    display: none;
+}
+
+.htmx-request.htmx-indicator,
+.htmx-request .htmx-indicator {
+    display: flex;
+}
+
+.library-claude-spinner {
+    align-items: center;
+    gap: 0.65rem;
+    margin: 0.75rem 0;
+    padding: 0.65rem 0.85rem;
+    border: 1px solid currentColor;
+    font-weight: bold;
+}
+
+.library-claude-spinner-icon {
+    width: 1.1rem;
+    height: 1.1rem;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: library-claude-spin 0.7s linear infinite;
+    flex-shrink: 0;
+}
+
+@keyframes library-claude-spin {
+    to { transform: rotate(360deg); }
+}
+
+.library-genre-log-ok {
+    font-weight: bold;
+}
+
+.library-genre-log-fail {
+    opacity: 0.9;
+}
+
+.library-dup-group {
+    margin: 1rem 0 1.5rem;
+    padding: 0.75rem 0;
+    border-top: 1px solid currentColor;
+}
+
+.library-dup-group-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.library-dup-dismiss {
+    margin-left: auto;
+}
+
+.library-dup-table {
+    width: 100%;
 }

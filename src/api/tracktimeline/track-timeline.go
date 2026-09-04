@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/gerp93/track-timeline/database"
+	"github.com/gerp93/track-timeline/guess"
 	"github.com/gerp93/track-timeline/static"
 )
 
@@ -36,12 +37,27 @@ type resultPayload struct {
 	HasGif         bool   `json:"hasGif,omitempty"`
 	NextPlayerName string `json:"nextPlayerName,omitempty"`
 	GameOver       bool   `json:"gameOver,omitempty"`
+
+	// Game-win YouTube clip (account Win Video). Empty when the winner has
+	// none configured — clients fall back to the normal celebration popup.
+	WinVideoId           string `json:"winVideoId,omitempty"`
+	WinVideoStartSeconds int    `json:"winVideoStartSeconds,omitempty"`
+
+	// Guess-token outcome, independent of the card outcome above.
+	GuessTokenWinnerName         string `json:"guessTokenWinnerName,omitempty"`
+	GuessTokenGuessText          string `json:"guessTokenGuessText,omitempty"`
+	GuessTokenTitleMatchPercent  int    `json:"guessTokenTitleMatchPercent,omitempty"`
+	GuessTokenArtistMatchPercent int    `json:"guessTokenArtistMatchPercent,omitempty"`
 }
 
-// songPayload tells every client which song to cue and where to start it.
+// songPayload tells every client which song to cue and which slice of it to
+// play. EndSeconds of 0 means "play to the end of the video" (the 'full'
+// playback mode); anything else stops the clip there, which the IFrame API
+// does natively via loadVideoById's own endSeconds.
 type songPayload struct {
 	VideoId      string `json:"videoId"`
 	StartSeconds int    `json:"startSeconds"`
+	EndSeconds   int    `json:"endSeconds,omitempty"`
 }
 
 // esc escapes text bound for a chat line. The framework only escapes messages
@@ -49,6 +65,24 @@ type songPayload struct {
 // with innerHTML, so anything the server interpolates has to be escaped here.
 func esc(s string) string {
 	return html.EscapeString(s)
+}
+
+// tokensWonLost is the chat phrasing for a token-balance change: "won 1 token",
+// "lost 2 tokens". Always include the count so a wager of 3 reads the same
+// way as a skip of 1.
+func tokensWonLost(delta int) string {
+	n := delta
+	if n < 0 {
+		n = -n
+	}
+	word := "token"
+	if n != 1 {
+		word = "tokens"
+	}
+	if delta >= 0 {
+		return fmt.Sprintf("won %d %s", n, word)
+	}
+	return fmt.Sprintf("lost %d %s", n, word)
 }
 
 // announce posts a chat line to the lobby. A bare string with no prefix is
@@ -72,11 +106,15 @@ func sendResult(lobbyId uuid.UUID, payload resultPayload) {
 	gsWebsocket.LobbyBroadcast(lobbyId, "result:"+string(encoded))
 }
 
-// sendSong cues the same song on every client.
-func sendSong(lobbyId uuid.UUID, card database.CurrentCard) {
+// sendSong cues the same song, over the same window, on every client. The
+// window is resolved once here and broadcast, rather than each client
+// deciding for itself, so a random sample is the same random sample for
+// everyone in the lobby.
+func sendSong(lobbyId uuid.UUID, card database.CurrentCard, window database.ClipWindow) {
 	encoded, err := json.Marshal(songPayload{
 		VideoId:      card.YouTubeVideoId,
-		StartSeconds: card.StartOffsetSeconds,
+		StartSeconds: window.StartSeconds,
+		EndSeconds:   window.EndSeconds,
 	})
 	if err != nil {
 		log.Println(err)
@@ -156,6 +194,58 @@ func currentPlayerName(gameId uuid.UUID) string {
 	return ""
 }
 
+// userIdForPlayer maps a seat to the USER row that owns celebration media.
+func userIdForPlayer(gameId uuid.UUID, playerId uuid.UUID) uuid.UUID {
+	players, err := database.GetPlayers(gameId)
+	if err != nil {
+		return uuid.Nil
+	}
+	for _, player := range players {
+		if player.PlayerId == playerId {
+			return player.UserId
+		}
+	}
+	return uuid.Nil
+}
+
+// winCelebrationFor loads a player's personalized win GIF/message, if they set
+// one. Failures are non-fatal — the popup just falls back to its plain form.
+func winCelebrationFor(userId uuid.UUID) (celebration string, hasGif bool) {
+	c, err := gsDatabase.GetUserWinCelebration(userId)
+	if err != nil {
+		log.Println(err)
+		return "", false
+	}
+	return c.Message.String, c.HasGif
+}
+
+// loseCelebrationFor is winCelebrationFor's counterpart for the player who
+// just missed a placement (the discarded-round case). The shared "nobody got
+// it" popup still carries one person's commiseration — the turn player's —
+// matching timeline-trivia's incorrect-guess path.
+func loseCelebrationFor(userId uuid.UUID) (celebration string, hasGif bool) {
+	c, err := gsDatabase.GetUserLoseCelebration(userId)
+	if err != nil {
+		log.Println(err)
+		return "", false
+	}
+	return c.Message.String, c.HasGif
+}
+
+// winVideoFor loads a player's game-win YouTube clip, if they set one.
+// Failures are non-fatal — game-over just skips the forced video.
+func winVideoFor(userId uuid.UUID) (videoId string, startSeconds int) {
+	v, err := gsDatabase.GetUserWinVideo(userId)
+	if err != nil {
+		log.Println(err)
+		return "", 0
+	}
+	if !v.HasVideo {
+		return "", 0
+	}
+	return v.YouTubeVideoId.String, v.StartOffsetSeconds
+}
+
 func turnOrderNames(gameId uuid.UUID) string {
 	players, err := database.GetPlayers(gameId)
 	if err != nil {
@@ -215,6 +305,77 @@ func Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	playbackMode := strings.TrimSpace(r.FormValue("playbackMode"))
+	if playbackMode == "" {
+		playbackMode = database.PlaybackSample
+	}
+	if err := database.ValidatePlaybackMode(playbackMode); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(capitalize(err.Error())))
+		return
+	}
+
+	guessMode := strings.TrimSpace(r.FormValue("guessMode"))
+	if guessMode == "" {
+		guessMode = database.GuessModeBoth
+	}
+	if err := database.ValidateGuessMode(guessMode); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(capitalize(err.Error())))
+		return
+	}
+
+	guessMatchPercent := database.DefaultGuessMatchPercent
+	if raw := strings.TrimSpace(r.FormValue("guessMatchPercent")); raw != "" {
+		guessMatchPercent, err = strconv.Atoi(raw)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("Match required must be 60, 70, 80, or 90."))
+			return
+		}
+	}
+	if err := database.ValidateGuessMatchPercent(guessMatchPercent); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(capitalize(err.Error())))
+		return
+	}
+
+	guessJudge := strings.TrimSpace(r.FormValue("guessJudge"))
+	if guessJudge == "" {
+		// Prefer the AI Quizmaster when the key is configured; otherwise the
+		// local heuristic. Matches the lobby form's default.
+		if guess.ClaudeConfigured() {
+			guessJudge = database.GuessJudgeClaude
+		} else {
+			guessJudge = database.GuessJudgeLocal
+		}
+	}
+	if err := database.ValidateGuessJudge(guessJudge); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(capitalize(err.Error())))
+		return
+	}
+	if guessJudge == database.GuessJudgeClaude && !guess.ClaudeConfigured() {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Intent judging is not configured on this server."))
+		return
+	}
+
+	clipSeconds := 20
+	if raw := strings.TrimSpace(r.FormValue("clipSeconds")); raw != "" {
+		clipSeconds, err = strconv.Atoi(raw)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("Clip length must be a whole number of seconds."))
+			return
+		}
+	}
+	if err := database.ValidateClipSeconds(clipSeconds); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(capitalize(err.Error())))
+		return
+	}
+
 	deckIds, message := parseDeckIds(r.Form["deckId"], userId)
 	if message != "" {
 		w.WriteHeader(http.StatusBadRequest)
@@ -257,7 +418,7 @@ func Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gameId, err := database.CreateGame(lobbyId, cardsToWin, startingTokens)
+	gameId, err := database.CreateGame(lobbyId, cardsToWin, startingTokens, guessMode, guessMatchPercent, guessJudge, playbackMode, clipSeconds)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to create game."))
@@ -531,8 +692,148 @@ func PlaySong(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sendSong(ctx.LobbyId, card)
+	// The window was chosen when the card was drawn (see database.DrawCard).
+	// If sample mode fell back to an intro window at draw because duration
+	// was unknown, and a measured length is available now, re-roll once into
+	// a real middle sample and stamp it so replay stays on that same clip.
+	window := database.ClipWindow{
+		StartSeconds: ctx.Game.ClipStartSeconds,
+		EndSeconds:   ctx.Game.ClipEndSeconds,
+	}
+	if ctx.Game.PlaybackMode == database.PlaybackSample &&
+		database.SampleWouldFit(ctx.Game.ClipSeconds, card.DurationSeconds) &&
+		window.StartSeconds == 0 && window.EndSeconds == ctx.Game.ClipSeconds {
+		window = database.ResolveClipWindow(ctx.Game.PlaybackMode, ctx.Game.ClipSeconds, card.DurationSeconds)
+		if err := database.SetClipWindow(ctx.Game.Id, window); err != nil {
+			log.Println(err)
+		}
+	}
+
+	sendSong(ctx.LobbyId, card, window)
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("Playing."))
+}
+
+// ReplaySong plays this round's clip again, over the exact same window, for
+// one token. Available to the player on turn once per round, after they have
+// heard it through or paused it — the point is a second listen, not a way to
+// keep the song running while they think.
+func ReplaySong(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := loadContext(w, r)
+	if !ok {
+		return
+	}
+
+	if ctx.Game.GameStatus != database.StatusActive {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("The game is not running."))
+		return
+	}
+	if ctx.Game.RoundPhase != database.PhaseListening {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("It is too late to replay this song."))
+		return
+	}
+	if !ctx.Game.CurrentPlayerId.Valid || ctx.Game.CurrentPlayerId.UUID != ctx.Player.Id {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Only the player on turn can replay the song."))
+		return
+	}
+	if ctx.Game.ReplayUsed {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("You have already replayed this song."))
+		return
+	}
+
+	tokens, err := database.GetPlayerTokens(ctx.Game.Id, ctx.Player.Id)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to check your tokens."))
+		return
+	}
+	if tokens < 1 {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("You need a token to hear it again."))
+		return
+	}
+
+	card, err := database.GetCurrentCard(ctx.Game.Id)
+	if err != nil || card.CardId == uuid.Nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("No song is in play."))
+		return
+	}
+
+	if _, err := database.AddPlayerTokens(ctx.Game.Id, ctx.Player.Id, -1); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to spend your token."))
+		return
+	}
+	if err := database.SetReplayUsed(ctx.Game.Id, true); err != nil {
+		log.Println(err)
+	}
+
+	announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> %s to hear it again", esc(ctx.Player.Name), tokensWonLost(-1)))
+	sendSong(ctx.LobbyId, card, database.ClipWindow{
+		StartSeconds: ctx.Game.ClipStartSeconds,
+		EndSeconds:   ctx.Game.ClipEndSeconds,
+	})
+	refresh(ctx.LobbyId)
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("Replaying."))
+}
+
+// PauseSong and ResumeSong toggle playback in place for everyone, distinct
+// from PlaySong: PlaySong (re)cues the song from its configured start offset,
+// while resuming has to continue from wherever playback was paused instead of
+// restarting. Neither touches any game state — play/pause is ephemeral
+// client-side UI, not something the round outcome depends on — so both are
+// just a control-string broadcast, gated the same way PlaySong is.
+
+func PauseSong(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := loadContext(w, r)
+	if !ok {
+		return
+	}
+
+	if ctx.Game.GameStatus != database.StatusActive {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("The game is not running."))
+		return
+	}
+	if !ctx.Game.CurrentPlayerId.Valid || ctx.Game.CurrentPlayerId.UUID != ctx.Player.Id {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Only the player on turn can pause the song."))
+		return
+	}
+
+	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "songPause")
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("Paused."))
+}
+
+func ResumeSong(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := loadContext(w, r)
+	if !ok {
+		return
+	}
+
+	if ctx.Game.GameStatus != database.StatusActive {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("The game is not running."))
+		return
+	}
+	if !ctx.Game.CurrentPlayerId.Valid || ctx.Game.CurrentPlayerId.UUID != ctx.Player.Id {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Only the player on turn can resume the song."))
+		return
+	}
+
+	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "songResume")
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("Resumed."))
 }

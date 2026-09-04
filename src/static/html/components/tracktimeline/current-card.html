@@ -1,79 +1,231 @@
-{{if .CardId}}
-<div class="current-card {{if .Revealed}}is-revealed{{end}}">
-    {{if .Revealed}}
-    <div class="song-reveal">
-        <div class="song-year">{{.Answer.ReleaseYear}}</div>
-        <div class="song-artist">{{.Answer.Artist}}</div>
-        <div class="song-title">{{.Answer.Title}}</div>
-    </div>
-    {{else}}
-    <div class="song-hidden">
-        <div class="song-mystery"><span class="bi bi-music-note-beamed"></span></div>
-        <div class="song-hint">
-            {{if .CategoryName.Valid}}<span class="chip">{{.CategoryName.String}}</span>{{end}}
-            {{if .DeckName}}<span class="chip chip-muted">{{.DeckName}}</span>{{end}}
+{{if or .YouTubeVideoId (eq .GameStatus "finished")}}
+<!-- Purely decorative: bars react to actual playback state via
+     syncPlaybackUI's .is-active toggle, same trigger as the spinning record. -->
+<div class="tt-visualizer" aria-hidden="true">
+    <span></span><span></span><span></span><span></span><span></span>
+</div>
+<div class="deck-stage">
+    <div class="platter-container">
+        <div class="platter-ring">
+            <!-- Hangs from a fixed pivot mounted above the platter, swinging
+                 sideways onto the record while playing (JS toggles
+                 .is-active alongside the record's own .is-spinning, both
+                 driven by syncPlaybackUI). A child of .platter-ring, not
+                 .platter-container: the ring is the disc's actual bounding
+                 box (capped narrower than its grid column and centered), so
+                 anchoring to the container instead left the pivot floating
+                 off in the container's own slack space rather than mounted
+                 to the platter. Purely decorative. -->
+            <div class="tt-tonearm" aria-hidden="true">
+                <div class="tt-tonearm-shaft"></div>
+                <div class="tt-tonearm-head"></div>
+            </div>
+            <div id="tt-record" class="tt-record">
+                <div class="tt-record-label">
+                    <span class="tt-record-label-word">TRACK</span>
+                    <span class="tt-record-label-hole"></span>
+                    <span class="tt-record-label-word">TIMELINE</span>
+                </div>
+            </div>
         </div>
     </div>
-    {{end}}
 
-    {{if and (eq .GameStatus "active") (ne .RoundPhase "reveal")}}
-    <div class="song-controls">
-        {{if .IsCurrentPlayer}}
-        <button
-            class="btn-small"
-            hx-post="/api/track-timeline/{{.LobbyId}}/play-song"
-            hx-swap="none"
-            title="Play the song for everyone"
-        >
-            <span class="bi bi-play-fill"></span> Play
-        </button>
-        {{if eq .RoundPhase "listening"}}
-        <button
-            class="btn-small"
-            hx-post="/api/track-timeline/{{.LobbyId}}/skip-card"
-            hx-swap="none"
-            hx-confirm="Skip this song and draw another? Use this when the video will not play."
-            title="The video is dead or blocked"
-        >
-            <span class="bi bi-skip-forward"></span> Skip
-        </button>
-        {{end}}
-        {{end}}
+    <div class="controls-panel">
+        <div>
+            {{if eq .GameStatus "finished"}}
+            <!-- Game over: keep the vinyl, replace the last song's metadata
+                 with a per-viewer win/lose banner so the final answer is not
+                 left sitting in the current-song area. -->
+            <div class="reveal-info game-over-banner">
+                {{if .IsWinner}}
+                <div class="song-year">YOU WON!</div>
+                {{else}}
+                <div class="song-year">YOU LOST!</div>
+                {{end}}
+            </div>
+            {{else if .Revealed}}
+            <div class="reveal-info">
+                <div class="song-year">{{.Answer.ReleaseYear}}</div>
+                <div class="song-artist">{{.Answer.Artist}}</div>
+                <div class="song-title">&ldquo;{{.Answer.Title}}&rdquo;</div>
+            </div>
+            {{else}}
+            <!-- Genre only: which deck a song came from is a narrowing clue
+                 about the song itself, and the deck list is already on the
+                 header badge for anyone who wants it. -->
+            <div class="genre-tags">
+                {{if .CategoryName.Valid}}<span class="chip">{{.CategoryName.String}}</span>{{end}}
+            </div>
+            {{end}}
 
-        {{if eq .RoundPhase "challenge"}}
-        <button
-            class="btn-small"
-            hx-post="/api/track-timeline/{{.LobbyId}}/close-challenge"
-            hx-swap="none"
-            title="Stop waiting and reveal the answer"
-        >
-            <span class="bi bi-eye"></span> Reveal Now
-        </button>
+            {{if and (eq .GameStatus "active") (ne .RoundPhase "reveal")}}
+            {{if .IsCurrentPlayer}}
+            <div class="action-buttons">
+                <button
+                    type="button"
+                    id="tt-play-pause-btn"
+                    class="btn-primary"
+                    onclick="ttPlayPauseClick()"
+                    title="Play or pause the song for everyone"
+                >
+                    <span class="bi bi-play-fill"></span> <span class="btn-label">Play</span>
+                </button>
+                {{if and (eq .RoundPhase "listening") (not .HasPlaced) (not .ReplayUsed)}}
+                <!-- Hidden until the clip has actually been heard through or
+                     paused; syncPlaybackUI reveals it. Rendered even with 0
+                     tokens (disabled) so the player can see the cost rather
+                     than wondering where the button went. -->
+                <button
+                    id="tt-replay-btn"
+                    class="btn-secondary"
+                    style="display: none"
+                    disabled
+                    {{if lt .TokenCount 1}}data-no-tokens="1"{{end}}
+                    hx-post="/api/track-timeline/{{.LobbyId}}/replay-song"
+                    hx-swap="none"
+                    hx-confirm="Spend a token to hear the clip again from the beginning?"
+                    title="{{if lt .TokenCount 1}}You need a token to restart.{{else}}Restart this clip from the beginning, once, for a token{{end}}"
+                >
+                    <span class="bi bi-arrow-counterclockwise"></span> Restart (1)
+                </button>
+                {{end}}
+                {{if and (eq .RoundPhase "listening") (not .HasPlaced)}}
+                <!-- Starts disabled and is enabled by syncPlaybackUI once the
+                     song has actually been cued: skipping is for a song you
+                     have tried to play, not a way to shop for an easier one
+                     sight-unseen. Rendered even with 0 tokens so the player
+                     can see the cost rather than wondering where the button
+                     went; JS keeps it disabled when they cannot pay. -->
+                <button
+                    id="tt-skip-btn"
+                    class="btn-secondary"
+                    disabled
+                    {{if lt .TokenCount 1}}data-no-tokens="1"{{end}}
+                    hx-post="/api/track-timeline/{{.LobbyId}}/skip-card"
+                    hx-swap="none"
+                    hx-confirm="Spend a token to skip this song and draw another?"
+                    title="{{if lt .TokenCount 1}}You need a token to skip.{{else}}Play the song first{{end}}"
+                >
+                    <span class="bi bi-skip-forward"></span> Skip (1)
+                </button>
+                {{end}}
+            </div>
+            {{end}}
+
+            <!-- The whole naming economy is off in this lobby, so nothing to
+                 type into. The server rejects a guess in this mode too; this
+                 just stops offering something that cannot pay out. -->
+            {{if ne .GuessMode "off"}}
+            {{if not .HasGuessed}}
+            {{if .IsCurrentPlayer}}
+            <div class="guess-form turn-player-guess">
+                <div id="tt-guess-fields" class="guess-fields">
+                    <input
+                        type="text"
+                        id="tt-guess-title"
+                        name="guessTitle"
+                        maxlength="250"
+                        placeholder="Song name"
+                        autocomplete="off"
+                    />
+                    {{if ne .GuessMode "title"}}
+                    <span class="guess-by">by</span>
+                    <input
+                        type="text"
+                        id="tt-guess-artist"
+                        name="guessArtist"
+                        maxlength="250"
+                        placeholder="Artist"
+                        autocomplete="off"
+                    />
+                    {{end}}
+                </div>
+                <p class="guess-hint">Optional — 1 token if correct.</p>
+            </div>
+            {{else}}
+            <form
+                class="guess-form"
+                hx-post="/api/track-timeline/{{.LobbyId}}/guess"
+                hx-target="find .htmx-result"
+            >
+                <div class="guess-fields">
+                    <input type="text" name="guessTitle" maxlength="250" placeholder="Song name" autocomplete="off" />
+                    {{if ne .GuessMode "title"}}
+                    <span class="guess-by">by</span>
+                    <input type="text" name="guessArtist" maxlength="250" placeholder="Artist" autocomplete="off" />
+                    {{end}}
+                </div>
+                <button type="submit" class="btn-small">
+                    <span class="bi bi-lightbulb"></span> Guess
+                </button>
+                <p class="guess-hint">Optional — 1 token if correct.</p>
+                <div class="htmx-result"></div>
+            </form>
+            {{end}}
+            {{else}}
+            <div class="guess-spent">You have already guessed this song.</div>
+            {{end}}
+            {{end}}
+            {{end}}
+        </div>
+
+        {{if and (eq .GameStatus "active") (eq .RoundPhase "listening") (not .HasPlaced) .IsCurrentPlayer}}
+        <div>
+            <div class="options-group">
+                <label
+                    class="checkbox-label{{if lt .TokenCount 1}} is-disabled{{end}}"
+                    {{if lt .TokenCount 1}}title="Need 1 token to wager."{{end}}
+                >
+                    <input
+                        type="checkbox"
+                        id="tt-use-exact-year"
+                        onchange="ttToggleExactYear()"
+                        {{if lt .TokenCount 1}}disabled{{end}}
+                    />
+                    Wager tokens on the exact year (double or nothing).
+                    Wrong digits still win the card if the year is in the right range.
+                </label>
+            </div>
+            <div id="tt-exact-year-row" style="display:none;">
+                <input
+                    type="number"
+                    id="tt-exact-year"
+                    name="year"
+                    min="1000"
+                    max="9999"
+                    step="1"
+                    placeholder="e.g. 1977"
+                    autocomplete="off"
+                    oninput="ttValidateExactYear()"
+                />
+                <label for="tt-year-wager">Wager</label>
+                <input
+                    type="number"
+                    id="tt-year-wager"
+                    name="yearWager"
+                    min="1"
+                    max="{{.TokenCount}}"
+                    value="1"
+                    autocomplete="off"
+                    oninput="ttValidateExactYear()"
+                />
+                <p id="tt-year-wager-error" class="guess-hint field-error" hidden>not enough tokens</p>
+                <button
+                    id="tt-lock-year"
+                    class="btn-small"
+                    disabled
+                    hx-post="/api/track-timeline/{{.LobbyId}}/place-card"
+                    hx-include="#tt-exact-year, #tt-year-wager, #tt-guess-title, #tt-guess-artist"
+                    hx-swap="none"
+                    hx-confirm="Lock in this year?"
+                    title="Wager must be between 1 and your tokens."
+                >
+                    <span class="bi bi-lock"></span> Lock In Year
+                </button>
+            </div>
+        </div>
         {{end}}
     </div>
-
-    {{if not .HasGuessed}}
-    <form
-        class="guess-form"
-        hx-post="/api/track-timeline/{{.LobbyId}}/guess"
-        hx-target="find .htmx-result"
-    >
-        <input
-            type="text"
-            name="guess"
-            maxlength="500"
-            placeholder="Name the artist and title for a token"
-            autocomplete="off"
-        />
-        <button type="submit" class="btn-small">
-            <span class="bi bi-lightbulb"></span> Guess
-        </button>
-        <div class="htmx-result"></div>
-    </form>
-    {{else}}
-    <div class="guess-spent">You have already guessed this song.</div>
-    {{end}}
-    {{end}}
 </div>
 {{else}}
 <div class="current-card is-empty">

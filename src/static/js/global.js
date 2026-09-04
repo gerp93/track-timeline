@@ -13,10 +13,13 @@ document.addEventListener("htmx:afterSwap", function (event) {
             addClassToTarget("htmx-result-bad", event.detail.target);
             removeClassFromTarget("htmx-result-good", event.detail.target);
         }
-        // remove status message after 10 seconds
-        setTimeout(() => {
-            event.detail.target.innerHTML = "";
-        }, 10000);
+        // Short status flashes clear themselves. Persistent panels (e.g. Guess
+        // Test compare) keep their content until the next swap.
+        if (!event.detail.target.classList.contains("htmx-result-persist")) {
+            setTimeout(() => {
+                event.detail.target.innerHTML = "";
+            }, 10000);
+        }
     }
 });
 

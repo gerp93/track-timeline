@@ -80,6 +80,73 @@ func SeedAdminIfNoUsers() error {
 	return nil
 }
 
+// defaultCategoryNames seeds a fresh deployment with a broad, generic set of
+// music genres so decks aren't started from a completely empty genre list.
+var defaultCategoryNames = []string{
+	"Alternative Rock",
+	"Britpop / Rock",
+	"Country",
+	"Disco",
+	"Folk Rock",
+	"Funk / Pop",
+	"Hip-Hop",
+	"Hip-Hop / Pop",
+	"Hip-Hop / Rock",
+	"Indie Rock",
+	"Industrial Rock",
+	"Latin Rock",
+	"Metal / Rock",
+	"New Wave",
+	"Nu-Metal / Rock",
+	"Pop",
+	"Pop / Funk",
+	"Pop / R&B",
+	"Pop / Rock",
+	"Punk Rock",
+	"R&B",
+	"R&B / Soul",
+	"Rock",
+	"Rock / Grunge",
+	"Soul / R&B",
+	"Synthpop",
+}
+
+// SeedDefaultCategoriesIfNone creates the default genre list, but only when
+// TRACK_TIMELINE_CATEGORY is completely empty — i.e. on a genuinely fresh
+// deployment. It is a no-op forever after (including once an admin has
+// deleted every genre by hand), so it is safe to run on every startup.
+func SeedDefaultCategoriesIfNone() error {
+	sqlString := "SELECT COUNT(*) FROM TRACK_TIMELINE_CATEGORY"
+	rows, err := query(sqlString)
+	if err != nil {
+		log.Println(err)
+		return errors.New("failed to check whether any genres exist")
+	}
+	defer rows.Close()
+
+	var count int
+	if !rows.Next() {
+		return errors.New("failed to query genre count")
+	}
+	if err := rows.Scan(&count); err != nil {
+		log.Println(err)
+		return errors.New("failed to scan row in query results")
+	}
+	if count > 0 {
+		return nil
+	}
+
+	for _, name := range defaultCategoryNames {
+		if _, err := CreateCategory(name); err != nil {
+			return err
+		}
+	}
+
+	log.Printf("created %d default genres", len(defaultCategoryNames))
+
+	return nil
+}
+
 func randomPassword() (string, error) {
 	buf := make([]byte, 18)
 	if _, err := rand.Read(buf); err != nil {

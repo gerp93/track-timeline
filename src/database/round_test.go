@@ -65,6 +65,75 @@ func TestIsPlacementCorrect(t *testing.T) {
 	}
 }
 
+func TestPlacementYearRangeContains(t *testing.T) {
+	// When Doves Cry (1984): after 1978 and before 1995 both contain it —
+	// both valid → steal denied (AttemptSteal checks original.Contains(year)).
+	after1978 := PlacementYearRangeOf(timelineOf(1978), 1)
+	before1995 := PlacementYearRangeOf(timelineOf(1995), 0)
+	if !after1978.Contains(1984) {
+		t.Fatal("after 1978 should contain 1984")
+	}
+	if !before1995.Contains(1984) {
+		t.Fatal("before 1995 should contain 1984")
+	}
+
+	// Killer Queen (1974): both before-N slots also contain it.
+	before1984 := PlacementYearRangeOf(timelineOf(1984), 0)
+	before1978 := PlacementYearRangeOf(timelineOf(1978), 0)
+	if !before1984.Contains(1974) || !before1978.Contains(1974) {
+		t.Fatal("both before-slots should contain 1974")
+	}
+
+	// Original wrong: after 1990 does not contain 1984 — a correct stealer wins.
+	after1990 := PlacementYearRangeOf(timelineOf(1990), 1)
+	if after1990.Contains(1984) {
+		t.Fatal("after 1990 must not contain 1984")
+	}
+
+	between := PlacementYearRangeOf(timelineOf(1971, 1989), 1)
+	if !between.Contains(1971) || !between.Contains(1989) {
+		t.Fatal("equal neighbour years must count as in-range")
+	}
+	if between.Contains(1970) || between.Contains(1990) {
+		t.Fatal("years outside the neighbours must be out of range")
+	}
+
+	empty := PlacementYearRangeOf(timelineOf(), 0)
+	if !empty.Contains(1984) {
+		t.Fatal("any-year slot should contain every year")
+	}
+}
+
+func TestPlacementYearRangeFormat(t *testing.T) {
+	tests := []struct {
+		r    PlacementYearRange
+		want string
+	}{
+		{PlacementYearRangeOf(timelineOf(), 0), "any year"},
+		{PlacementYearRangeOf(timelineOf(1970), 0), "before 1970"},
+		{PlacementYearRangeOf(timelineOf(1989), 1), "after 1989"},
+		{PlacementYearRangeOf(timelineOf(1971, 1989), 1), "1971–1989"},
+	}
+
+	for _, test := range tests {
+		if got := test.r.Format(); got != test.want {
+			t.Errorf("Format(%+v) = %q, want %q", test.r, got, test.want)
+		}
+	}
+}
+
+func TestCanBuyCard(t *testing.T) {
+	if !CanBuyCard(3, 2, 5) {
+		t.Fatal("3 songs with 2 tokens toward 5 should allow buy")
+	}
+	if CanBuyCard(4, 2, 5) {
+		t.Fatal("one away from winning must not allow buy")
+	}
+	if CanBuyCard(3, 1, 5) {
+		t.Fatal("not enough tokens must not allow buy")
+	}
+}
+
 func TestValidateCardsToWin(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -119,5 +188,85 @@ func TestSameUUIDOrder(t *testing.T) {
 
 	if sameUUIDOrder(a, a[:2]) {
 		t.Error("sameUUIDOrder of different lengths = true, want false")
+	}
+}
+
+func TestGuessQualifies(t *testing.T) {
+	both := Guess{TitleCorrect: true, ArtistCorrect: true}
+	titleOnly := Guess{TitleCorrect: true, ArtistCorrect: false}
+	artistOnly := Guess{TitleCorrect: false, ArtistCorrect: true}
+	neither := Guess{TitleCorrect: false, ArtistCorrect: false}
+
+	cases := []struct {
+		mode string
+		g    Guess
+		want bool
+	}{
+		{GuessModeBoth, both, true},
+		{GuessModeBoth, titleOnly, false},
+		{GuessModeBoth, artistOnly, false},
+		{GuessModeTitle, both, true},
+		{GuessModeTitle, titleOnly, true},
+		{GuessModeTitle, artistOnly, false},
+		{GuessModeEither, titleOnly, true},
+		{GuessModeEither, artistOnly, true},
+		{GuessModeEither, neither, false},
+		{GuessModeOff, both, false},
+	}
+	for _, test := range cases {
+		if got := GuessQualifies(test.g, test.mode); got != test.want {
+			t.Errorf("GuessQualifies(%+v, %q) = %v, want %v", test.g, test.mode, got, test.want)
+		}
+	}
+}
+
+func TestPickGuessTokenWinnerFirstQualifying(t *testing.T) {
+	first := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	second := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	turn := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+
+	guesses := []Guess{
+		{PlayerId: first, PlayerName: "Kaleb", TitleCorrect: true, ArtistCorrect: true, GuessText: "full"},
+		{PlayerId: turn, PlayerName: "test2", TitleCorrect: true, ArtistCorrect: false, GuessText: "title only"},
+		{PlayerId: second, PlayerName: "other", TitleCorrect: true, ArtistCorrect: true, GuessText: "also full"},
+	}
+
+	got, ok := pickGuessTokenWinner(guesses, GuessModeBoth)
+	if !ok || got.PlayerId != first {
+		t.Fatalf("both mode: want first full guess, got ok=%v %+v", ok, got)
+	}
+
+	got, ok = pickGuessTokenWinner(guesses, GuessModeEither)
+	if !ok || got.PlayerId != first {
+		t.Fatalf("either mode: earliest qualifying is still first, not the later title-only turn player, got ok=%v %+v", ok, got)
+	}
+
+	// Title-only from the turn player is earlier than a later full guess —
+	// first submit that qualifies wins, even if a better guess arrives after.
+	lateFull := []Guess{
+		{PlayerId: turn, PlayerName: "test2", TitleCorrect: true, ArtistCorrect: false, GuessText: "title only"},
+		{PlayerId: first, PlayerName: "Kaleb", TitleCorrect: true, ArtistCorrect: true, GuessText: "full"},
+	}
+	got, ok = pickGuessTokenWinner(lateFull, GuessModeEither)
+	if !ok || got.PlayerId != turn {
+		t.Fatalf("either mode: earlier title-only should beat a later full guess, got ok=%v %+v", ok, got)
+	}
+
+	got, ok = pickGuessTokenWinner(lateFull, GuessModeBoth)
+	if !ok || got.PlayerId != first {
+		t.Fatalf("both mode: title-only does not qualify, later full guess should win, got ok=%v %+v", ok, got)
+	}
+}
+
+func TestValidateGuessMatchPercent(t *testing.T) {
+	for _, percent := range []int{60, 70, 80, 90} {
+		if err := ValidateGuessMatchPercent(percent); err != nil {
+			t.Errorf("ValidateGuessMatchPercent(%d) = %v, want nil", percent, err)
+		}
+	}
+	for _, percent := range []int{50, 100, 0, 85} {
+		if err := ValidateGuessMatchPercent(percent); err == nil {
+			t.Errorf("ValidateGuessMatchPercent(%d) = nil, want an error", percent)
+		}
 	}
 }
