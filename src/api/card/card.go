@@ -3,8 +3,8 @@ package apiCard
 import (
 	"database/sql"
 	"encoding/csv"
-	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -63,22 +63,6 @@ func parseReleaseYear(value string) (sql.NullInt64, string) {
 	return sql.NullInt64{Int64: int64(year), Valid: true}, ""
 }
 
-// parseStartOffset reads the optional playback start offset in seconds.
-func parseStartOffset(value string) (int, string) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return 0, ""
-	}
-	seconds, err := strconv.Atoi(value)
-	if err != nil {
-		return 0, "Start offset must be a whole number of seconds."
-	}
-	if seconds < 0 {
-		return 0, "Start offset cannot be negative."
-	}
-	return seconds, ""
-}
-
 // parseCategoryId parses the required categoryId form value and confirms it
 // exists. CARD.CATEGORY_ID is a soft reference, so this check is the integrity
 // constraint.
@@ -103,12 +87,11 @@ func parseCategoryId(value string) (uuid.NullUUID, string) {
 
 // cardFormValues is everything the create and update forms share.
 type cardFormValues struct {
-	videoId      string
-	startSeconds int
-	title        string
-	artist       string
-	releaseYear  sql.NullInt64
-	categoryId   uuid.NullUUID
+	videoId     string
+	title       string
+	artist      string
+	releaseYear sql.NullInt64
+	categoryId  uuid.NullUUID
 }
 
 // readCardForm validates the posted card fields, writing its own response and
@@ -137,14 +120,6 @@ func readCardForm(w http.ResponseWriter, r *http.Request) (cardFormValues, bool)
 		return values, false
 	}
 	values.videoId = videoId
-
-	startSeconds, message := parseStartOffset(r.FormValue("startSeconds"))
-	if message != "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(message))
-		return values, false
-	}
-	values.startSeconds = startSeconds
 
 	releaseYear, message := parseReleaseYear(r.FormValue("year"))
 	if message != "" {
@@ -202,7 +177,6 @@ func Create(w http.ResponseWriter, r *http.Request) {
 	if _, err := database.CreateCard(
 		deckId,
 		values.videoId,
-		values.startSeconds,
 		values.title,
 		values.artist,
 		values.releaseYear,
@@ -269,7 +243,6 @@ func Update(w http.ResponseWriter, r *http.Request) {
 	if err := database.UpdateCard(
 		cardId,
 		values.videoId,
-		values.startSeconds,
 		values.title,
 		values.artist,
 		values.releaseYear,
@@ -280,9 +253,65 @@ func Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if values.videoId != card.YouTubeVideoId {
+		if err := database.MarkVideoAwaitingValidation(cardId); err != nil {
+			log.Println(err)
+		}
+	}
+
 	w.Header().Add("HX-Refresh", "true")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("Card updated."))
+}
+
+// SetCategory assigns a genre on the admin Ungenred library tab.
+func SetCategory(w http.ResponseWriter, r *http.Request) {
+	if !gsApi.UserIsAdmin(r) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte("Only an admin can set song genres."))
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Failed to parse form."))
+		return
+	}
+
+	cardId, err := uuid.Parse(r.PathValue("cardId"))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Invalid card."))
+		return
+	}
+
+	categoryId, message := parseCategoryId(r.FormValue("categoryId"))
+	if message != "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(message))
+		return
+	}
+
+	card, err := database.GetCard(cardId)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get card."))
+		return
+	}
+	if card.Id == uuid.Nil {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("No card found."))
+		return
+	}
+
+	if err := database.UpdateCardCategory(cardId, categoryId.UUID); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to set genre."))
+		return
+	}
+
+	w.Header().Add("HX-Refresh", "true")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("Genre saved."))
 }
 
 func Delete(w http.ResponseWriter, r *http.Request) {
@@ -304,7 +333,7 @@ func Delete(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("No card found."))
 		return
 	}
-	if !hasDeckAccess(w, r, card.DeckId) {
+	if !gsApi.UserIsAdmin(r) && !hasDeckAccess(w, r, card.DeckId) {
 		return
 	}
 
@@ -358,7 +387,6 @@ func GetCardExport(w http.ResponseWriter, r *http.Request) {
 			card.Artist,
 			year,
 			card.YouTubeVideoId,
-			strconv.Itoa(card.StartOffsetSeconds),
 			category,
 		}
 		if err := writer.Write(record); err != nil {
@@ -422,12 +450,7 @@ func ImportJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	message := fmt.Sprintf("Imported %d card(s); skipped %d already in this deck.", result.Imported, result.Skipped)
-	if result.Uncategorized > 0 {
-		message += fmt.Sprintf(" %d had no matching genre and were left ungenred.", result.Uncategorized)
-	}
-
-	w.Header().Add("HX-Refresh", "true")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(message))
+	_, _ = w.Write([]byte(result.FormatImportReport()))
 }

@@ -1,0 +1,17 @@
+-- Start offsets are no longer authored per card. Where a clip begins is now a
+-- per-lobby playback setting (TRACK_TIMELINE_GAME.PLAYBACK_MODE) resolved at
+-- play time -- the 'sample' mode picks a fresh random window every round, so
+-- the same song never starts in the same place twice and a stored offset has
+-- nothing left to mean.
+--
+-- Dropped from AUDIT_CARD too rather than left behind as an always-zero
+-- column: the concept is gone from CARD entirely, so retaining the historical
+-- values would preserve an attribute no current card can have. DROP COLUMN IF
+-- EXISTS is idempotent -- safe to always rerun.
+--
+-- TR_AUDIT_CARD_UPDATE and TR_AUDIT_CARD_DELETE both referenced this column
+-- and are rewritten without it. They are recreated after this runs (the
+-- schema manifest orders tables, then migrations, then triggers) and use
+-- CREATE OR REPLACE, so the stale versions never outlive the column in a way
+-- that reaches real traffic.
+ALTER TABLE CARD DROP COLUMN IF EXISTS START_OFFSET_SECONDS;

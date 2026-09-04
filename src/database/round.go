@@ -1,64 +1,92 @@
 package database
 
 import (
+	"database/sql"
 	"errors"
 	"log"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// Placement is one committed guess at where the song in play belongs.
+// Placement is the turn player's own committed guess at where the song in
+// play belongs. At most one exists per round -- the stealer's attempt (see
+// ClaimSteal) is judged and resolved immediately rather than recorded here.
 type Placement struct {
-	Id            uuid.UUID
-	CreatedOnDate time.Time
-	PlayerId      uuid.UUID
-	PlayerName    string
-	Position      int
-	IsChallenge   bool
+	Id             uuid.UUID
+	CreatedOnDate  time.Time
+	PlayerId       uuid.UUID
+	PlayerName     string
+	Position       int
+	ExactYearGuess sql.NullInt64
+	YearWager      int
+	// YearRange is snapshotted at CommitPlacement so a steal compares against
+	// the locked-in window even if the original player's timeline changes
+	// during the steal window (e.g. a buy).
+	YearRange PlacementYearRange
 }
 
-// GetPlacements returns this round's placements oldest first, which is the
-// order challengers are resolved in.
-func GetPlacements(gameId uuid.UUID) ([]Placement, error) {
+// GetPlacement returns the turn player's placement this round. The zero
+// Placement (Id == uuid.Nil) means nobody has placed yet.
+func GetPlacement(gameId uuid.UUID) (Placement, error) {
+	var placement Placement
+
 	sqlString := `
-		SELECT PL.ID, PL.CREATED_ON_DATE, PL.PLAYER_ID, U.NAME, PL.POSITION, PL.IS_CHALLENGE
+		SELECT PL.ID, PL.CREATED_ON_DATE, PL.PLAYER_ID, U.NAME, PL.POSITION,
+			PL.EXACT_YEAR_GUESS, PL.YEAR_WAGER,
+			PL.RANGE_HAS_LOWER, PL.RANGE_LOWER, PL.RANGE_HAS_UPPER, PL.RANGE_UPPER
 		FROM TRACK_TIMELINE_PLACEMENT PL
 			INNER JOIN PLAYER P ON P.ID = PL.PLAYER_ID
 			INNER JOIN USER U ON U.ID = P.USER_ID
 		WHERE PL.TRACK_TIMELINE_GAME_ID = ?
-		ORDER BY PL.CREATED_ON_DATE ASC
 	`
 	rows, err := query(sqlString, gameId)
 	if err != nil {
-		return nil, err
+		return placement, err
 	}
 	defer rows.Close()
 
-	result := make([]Placement, 0)
 	for rows.Next() {
-		var placement Placement
 		if err := rows.Scan(
 			&placement.Id,
 			&placement.CreatedOnDate,
 			&placement.PlayerId,
 			&placement.PlayerName,
 			&placement.Position,
-			&placement.IsChallenge,
+			&placement.ExactYearGuess,
+			&placement.YearWager,
+			&placement.YearRange.HasLower,
+			&placement.YearRange.Lower,
+			&placement.YearRange.HasUpper,
+			&placement.YearRange.Upper,
 		); err != nil {
 			log.Println(err)
-			return nil, errors.New("failed to scan row in query results")
+			return placement, errors.New("failed to scan row in query results")
 		}
-		result = append(result, placement)
 	}
 
-	return result, nil
+	return placement, nil
 }
 
-// CommitPlacement records a placement. The GAME_PLAYER_UNIQUE constraint means
-// a player gets exactly one per round, so a duplicate is a conflict rather than
-// an overwrite — you do not get to move your guess once it is in.
-func CommitPlacement(gameId uuid.UUID, playerId uuid.UUID, position int, isChallenge bool) error {
+// HasPlaced reports whether playerId is the turn player and has already
+// committed a placement this round.
+func HasPlaced(gameId uuid.UUID, playerId uuid.UUID) (bool, error) {
+	placement, err := GetPlacement(gameId)
+	if err != nil {
+		return false, err
+	}
+	return placement.Id != uuid.Nil && placement.PlayerId == playerId, nil
+}
+
+// CommitPlacement records the turn player's placement. The GAME_PLAYER_UNIQUE
+// constraint means a second call this round is a conflict rather than an
+// overwrite — you do not get to move your guess once it is in.
+// exactYearGuess / yearWager are set when the player used the exact-year
+// wager; pass yearWager 0 for an ordinary slot placement.
+// yearRange is the slot's year window at lock-in (see PlacementYearRangeOf).
+func CommitPlacement(gameId uuid.UUID, playerId uuid.UUID, position int, exactYearGuess sql.NullInt64, yearWager int, yearRange PlacementYearRange) error {
 	id, err := uuid.NewUUID()
 	if err != nil {
 		log.Println(err)
@@ -66,13 +94,22 @@ func CommitPlacement(gameId uuid.UUID, playerId uuid.UUID, position int, isChall
 	}
 
 	sqlString := `
-		INSERT INTO TRACK_TIMELINE_PLACEMENT (ID, TRACK_TIMELINE_GAME_ID, PLAYER_ID, POSITION, IS_CHALLENGE)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO TRACK_TIMELINE_PLACEMENT (
+			ID, TRACK_TIMELINE_GAME_ID, PLAYER_ID, POSITION,
+			EXACT_YEAR_GUESS, YEAR_WAGER,
+			RANGE_HAS_LOWER, RANGE_LOWER, RANGE_HAS_UPPER, RANGE_UPPER
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	return execute(sqlString, id, gameId, playerId, position, isChallenge)
+	return execute(
+		sqlString,
+		id, gameId, playerId, position,
+		exactYearGuess, yearWager,
+		yearRange.HasLower, yearRange.Lower, yearRange.HasUpper, yearRange.Upper,
+	)
 }
 
-// ClearPlacements empties the round's placements.
+// ClearPlacements empties the round's placement.
 func ClearPlacements(gameId uuid.UUID) error {
 	return execute("DELETE FROM TRACK_TIMELINE_PLACEMENT WHERE TRACK_TIMELINE_GAME_ID = ?", gameId)
 }
@@ -164,8 +201,120 @@ func HasGuessed(gameId uuid.UUID, playerId uuid.UUID) (bool, error) {
 	return count > 0, nil
 }
 
-// RecordGuess stores a judged guess.
-func RecordGuess(gameId uuid.UUID, playerId uuid.UUID, guessText string, titleCorrect bool, artistCorrect bool, tokensAwarded int) error {
+// Guess is one player's judged title/artist guess against the song in play.
+type Guess struct {
+	PlayerId           uuid.UUID
+	PlayerName         string
+	GuessText          string
+	TitleCorrect       bool
+	ArtistCorrect      bool
+	TitleMatchPercent  int
+	ArtistMatchPercent int
+}
+
+// GetGuesses returns this round's guesses oldest first — the order used to
+// decide who earns the guess token (first qualifying submit wins).
+func GetGuesses(gameId uuid.UUID) ([]Guess, error) {
+	sqlString := `
+		SELECT G.PLAYER_ID, U.NAME, G.GUESS_TEXT, G.TITLE_CORRECT, G.ARTIST_CORRECT,
+			G.TITLE_MATCH_PERCENT, G.ARTIST_MATCH_PERCENT
+		FROM TRACK_TIMELINE_TITLE_GUESS G
+			INNER JOIN PLAYER P ON P.ID = G.PLAYER_ID
+			INNER JOIN USER U ON U.ID = P.USER_ID
+		WHERE G.TRACK_TIMELINE_GAME_ID = ?
+		ORDER BY G.CREATED_ON_DATE ASC
+	`
+	rows, err := query(sqlString, gameId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]Guess, 0)
+	for rows.Next() {
+		var g Guess
+		if err := rows.Scan(
+			&g.PlayerId, &g.PlayerName, &g.GuessText, &g.TitleCorrect, &g.ArtistCorrect,
+			&g.TitleMatchPercent, &g.ArtistMatchPercent,
+		); err != nil {
+			log.Println(err)
+			return nil, errors.New("failed to scan row in query results")
+		}
+		result = append(result, g)
+	}
+
+	return result, nil
+}
+
+// AwardGuessToken resolves this round's guess-token economy under the lobby's
+// GuessMode: the earliest-submitted qualifying guess wins, regardless of who
+// is on turn. hasWinner is false if none qualify, or if GuessMode is off.
+//
+// This is deliberately separate from ResolveRound's placement/card judging:
+// the guess-token economy and the card economy are independent, and this runs
+// regardless of whether the turn player's placement was correct.
+//
+// currentPlayerId is unused (kept so call sites stay stable); submit time is
+// the only tie-break.
+func AwardGuessToken(gameId uuid.UUID, currentPlayerId uuid.NullUUID, guessMode string) (winningGuess Guess, hasWinner bool, err error) {
+	if guessMode == GuessModeOff || guessMode == "" {
+		return winningGuess, false, nil
+	}
+
+	guesses, err := GetGuesses(gameId)
+	if err != nil {
+		return winningGuess, false, err
+	}
+
+	winningGuess, hasWinner = pickGuessTokenWinner(guesses, guessMode)
+	if !hasWinner {
+		return winningGuess, false, nil
+	}
+
+	if _, err := AddPlayerTokens(gameId, winningGuess.PlayerId, 1); err != nil {
+		return winningGuess, true, err
+	}
+	return winningGuess, true, nil
+}
+
+// pickGuessTokenWinner returns the first guess in submit order that qualifies
+// under guessMode. guesses must already be oldest-first.
+func pickGuessTokenWinner(guesses []Guess, guessMode string) (Guess, bool) {
+	for _, g := range guesses {
+		if GuessQualifies(g, guessMode) {
+			return g, true
+		}
+	}
+	return Guess{}, false
+}
+
+// GuessQualifies reports whether a judged guess earns the token under mode.
+func GuessQualifies(g Guess, mode string) bool {
+	switch mode {
+	case GuessModeTitle:
+		return g.TitleCorrect
+	case GuessModeEither:
+		return g.TitleCorrect || g.ArtistCorrect
+	case GuessModeBoth:
+		return g.TitleCorrect && g.ArtistCorrect
+	default:
+		return false
+	}
+}
+
+// RecordGuess stores a judged guess. tokensAwarded is always recorded as 0 at
+// submit time -- the token itself is granted later, at reveal, by
+// AwardGuessToken.
+func RecordGuess(
+	gameId uuid.UUID,
+	playerId uuid.UUID,
+	guessText string,
+	titleCorrect bool,
+	artistCorrect bool,
+	titleMatchPercent int,
+	artistMatchPercent int,
+	tokensAwarded int,
+) error {
 	id, err := uuid.NewUUID()
 	if err != nil {
 		log.Println(err)
@@ -174,10 +323,12 @@ func RecordGuess(gameId uuid.UUID, playerId uuid.UUID, guessText string, titleCo
 
 	sqlString := `
 		INSERT INTO TRACK_TIMELINE_TITLE_GUESS
-			(ID, TRACK_TIMELINE_GAME_ID, PLAYER_ID, GUESS_TEXT, TITLE_CORRECT, ARTIST_CORRECT, TOKENS_AWARDED)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+			(ID, TRACK_TIMELINE_GAME_ID, PLAYER_ID, GUESS_TEXT, TITLE_CORRECT, ARTIST_CORRECT,
+			TITLE_MATCH_PERCENT, ARTIST_MATCH_PERCENT, TOKENS_AWARDED)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	return execute(sqlString, id, gameId, playerId, guessText, titleCorrect, artistCorrect, tokensAwarded)
+	return execute(sqlString, id, gameId, playerId, guessText, titleCorrect, artistCorrect,
+		titleMatchPercent, artistMatchPercent, tokensAwarded)
 }
 
 // ClearGuesses empties the round's guesses.
@@ -205,6 +356,138 @@ func IsPlacementCorrect(timeline []TimelineCard, position int, releaseYear int) 
 	return true
 }
 
+// PlacementYearRange is the year window a placement slot sits in — the
+// neighbouring cards' years, or open-ended when there is no neighbour.
+// Snapshotted at lock-in so a steal can re-check whether the original was
+// also correct without re-deriving bounds after a mid-window buy.
+type PlacementYearRange struct {
+	HasLower bool
+	Lower    int
+	HasUpper bool
+	Upper    int
+}
+
+// PlacementYearRangeOf returns the year bounds for inserting at position.
+func PlacementYearRangeOf(timeline []TimelineCard, position int) PlacementYearRange {
+	var r PlacementYearRange
+	if position > 0 && position <= len(timeline) {
+		r.HasLower = true
+		r.Lower = timeline[position-1].ReleaseYear
+	}
+	if position >= 0 && position < len(timeline) {
+		r.HasUpper = true
+		r.Upper = timeline[position].ReleaseYear
+	}
+	return r
+}
+
+// Contains reports whether releaseYear falls in this slot, matching
+// IsPlacementCorrect (equal neighbour years are allowed on both sides).
+func (r PlacementYearRange) Contains(year int) bool {
+	if r.HasLower && year < r.Lower {
+		return false
+	}
+	if r.HasUpper && year > r.Upper {
+		return false
+	}
+	return true
+}
+
+// Format is a short human label for chat: "any year", "before 1970",
+// "after 1989", or "1971–1989".
+func (r PlacementYearRange) Format() string {
+	switch {
+	case !r.HasLower && !r.HasUpper:
+		return "any year"
+	case !r.HasLower && r.HasUpper:
+		return "before " + strconv.Itoa(r.Upper)
+	case r.HasLower && !r.HasUpper:
+		return "after " + strconv.Itoa(r.Lower)
+	default:
+		return strconv.Itoa(r.Lower) + "–" + strconv.Itoa(r.Upper)
+	}
+}
+
+// PositionForYear returns the index a card of the given year would sort into
+// within timeline (ascending by ReleaseYear). Used by the exact-year and buy
+// actions, neither of which have the player choose a position by hand — the
+// year (guessed or, for a purchase, simply known) determines it.
+func PositionForYear(timeline []TimelineCard, year int) int {
+	for i, card := range timeline {
+		if card.ReleaseYear > year {
+			return i
+		}
+	}
+	return len(timeline)
+}
+
+// AnyEligibleToSteal reports whether any active player besides the one on
+// turn holds a token, i.e. could claim the steal attempt if a window opened
+// right now. Used to decide whether opening the steal-join window is worth
+// it at all.
+func AnyEligibleToSteal(gameId uuid.UUID) (bool, error) {
+	game, err := GetGameById(gameId)
+	if err != nil {
+		return false, err
+	}
+	players, err := GetPlayers(gameId)
+	if err != nil {
+		return false, err
+	}
+	for _, player := range players {
+		if !player.IsActive {
+			continue
+		}
+		if game.CurrentPlayerId.Valid && player.PlayerId == game.CurrentPlayerId.UUID {
+			continue
+		}
+		if player.TokenCount < 1 {
+			continue
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+// ClaimSteal attempts to claim the sole steal attempt for this round: an
+// atomic UPDATE ... WHERE STEALER_PLAYER_ID IS NULL, so if two players race
+// to claim at nearly the same instant, MariaDB's row-level locking serializes
+// the two UPDATEs and exactly one can match the WHERE clause. The read-back
+// afterward is what tells this specific call whether it was the one that
+// matched (there is no RowsAffected available through this codebase's
+// execute() wrapper, so this is the substitute) -- by the time it runs, the
+// claim (if any) has already been durably decided by the UPDATE, so nobody
+// else can have since changed it out from under this read.
+//
+// A successful claim immediately spends the claimant's token and moves the
+// round into PhaseStealTurn: claiming and beginning the turn are the same
+// moment now that there is only one steal attempt per round, not a queue to
+// wait on.
+func ClaimSteal(gameId uuid.UUID, playerId uuid.UUID) (claimed bool, err error) {
+	if err := execute(
+		"UPDATE TRACK_TIMELINE_GAME SET STEALER_PLAYER_ID = ? WHERE ID = ? AND STEALER_PLAYER_ID IS NULL",
+		playerId, gameId,
+	); err != nil {
+		return false, err
+	}
+
+	game, err := GetGameById(gameId)
+	if err != nil {
+		return false, err
+	}
+	if !game.StealerPlayerId.Valid || game.StealerPlayerId.UUID != playerId {
+		return false, nil
+	}
+
+	if _, err := AddPlayerTokens(gameId, playerId, -1); err != nil {
+		return true, err
+	}
+	if err := SetRoundPhase(gameId, PhaseStealTurn); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
 // insertIntoTimeline shifts later cards along and writes the won card in.
 func insertIntoTimeline(gameId uuid.UUID, playerId uuid.UUID, cardId uuid.UUID, releaseYear int, position int) error {
 	sqlShift := `
@@ -229,6 +512,159 @@ func insertIntoTimeline(gameId uuid.UUID, playerId uuid.UUID, cardId uuid.UUID, 
 	return execute(sqlInsert, id, gameId, playerId, cardId, releaseYear, position)
 }
 
+// cardAlreadyOnAnyTimeline reports whether CARD_ID already sits on some seat
+// in this game — the invariant GAME_CARD_UNIQUE enforces, checked in Go too
+// so a duplicate award becomes ErrRoundAlreadyResolved instead of a SQL error.
+func cardAlreadyOnAnyTimeline(gameId uuid.UUID, cardId uuid.UUID) (bool, error) {
+	rows, err := query(
+		`SELECT 1 FROM TRACK_TIMELINE_PLAYER_TIMELINE WHERE TRACK_TIMELINE_GAME_ID = ? AND CARD_ID = ? LIMIT 1`,
+		gameId, cardId,
+	)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	return rows.Next(), nil
+}
+
+// BuyCardCost is how many tokens the buy-a-free-card action spends.
+const BuyCardCost = 2
+
+// CanBuyCard reports whether buying a free card is allowed for this seat:
+// enough tokens, and the purchase would not be the winning song (wins must
+// come from a real placement or steal).
+func CanBuyCard(timelineLen, tokenCount, cardsToWin int) bool {
+	if tokenCount < BuyCardCost {
+		return false
+	}
+	if timelineLen+1 >= cardsToWin {
+		return false
+	}
+	return true
+}
+
+// BoughtCard is what a successful BuyCard produced — enough to announce it,
+// nothing more. Unlike RoundOutcome this never drives a reveal: buying is a
+// private transaction between one player and their own token balance, not an
+// outcome of the round in progress.
+type BoughtCard struct {
+	CardId      uuid.UUID
+	Title       string
+	Artist      string
+	ReleaseYear int
+}
+
+// drawnPileCard is one undrawn card pulled directly from the draw pile,
+// outside of TRACK_TIMELINE_CURRENT_CARD — the shared "song in play" slot
+// that the turn player's own round revolves around.
+type drawnPileCard struct {
+	CardId      uuid.UUID
+	Title       string
+	Artist      string
+	ReleaseYear int
+}
+
+// drawFromPile pulls the next undrawn card (lowest SHUFFLE_ORDER) straight off
+// the pile and marks it drawn, without touching TRACK_TIMELINE_CURRENT_CARD.
+// CardId is uuid.Nil if the pile has nothing left to draw. Broken-video cards
+// never reach this query in the first place — they're excluded when the pile
+// is built (and pruned again on StartGame if stale), the same guarantee
+// ordinary turn draws already rely on.
+func drawFromPile(gameId uuid.UUID) (drawnPileCard, error) {
+	var card drawnPileCard
+
+	sqlString := `
+		SELECT DP.CARD_ID, C.TITLE, C.ARTIST, DP.RELEASE_YEAR
+		FROM TRACK_TIMELINE_DRAW_PILE DP
+			INNER JOIN CARD C ON C.ID = DP.CARD_ID
+		WHERE DP.TRACK_TIMELINE_GAME_ID = ? AND DP.DRAWN = 0
+		ORDER BY DP.SHUFFLE_ORDER ASC, DP.ID ASC
+		LIMIT 1
+	`
+	rows, err := query(sqlString, gameId)
+	if err != nil {
+		return card, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		if err := rows.Scan(&card.CardId, &card.Title, &card.Artist, &card.ReleaseYear); err != nil {
+			log.Println(err)
+			return card, errors.New("failed to scan row in query results")
+		}
+	}
+	if card.CardId == uuid.Nil {
+		return card, nil
+	}
+
+	sqlMark := "UPDATE TRACK_TIMELINE_DRAW_PILE SET DRAWN = 1 WHERE TRACK_TIMELINE_GAME_ID = ? AND CARD_ID = ?"
+	if err := execute(sqlMark, gameId, card.CardId); err != nil {
+		return card, err
+	}
+
+	return card, nil
+}
+
+// BuyCard draws a fresh card straight from the top of the draw pile — never
+// whatever card is currently queued up for someone else's turn — and inserts
+// it into the buyer's own timeline at its correct position, at the cost of
+// BuyCardCost tokens, with no listen and no guess. Available to any player,
+// any time the phase allows it (the caller gates on RoundPhase); this never
+// touches the round already in progress, so it is safe to call regardless of
+// whose turn it is.
+//
+// Refuses the purchase if it would be the card that reaches CardsToWin: a win
+// has to come from a real guess, not a purchase.
+func BuyCard(gameId uuid.UUID, playerId uuid.UUID) (BoughtCard, error) {
+	var bought BoughtCard
+
+	game, err := GetGameById(gameId)
+	if err != nil {
+		return bought, err
+	}
+
+	timeline, err := GetPlayerTimeline(gameId, playerId)
+	if err != nil {
+		return bought, err
+	}
+	tokens, err := GetPlayerTokens(gameId, playerId)
+	if err != nil {
+		return bought, err
+	}
+	if !CanBuyCard(len(timeline), tokens, game.CardsToWin) {
+		if tokens < BuyCardCost {
+			return bought, errors.New("not enough tokens")
+		}
+		return bought, errors.New("that would be the winning card — it has to come from a real guess")
+	}
+
+	card, err := drawFromPile(gameId)
+	if err != nil {
+		return bought, err
+	}
+	if card.CardId == uuid.Nil {
+		return bought, errors.New("the draw pile is empty")
+	}
+	bought.CardId = card.CardId
+	bought.Title = card.Title
+	bought.Artist = card.Artist
+	bought.ReleaseYear = card.ReleaseYear
+
+	position := PositionForYear(timeline, card.ReleaseYear)
+	if err := insertIntoTimeline(gameId, playerId, card.CardId, card.ReleaseYear, position); err != nil {
+		return bought, err
+	}
+	if _, err := AddPlayerTokens(gameId, playerId, -BuyCardCost); err != nil {
+		return bought, err
+	}
+
+	if logErr := LogCardEvent(card.CardId, CardEventBought); logErr != nil {
+		log.Println(logErr)
+	}
+
+	return bought, nil
+}
+
 // RoundOutcome is what the reveal produced, for the announcement and the popup.
 type RoundOutcome struct {
 	CardId      uuid.UUID
@@ -236,8 +672,9 @@ type RoundOutcome struct {
 	Artist      string
 	ReleaseYear int
 
-	// CurrentPlayerName is who was on turn, and CurrentPlayerCorrect whether
-	// their own placement stood up.
+	// CurrentPlayerId / CurrentPlayerName is who was on turn, and
+	// CurrentPlayerCorrect whether their own placement stood up.
+	CurrentPlayerId      uuid.NullUUID
 	CurrentPlayerName    string
 	CurrentPlayerCorrect bool
 
@@ -245,17 +682,69 @@ type RoundOutcome struct {
 	WinnerPlayerId uuid.NullUUID
 	WinnerName     string
 	WonByChallenge bool
+
+	// GuessTokenWinnerPlayerId is who earned the title/artist guess token this
+	// round, independent of who (if anyone) won the card. Invalid when nobody
+	// qualified under the lobby's guess mode.
+	GuessTokenWinnerPlayerId     uuid.NullUUID
+	GuessTokenWinnerName         string
+	GuessTokenGuessText          string
+	GuessTokenTitleMatchPercent  int
+	GuessTokenArtistMatchPercent int
+
+	// Exact-year wager on the turn player's placement, if any. Announced at
+	// reveal so the steal window is not spoiled by the year digits.
+	HasExactYearGuess bool
+	ExactYearGuess    int
+	ExactYearCorrect  bool
+	YearWager         int
+	ExactYearPlayer   string
+
+	// Populated on a successful steal so chat can show both year windows
+	// alongside the real year.
+	OriginalPlayerName string
+	OriginalRangeLabel string
+	StealerRangeLabel  string
 }
 
-// ResolveRound reveals the answer and awards the card. The player on turn is
-// judged first; only if they were wrong do challengers get their chance, in the
-// order they committed. Placements and guesses are cleared either way.
+// ErrRoundAlreadyResolved means another goroutine (steal attempt vs. scheduled
+// timeout) already finished this round. Callers must not announce again.
+var ErrRoundAlreadyResolved = errors.New("round already resolved")
+
+// roundResolveMu serializes resolveRound within this process so a steal
+// attempt and its steal-turn timeout cannot both award the same card (the
+// timeline unique key is per-player, so without this both players can end up
+// holding the same song).
+var roundResolveMu sync.Mutex
+
+// resolveRound is the common tail of every way a round can end: award the
+// card to winnerPlayerId at winPosition (or, when winnerPlayerId is
+// uuid.Nil, award nobody), run the independent guess-token economy, clear
+// all round-scoped state, and move the phase to reveal.
+//
+// Per-attempt placement stats (LogPlacement) are logged by the caller at the
+// moment each attempt is judged — the turn player's own in PlaceCard, a
+// stealer's in AttemptSteal — not batched here, since attempts are now
+// judged one at a time as they happen rather than gathered and judged
+// together at the end.
 //
 // It does not advance the turn or draw the next song — the caller does that
-// after it has also checked for a winner, so a won game stops on the reveal
-// instead of flicking straight to the next round.
-func ResolveRound(gameId uuid.UUID) (RoundOutcome, error) {
+// after it has also checked for a game winner, so a won game stops on the
+// reveal instead of flicking straight to the next round.
+func resolveRound(gameId uuid.UUID, winnerPlayerId uuid.UUID, winnerName string, winPosition int, wonBySteal bool) (RoundOutcome, error) {
+	roundResolveMu.Lock()
+	defer roundResolveMu.Unlock()
+
 	var outcome RoundOutcome
+
+	game, err := GetGameById(gameId)
+	if err != nil {
+		return outcome, err
+	}
+	// A concurrent resolver already moved us to reveal (or the game ended).
+	if game.RoundPhase == PhaseReveal || game.GameStatus == StatusFinished {
+		return outcome, ErrRoundAlreadyResolved
+	}
 
 	card, err := GetCurrentCardAnswer(gameId)
 	if err != nil {
@@ -269,66 +758,65 @@ func ResolveRound(gameId uuid.UUID) (RoundOutcome, error) {
 	outcome.Artist = card.Artist
 	outcome.ReleaseYear = card.ReleaseYear
 
-	placements, err := GetPlacements(gameId)
-	if err != nil {
-		return outcome, err
+	// Capture the exact-year wager before ClearPlacements so reveal chat can
+	// announce it without having leaked the digits during the steal window.
+	if placement, err := GetPlacement(gameId); err == nil && placement.Id != uuid.Nil && placement.ExactYearGuess.Valid {
+		outcome.HasExactYearGuess = true
+		outcome.ExactYearGuess = int(placement.ExactYearGuess.Int64)
+		outcome.ExactYearCorrect = outcome.ExactYearGuess == card.ReleaseYear
+		outcome.YearWager = placement.YearWager
+		outcome.ExactYearPlayer = placement.PlayerName
 	}
 
-	game, err := GetGameById(gameId)
-	if err != nil {
-		return outcome, err
-	}
-
-	// The player on turn first, then challengers in commit order.
-	ordered := make([]Placement, 0, len(placements))
-	for _, placement := range placements {
-		if !placement.IsChallenge {
-			ordered = append(ordered, placement)
-			outcome.CurrentPlayerName = placement.PlayerName
+	if game.CurrentPlayerId.Valid {
+		outcome.CurrentPlayerId = game.CurrentPlayerId
+		players, err := GetPlayers(gameId)
+		if err == nil {
+			for _, p := range players {
+				if p.PlayerId == game.CurrentPlayerId.UUID {
+					outcome.CurrentPlayerName = p.UserName
+					break
+				}
+			}
 		}
 	}
-	for _, placement := range placements {
-		if placement.IsChallenge {
-			ordered = append(ordered, placement)
-		}
-	}
 
-	awarded := false
-	for _, placement := range ordered {
-		timeline, err := GetPlayerTimeline(gameId, placement.PlayerId)
-		if err != nil {
+	if winnerPlayerId != uuid.Nil {
+		// Belt-and-suspenders with GAME_CARD_UNIQUE: if this card somehow
+		// already sits on anyone's timeline (a prior partial resolve), do not
+		// award it again — that was how both seats ended up holding the song.
+		alreadyHeld, holdErr := cardAlreadyOnAnyTimeline(gameId, card.CardId)
+		if holdErr != nil {
+			return outcome, holdErr
+		}
+		if alreadyHeld {
+			return outcome, ErrRoundAlreadyResolved
+		}
+		if err := insertIntoTimeline(gameId, winnerPlayerId, card.CardId, card.ReleaseYear, winPosition); err != nil {
 			return outcome, err
 		}
-		correct := IsPlacementCorrect(timeline, placement.Position, card.ReleaseYear)
-
-		if !placement.IsChallenge {
-			outcome.CurrentPlayerCorrect = correct
-		}
-
-		userId, err := userIdForPlayer(placement.PlayerId)
-		if err == nil {
-			if logErr := LogPlacement(userId, card.CardId, card.ReleaseYear, placement.IsChallenge, correct); logErr != nil {
-				log.Println(logErr)
-			}
-		}
-
-		// Only the first correct placement wins the card, but every placement
-		// is still judged and logged so the stats reflect what everyone did.
-		if correct && !awarded {
-			if err := insertIntoTimeline(gameId, placement.PlayerId, card.CardId, card.ReleaseYear, placement.Position); err != nil {
-				return outcome, err
-			}
-			outcome.WinnerPlayerId = uuid.NullUUID{UUID: placement.PlayerId, Valid: true}
-			outcome.WinnerName = placement.PlayerName
-			outcome.WonByChallenge = placement.IsChallenge
-			awarded = true
-		}
-	}
-
-	if !awarded {
+		outcome.WinnerPlayerId = uuid.NullUUID{UUID: winnerPlayerId, Valid: true}
+		outcome.WinnerName = winnerName
+		outcome.WonByChallenge = wonBySteal
+		outcome.CurrentPlayerCorrect = !wonBySteal
+	} else {
 		if logErr := LogCardEvent(card.CardId, CardEventDiscarded); logErr != nil {
 			log.Println(logErr)
 		}
+	}
+
+	// The guess-token economy is independent of the card economy above: it
+	// runs whether or not anyone correctly placed the card.
+	guessWinner, hasGuessWinner, err := AwardGuessToken(gameId, game.CurrentPlayerId, game.GuessMode)
+	if err != nil {
+		return outcome, err
+	}
+	if hasGuessWinner {
+		outcome.GuessTokenWinnerPlayerId = uuid.NullUUID{UUID: guessWinner.PlayerId, Valid: true}
+		outcome.GuessTokenWinnerName = guessWinner.PlayerName
+		outcome.GuessTokenGuessText = guessWinner.GuessText
+		outcome.GuessTokenTitleMatchPercent = guessWinner.TitleMatchPercent
+		outcome.GuessTokenArtistMatchPercent = guessWinner.ArtistMatchPercent
 	}
 
 	if err := ClearPlacements(gameId); err != nil {
@@ -337,29 +825,55 @@ func ResolveRound(gameId uuid.UUID) (RoundOutcome, error) {
 	if err := ClearGuesses(gameId); err != nil {
 		return outcome, err
 	}
-	if err := SetRoundPhase(game.Id, PhaseReveal); err != nil {
+	if err := SetRoundPhase(gameId, PhaseReveal); err != nil {
 		return outcome, err
 	}
 
 	return outcome, nil
 }
 
-// userIdForPlayer maps a player row back to its user, for the FK-free logs.
-func userIdForPlayer(playerId uuid.UUID) (uuid.UUID, error) {
-	var userId uuid.UUID
-	rows, err := query("SELECT USER_ID FROM PLAYER WHERE ID = ?", playerId)
-	if err != nil {
-		return userId, err
-	}
-	defer rows.Close()
+// ResolveRoundWon awards the card to winnerPlayerId at winPosition.
+// wonBySteal distinguishes a stealer's win from the turn player's own
+// correct placement, for the announcement and the reveal popup.
+func ResolveRoundWon(gameId uuid.UUID, winnerPlayerId uuid.UUID, winnerName string, winPosition int, wonBySteal bool) (RoundOutcome, error) {
+	return resolveRound(gameId, winnerPlayerId, winnerName, winPosition, wonBySteal)
+}
 
-	for rows.Next() {
-		if err := rows.Scan(&userId); err != nil {
-			log.Println(err)
-			return userId, errors.New("failed to scan row in query results")
-		}
+// ResolveRoundFallbackToOriginal re-judges the turn player's own original
+// placement and resolves accordingly. Called whenever nobody's active steal
+// attempt settled the round in the stealer's favor: nobody was eligible to
+// steal in the first place, the steal-join window closed with nobody
+// claiming it, a claimed steal attempt was wrong, or a steal turn timed out.
+//
+// The original placement's correctness is deliberately not judged or
+// revealed until this point (see PlaceCard): a stealer who could only ever
+// be invited once the original was already known to be wrong would be
+// taking no real risk. This is where that suspense resolves — if the
+// original was actually right all along, the turn player keeps the card
+// (the stealer, if there was one, already spent their token finding out);
+// otherwise the card is discarded.
+func ResolveRoundFallbackToOriginal(gameId uuid.UUID) (RoundOutcome, error) {
+	placement, err := GetPlacement(gameId)
+	if err != nil {
+		return RoundOutcome{}, err
 	}
-	return userId, nil
+	if placement.Id == uuid.Nil {
+		return RoundOutcome{}, errors.New("no placement to fall back to")
+	}
+
+	card, err := GetCurrentCardAnswer(gameId)
+	if err != nil {
+		return RoundOutcome{}, err
+	}
+	timeline, err := GetPlayerTimeline(gameId, placement.PlayerId)
+	if err != nil {
+		return RoundOutcome{}, err
+	}
+
+	if !IsPlacementCorrect(timeline, placement.Position, card.ReleaseYear) {
+		return resolveRound(gameId, uuid.Nil, "", 0, false)
+	}
+	return resolveRound(gameId, placement.PlayerId, placement.PlayerName, placement.Position, false)
 }
 
 // AdvanceToNextPlayer moves the turn to the next active player after the
@@ -401,54 +915,16 @@ func AdvanceToNextPlayer(gameId uuid.UUID) error {
 	if err := SetCurrentPlayer(gameId, nextPlayerId); err != nil {
 		return err
 	}
+	// The paid replay is per-round, so the incoming player starts with theirs
+	// unspent regardless of what the outgoing one did.
+	if err := SetReplayUsed(gameId, false); err != nil {
+		return err
+	}
 	if err := SetRoundPhase(gameId, PhaseListening); err != nil {
 		return err
 	}
 
 	return DrawCard(gameId)
-}
-
-// ChallengersOutstanding reports how many active players could still challenge:
-// not the player on turn, holding at least one token, and not already placed.
-// The window closes on its own once this reaches zero.
-func ChallengersOutstanding(gameId uuid.UUID) (int, error) {
-	game, err := GetGameById(gameId)
-	if err != nil {
-		return 0, err
-	}
-
-	players, err := GetPlayers(gameId)
-	if err != nil {
-		return 0, err
-	}
-
-	placements, err := GetPlacements(gameId)
-	if err != nil {
-		return 0, err
-	}
-	placed := make(map[uuid.UUID]bool, len(placements))
-	for _, placement := range placements {
-		placed[placement.PlayerId] = true
-	}
-
-	outstanding := 0
-	for _, player := range players {
-		if !player.IsActive {
-			continue
-		}
-		if game.CurrentPlayerId.Valid && player.PlayerId == game.CurrentPlayerId.UUID {
-			continue
-		}
-		if placed[player.PlayerId] {
-			continue
-		}
-		if player.TokenCount < 1 {
-			continue
-		}
-		outstanding++
-	}
-
-	return outstanding, nil
 }
 
 // SkipCurrentCard discards the song in play without judging anyone and draws a

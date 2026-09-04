@@ -1,3 +1,14 @@
+{{define "deck-heading"}}
+<h2>{{.Deck.Name}}</h2>
+{{if gt .UnavailableCount 0}}
+<div
+    class="hint deck-unavailable-subtext"
+    title="Songs whose video was unavailable last time they were checked — stored status, not a live YouTube poll"
+>
+    {{.UnavailableCount}} unavailable
+</div>
+{{end}}
+{{end}}
 {{define "card-header-actions"}}
 <button onclick="document.getElementById('card-create-dialog').showModal()">
     <span class="bi bi-plus-circle"></span> Add Song
@@ -90,15 +101,6 @@ No songs found with that search criteria.
                                 required="required"
                                 autocomplete="off"
                             />
-                            <label for="startSeconds{{.Id}}">Start At (seconds)</label>
-                            <input
-                                type="number"
-                                id="startSeconds{{.Id}}"
-                                name="startSeconds"
-                                min="0"
-                                value="{{.StartOffsetSeconds}}"
-                                autocomplete="off"
-                            />
                             <label for="category{{.Id}}">Genre</label>
                             <select
                                 id="category{{.Id}}"
@@ -129,6 +131,24 @@ No songs found with that search criteria.
             <td>{{.Title}}</td>
             <td>{{if .CategoryName.Valid}}{{.CategoryName.String}}{{else}}<em>none</em>{{end}}</td>
             <td>
+                {{if .VideoAwaiting}}
+                <div title="YouTube link updated — awaiting a re-check">
+                    <span class="bi bi-hourglass-split"></span> Awaiting Recheck
+                </div>
+                {{else if and .VideoAvailable.Valid (not .VideoAvailable.Bool)}}
+                <div title="Unavailable as of the last check -- excluded from every game's draw pile until it passes a check again">
+                    <span class="bi bi-exclamation-triangle-fill"></span> Unavailable
+                </div>
+                {{end}}
+                <div class="iframe-container">
+                    <iframe
+                        src="https://www.youtube.com/embed/{{.YouTubeVideoId}}"
+                        title="{{.Title}} by {{.Artist}}"
+                        allow="encrypted-media"
+                        allowfullscreen
+                        loading="lazy"
+                    ></iframe>
+                </div>
                 <a
                     href="https://www.youtube.com/watch?v={{.YouTubeVideoId}}"
                     target="_blank"
@@ -214,15 +234,6 @@ No songs found with that search criteria.
                 required="required"
                 autocomplete="off"
             />
-            <label for="newCardStartSeconds">Start At (seconds)</label>
-            <input
-                type="number"
-                id="newCardStartSeconds"
-                name="startSeconds"
-                min="0"
-                value="0"
-                autocomplete="off"
-            />
             <label for="newCardCategory">Genre</label>
             <select
                 id="newCardCategory"
@@ -269,20 +280,22 @@ No songs found with that search criteria.
   "artist": "David Bowie",
   "year": 1977,
   "videoId": "https://youtu.be/...",
-  "startSeconds": 0,
   "category": "Rock"
 }</pre>
     <p>
         <code>videoId</code> accepts a YouTube link or a bare video ID.
-        <code>year</code>, <code>startSeconds</code> and <code>category</code>
-        are optional. Songs whose video is already in this deck are skipped,
-        and an unrecognized genre imports the song without one. Max 1000 songs,
+        Blank or invalid links still import the song (with no video id) and
+        mark it unavailable for Dead Videos. <code>year</code> and
+        <code>category</code> are optional. Songs already in this deck with
+        the same video id, or the same title + artist + year, are skipped.
+        An unrecognized genre imports the song without one. Max 1000 songs,
         2&nbsp;MB per upload.
     </p>
     <form
         hx-post="/api/deck/{{.Deck.Id}}/card-import"
         hx-target="find .htmx-result"
         hx-encoding="multipart/form-data"
+        hx-on::after-request="if (event.detail.successful) { alert(event.detail.xhr.responseText); location.reload(); }"
     >
         <div class="form-input">
             <label for="cardImportFile">JSON File</label>

@@ -5,16 +5,20 @@
 -- RELEASE_YEAR NULL means authored-but-incomplete: the card is silently
 -- excluded from every draw pile rather than erroring at game start.
 --
+-- YOUTUBE_VIDEO_ID NULL means no usable link yet (e.g. import with a
+-- malformed videoId). Those songs are marked unavailable until an admin
+-- supplies a real id.
+--
 -- Uniqueness is on the video ID, not the title: the same recording listed under
 -- two spellings is still one card, and two different recordings of the same
--- song are legitimately two cards.
+-- song are legitimately two cards. Multiple NULLs in one deck are allowed
+-- (MariaDB unique indexes treat NULL as distinct).
 CREATE TABLE IF NOT EXISTS CARD(
     ID UUID NOT NULL DEFAULT UUID(),
     CREATED_ON_DATE DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP(),
     CHANGED_ON_DATE DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP(),
     DECK_ID UUID NOT NULL,
-    YOUTUBE_VIDEO_ID VARCHAR(32) NOT NULL,
-    START_OFFSET_SECONDS INT NOT NULL DEFAULT 0,
+    YOUTUBE_VIDEO_ID VARCHAR(32) NULL,
     TITLE VARCHAR(510) NOT NULL,
     ARTIST VARCHAR(510) NOT NULL,
     RELEASE_YEAR INT NULL,

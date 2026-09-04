@@ -11,7 +11,15 @@
         autocomplete="off"
     />
 </span>
-<button type="submit">
-    <span class="bi bi-search"></span>
-</button>
+        <span>
+            <label for="videoFilter">Videos</label>
+            <select id="videoFilter" name="video" autocomplete="off">
+                <option value="" {{if eq .VideoFilter ""}}selected{{end}}>All</option>
+                <option value="available" {{if eq .VideoFilter "available"}}selected{{end}}>Valid videos only</option>
+                <option value="unavailable" {{if eq .VideoFilter "unavailable"}}selected{{end}}>Unavailable or awaiting check</option>
+            </select>
+        </span>
+        <button type="submit">
+            <span class="bi bi-search"></span>
+        </button>
 {{end}}

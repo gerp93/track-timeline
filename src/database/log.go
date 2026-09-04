@@ -12,6 +12,7 @@ const (
 	CardEventDrawn     = "drawn"
 	CardEventDiscarded = "discarded"
 	CardEventSkipped   = "skipped"
+	CardEventBought    = "bought"
 )
 
 // The log tables have no foreign keys on purpose (see their DDL): a lobby and

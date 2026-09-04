@@ -1,0 +1,5 @@
+{{define "deck-list-extra-filter"}}
+{{if .User.IsAdmin}}
+<a href="/videos"><button type="button"><span class="bi bi-collection"></span> Library Issues{{if gt .LibraryIssueCount 0}} ({{.LibraryIssueCount}}){{end}}</button></a>
+{{end}}
+{{end}}

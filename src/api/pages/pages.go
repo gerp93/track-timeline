@@ -1,10 +1,13 @@
 package apiPages
 
 import (
+	"encoding/json"
 	"html/template"
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	gsApi "github.com/gerp93/gameshell-framework/api"
 	gsApiPages "github.com/gerp93/gameshell-framework/api/pages"
@@ -12,7 +15,9 @@ import (
 	gsStatic "github.com/gerp93/gameshell-framework/static"
 	"github.com/google/uuid"
 
+	apiCard "github.com/gerp93/track-timeline/api/card"
 	"github.com/gerp93/track-timeline/database"
+	"github.com/gerp93/track-timeline/guess"
 	"github.com/gerp93/track-timeline/static"
 )
 
@@ -41,6 +46,11 @@ func Home(w http.ResponseWriter, r *http.Request) {
 	basePageData := gsApi.GetBasePageData(r)
 	basePageData.PageTitle = "Track Timeline"
 
+	libraryIssueCount, ok := libraryIssueCountFor(w, basePageData.User.IsAdmin)
+	if !ok {
+		return
+	}
+
 	tmpl, err := parseChrome("html/pages/body/home.html", nil)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -50,9 +60,13 @@ func Home(w http.ResponseWriter, r *http.Request) {
 
 	type data struct {
 		gsApi.BasePageData
+		LibraryIssueCount int
 	}
 
-	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData})
+	_ = tmpl.ExecuteTemplate(w, "base", data{
+		BasePageData:      basePageData,
+		LibraryIssueCount: libraryIssueCount,
+	})
 }
 
 func About(w http.ResponseWriter, r *http.Request) {
@@ -168,11 +182,14 @@ func Deck(w http.ResponseWriter, r *http.Request) {
 	basePageData.PageTitle = deck.Name
 
 	var search string
+	var videoFilter string
 	page := 1
 	for key, val := range r.URL.Query() {
 		switch key {
 		case "search":
 			search = val[0]
+		case "video":
+			videoFilter = val[0]
 		case "page":
 			if parsed, err := strconv.Atoi(val[0]); err == nil {
 				page = parsed
@@ -182,8 +199,13 @@ func Deck(w http.ResponseWriter, r *http.Request) {
 	if page < 1 {
 		page = 1
 	}
+	switch videoFilter {
+	case "available", "unavailable":
+	default:
+		videoFilter = ""
+	}
 
-	rowCount, err := database.CountCardsInDeck(deckId, search)
+	rowCount, err := database.CountCardsInDeck(deckId, search, videoFilter)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to count cards."))
@@ -197,7 +219,7 @@ func Deck(w http.ResponseWriter, r *http.Request) {
 		page = lastPage
 	}
 
-	cards, err := database.SearchCardsInDeck(deckId, search, page)
+	cards, err := database.SearchCardsInDeck(deckId, search, page, videoFilter)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to get cards."))
@@ -208,6 +230,13 @@ func Deck(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to get genres."))
+		return
+	}
+
+	unavailableCount, err := database.CountUnavailableVideosInDeck(deckId)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to count unavailable videos."))
 		return
 	}
 
@@ -225,25 +254,123 @@ func Deck(w http.ResponseWriter, r *http.Request) {
 
 	type data struct {
 		gsApi.BasePageData
-		Deck       gsDatabase.Deck
-		Cards      []database.Card
-		Categories []database.Category
-		Search     string
-		Page       int
-		LastPage   int
-		RowCount   int
+		Deck             gsDatabase.Deck
+		Cards            []database.Card
+		Categories       []database.Category
+		Search           string
+		VideoFilter      string
+		Page             int
+		LastPage         int
+		RowCount         int
+		UnavailableCount int
 	}
 
 	_ = tmpl.ExecuteTemplate(w, "base", data{
-		BasePageData: basePageData,
-		Deck:         deck,
-		Cards:        cards,
-		Categories:   categories,
-		Search:       search,
-		Page:         page,
-		LastPage:     lastPage,
-		RowCount:     rowCount,
+		BasePageData:     basePageData,
+		Deck:             deck,
+		Cards:            cards,
+		Categories:       categories,
+		Search:           search,
+		VideoFilter:      videoFilter,
+		Page:             page,
+		LastPage:         lastPage,
+		RowCount:         rowCount,
+		UnavailableCount: unavailableCount,
 	})
+}
+
+// Decks overrides the framework's own /decks page (see main.go's
+// Features.DecksListPageOverride) so the admin Library button can be
+// injected into the shared decks.html chrome via
+// deck-list-video-health.html's deck-list-extra-filter block. Deck search,
+// paging and creation stay entirely the framework's own
+// (gsDatabase.SearchDecks/CountDecks).
+func Decks(w http.ResponseWriter, r *http.Request) {
+	basePageData := gsApi.GetBasePageData(r)
+	basePageData.PageTitle = basePageData.BrandName + " - Decks"
+
+	var name string
+	var page int
+	params := r.URL.Query()
+	for key, val := range params {
+		switch key {
+		case "name":
+			name = val[0]
+		case "page":
+			page, _ = strconv.Atoi(val[0])
+		}
+	}
+
+	totalRowCount, err := gsDatabase.CountDecks(name)
+	if err != nil {
+		totalRowCount = 0
+	}
+	totalPageCount := max((totalRowCount+9)/10, 1)
+
+	if page < 1 {
+		page = 1
+	}
+	if page > totalPageCount {
+		page = totalPageCount
+	}
+
+	decks, err := gsDatabase.SearchDecks(name, page)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("failed to get table rows"))
+		return
+	}
+
+	libraryIssueCount, ok := libraryIssueCountFor(w, basePageData.User.IsAdmin)
+	if !ok {
+		return
+	}
+
+	tmpl, err := gsApiPages.ParseGameFragment(
+		static.StaticFiles,
+		"html/pages/body/decks.html",
+		"html/pages/body/deck-list-video-health.html",
+	)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("failed to parse HTML"))
+		return
+	}
+
+	type data struct {
+		gsApi.BasePageData
+		Name              string
+		Page              int
+		LastPage          int
+		RowCount          int
+		Decks             []gsDatabase.DeckDetails
+		LibraryIssueCount int
+	}
+
+	_ = tmpl.ExecuteTemplate(w, "base", data{
+		BasePageData:      basePageData,
+		Name:              name,
+		Page:              page,
+		LastPage:          totalPageCount,
+		RowCount:          totalRowCount,
+		Decks:             decks,
+		LibraryIssueCount: libraryIssueCount,
+	})
+}
+
+// libraryIssueCountFor loads the admin Library badge. Non-admins skip the
+// queries. On failure it writes the response and returns false.
+func libraryIssueCountFor(w http.ResponseWriter, isAdmin bool) (int, bool) {
+	if !isAdmin {
+		return 0, true
+	}
+	count, err := database.CountLibraryIssues()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to count library issues."))
+		return 0, false
+	}
+	return count, true
 }
 
 // TrackTimelineLobbies is the lobby list and the new-game form.
@@ -274,14 +401,16 @@ func TrackTimelineLobbies(w http.ResponseWriter, r *http.Request) {
 
 	type data struct {
 		gsApi.BasePageData
-		Decks      []gsDatabase.Deck
-		Categories []database.Category
+		Decks       []gsDatabase.Deck
+		Categories  []database.Category
+		ClaudeReady bool
 	}
 
 	_ = tmpl.ExecuteTemplate(w, "base", data{
 		BasePageData: basePageData,
 		Decks:        decks,
 		Categories:   categories,
+		ClaudeReady:  guess.ClaudeConfigured(),
 	})
 }
 
@@ -596,4 +725,391 @@ func StatsCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Stats: stats})
+}
+
+// DeadVideos is the admin library page: dead/incorrect YouTube links and
+// cross-deck title+artist duplicate clusters.
+func DeadVideos(w http.ResponseWriter, r *http.Request) {
+	basePageData := gsApi.GetBasePageData(r)
+	if !basePageData.User.IsAdmin {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte("Only an admin can maintain the song library."))
+		return
+	}
+	basePageData.PageTitle = basePageData.BrandName + " - Library"
+
+	tab := r.URL.Query().Get("tab")
+	switch tab {
+	case "duplicates", "genres":
+	default:
+		tab = "dead"
+	}
+
+	search := r.URL.Query().Get("search")
+	status := r.URL.Query().Get("status")
+	switch status {
+	case "unavailable", "awaiting", "incorrect":
+	default:
+		status = "all"
+	}
+	dupView := r.URL.Query().Get("dup")
+	if dupView != "dismissed" {
+		dupView = "active"
+	}
+	genreView := r.URL.Query().Get("genre")
+	if genreView != "log" {
+		genreView = "needs"
+	}
+	page := 1
+	if raw := r.URL.Query().Get("page"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil {
+			page = parsed
+		}
+	}
+	if page < 1 {
+		page = 1
+	}
+
+	type data struct {
+		gsApi.BasePageData
+		Tab                         string
+		DupView                     string
+		GenreView                   string
+		Cards                       []database.DeadVideoCard
+		UngenredCards               []database.UngenredCard
+		GenreAssignLogs             []database.GenreAssignLog
+		DuplicateGroups             []database.DuplicateGroup
+		Categories                  []database.Category
+		Search                      string
+		Status                      string
+		ShowEmbeds                  bool
+		Page                        int
+		LastPage                    int
+		RowCount                    int
+		DeadTabCount                int
+		DuplicateTabCount           int
+		DismissedDupTabCount        int
+		UngenredTabCount            int
+		GenreLogTabCount            int
+		ClaudeGenreReady            bool
+		ExactDuplicateDeleteCount   int
+		ExactTitleArtistDeleteCount int
+		StaleCount                  int
+		ResolveCount                int
+		QuotaUsed                   int
+		QuotaLimit                  int
+		QuotaRemaining              int
+	}
+
+	out := data{
+		BasePageData:     basePageData,
+		Tab:              tab,
+		DupView:          dupView,
+		GenreView:        genreView,
+		Search:           search,
+		Status:           status,
+		ShowEmbeds:       false,
+		Page:             page,
+		ClaudeGenreReady: guess.ClaudeConfigured(),
+	}
+
+	deadTabCount, err := database.CountDeadOrAwaitingVideos("", "all")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to count dead videos."))
+		return
+	}
+	out.DeadTabCount = deadTabCount
+
+	duplicateTabCount, err := database.CountDuplicateGroups()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to count duplicate groups."))
+		return
+	}
+	out.DuplicateTabCount = duplicateTabCount
+
+	dismissedDupTabCount, err := database.CountDismissedDuplicateGroups()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to count dismissed duplicates."))
+		return
+	}
+	out.DismissedDupTabCount = dismissedDupTabCount
+
+	ungenredTabCount, err := database.CountUngenredCards()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to count ungenred songs."))
+		return
+	}
+	out.UngenredTabCount = ungenredTabCount
+
+	genreLogTabCount, err := database.CountGenreAssignLogs()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to count Claude genre log rows."))
+		return
+	}
+	out.GenreLogTabCount = genreLogTabCount
+
+	switch tab {
+	case "duplicates":
+		candidates, err := database.ListDuplicateCandidates()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to list songs for duplicate check."))
+			return
+		}
+		dismissed, err := database.ListDismissedDuplicatePairs()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to load dismissed duplicates."))
+			return
+		}
+		var groups []database.DuplicateGroup
+		if dupView == "dismissed" {
+			groups = database.BuildDismissedDuplicateGroups(candidates, dismissed, search)
+		} else {
+			groups = database.BuildDuplicateGroups(candidates, dismissed, search)
+			out.ExactDuplicateDeleteCount = len(database.ExactDuplicateLatestIds(candidates))
+			out.ExactTitleArtistDeleteCount = len(database.ExactTitleArtistLatestIds(candidates))
+		}
+		out.RowCount = len(groups)
+		lastPage := int(math.Ceil(float64(out.RowCount) / 10))
+		if lastPage < 1 {
+			lastPage = 1
+		}
+		if page > lastPage {
+			page = lastPage
+		}
+		out.Page = page
+		out.LastPage = lastPage
+		start := (page - 1) * 10
+		end := start + 10
+		if start > len(groups) {
+			start = len(groups)
+		}
+		if end > len(groups) {
+			end = len(groups)
+		}
+		out.DuplicateGroups = groups[start:end]
+	case "genres":
+		categories, err := database.GetCategories()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to get genres."))
+			return
+		}
+		out.Categories = categories
+
+		if genreView == "log" {
+			rowCount, err := database.CountGenreAssignLogsMatching(search)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte("Failed to count Claude genre log rows."))
+				return
+			}
+			lastPage := int(math.Ceil(float64(rowCount) / 10))
+			if lastPage < 1 {
+				lastPage = 1
+			}
+			if page > lastPage {
+				page = lastPage
+			}
+			logs, err := database.SearchGenreAssignLogs(search, page)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte("Failed to list Claude genre log."))
+				return
+			}
+			out.GenreAssignLogs = logs
+			out.Page = page
+			out.LastPage = lastPage
+			out.RowCount = rowCount
+		} else {
+			rowCount, err := database.CountUngenredCardsMatching(search)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte("Failed to count ungenred songs."))
+				return
+			}
+			lastPage := int(math.Ceil(float64(rowCount) / 10))
+			if lastPage < 1 {
+				lastPage = 1
+			}
+			if page > lastPage {
+				page = lastPage
+			}
+			cards, err := database.SearchUngenredCards(search, page)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte("Failed to list ungenred songs."))
+				return
+			}
+			out.UngenredCards = cards
+			out.Page = page
+			out.LastPage = lastPage
+			out.RowCount = rowCount
+		}
+	default:
+		rowCount, err := database.CountDeadOrAwaitingVideos(search, status)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to count dead videos."))
+			return
+		}
+		lastPage := int(math.Ceil(float64(rowCount) / 10))
+		if lastPage < 1 {
+			lastPage = 1
+		}
+		if page > lastPage {
+			page = lastPage
+		}
+
+		cards, err := database.SearchDeadOrAwaitingVideos(search, page, status)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to list dead videos."))
+			return
+		}
+
+		staleCount, err := database.CountStaleVideoChecks(apiCard.StaleVideoCutoff())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to count stale video checks."))
+			return
+		}
+
+		resolveCount, err := database.CountDeadOrAwaitingVideos("", "awaiting")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to count songs awaiting recheck."))
+			return
+		}
+
+		quotaUsed, err := database.GetYouTubeQuotaUsedToday()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to load YouTube quota usage."))
+			return
+		}
+		quotaLimit := database.YouTubeDailyQuotaLimit()
+
+		out.Cards = cards
+		out.Page = page
+		out.LastPage = lastPage
+		out.RowCount = rowCount
+		out.StaleCount = staleCount
+		out.ResolveCount = resolveCount
+		out.QuotaUsed = quotaUsed
+		out.QuotaLimit = quotaLimit
+		out.QuotaRemaining = max(0, quotaLimit-quotaUsed)
+	}
+
+	tmpl, err := parseChrome("html/pages/body/dead-videos.html", template.FuncMap{
+		"add": func(a, b int) int { return a + b },
+		"formatTime": func(t time.Time) string {
+			return t.Local().Format("2006-01-02 15:04:05")
+		},
+	})
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to parse page template."))
+		return
+	}
+
+	_ = tmpl.ExecuteTemplate(w, "base", out)
+}
+
+// GuessTest is Quizmaster Testing: an admin sandbox for the title/artist
+// match engine. Pick a random song, type a guess, and see how the same rules
+// as a lobby would score it. Nothing is written to a game.
+func GuessTest(w http.ResponseWriter, r *http.Request) {
+	basePageData := gsApi.GetBasePageData(r)
+	if !basePageData.User.IsAdmin {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte("Only an admin can test the match engine."))
+		return
+	}
+	basePageData.PageTitle = basePageData.BrandName + " - Quizmaster Testing"
+
+	search := strings.TrimSpace(r.URL.Query().Get("q"))
+	cardIdRaw := strings.TrimSpace(r.URL.Query().Get("cardId"))
+
+	var card database.Card
+	var results []database.Card
+	var err error
+
+	switch {
+	case cardIdRaw != "":
+		cardId, parseErr := uuid.Parse(cardIdRaw)
+		if parseErr != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("That song id is not valid."))
+			return
+		}
+		card, err = database.GetCard(cardId)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to load that song."))
+			return
+		}
+	case search != "":
+		results, err = database.SearchCardsByName(search)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to search songs."))
+			return
+		}
+		if len(results) == 1 {
+			card = results[0]
+			results = nil
+		}
+	default:
+		card, err = database.GetRandomCard()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to pick a song."))
+			return
+		}
+	}
+
+	tmpl, err := parseChrome("html/pages/body/guess-test.html", nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to parse page template."))
+		return
+	}
+
+	type data struct {
+		gsApi.BasePageData
+		Card            database.Card
+		HasCard         bool
+		Search          string
+		Results         []database.Card
+		ClaudeReady     bool
+		ClaudeModel     string
+		PromptBothJSON  template.JS
+		PromptTitleJSON template.JS
+	}
+
+	promptBoth, _ := json.Marshal(guess.ClaudePromptPreview(
+		false, card.Title, card.Artist, "@@TITLE_SAID@@", "@@ARTIST_SAID@@", "@@COMBINED@@",
+	))
+	promptTitle, _ := json.Marshal(guess.ClaudePromptPreview(
+		true, card.Title, card.Artist, "@@TITLE_SAID@@", "", "",
+	))
+
+	_ = tmpl.ExecuteTemplate(w, "base", data{
+		BasePageData:    basePageData,
+		Card:            card,
+		HasCard:         card.Id != uuid.Nil,
+		Search:          search,
+		Results:         results,
+		ClaudeReady:     guess.ClaudeConfigured(),
+		ClaudeModel:     guess.ClaudeModel(),
+		PromptBothJSON:  template.JS(promptBoth),
+		PromptTitleJSON: template.JS(promptTitle),
+	})
 }

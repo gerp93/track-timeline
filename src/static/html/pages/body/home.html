@@ -34,6 +34,17 @@
         <div>
             <a href="/categories"><button>Genres</button></a>
         </div>
+        <div
+            id="tt-home-library-issues"
+            hx-post="/api/videos/auto-check-stale"
+            hx-trigger="load"
+            hx-swap="innerHTML"
+        >
+            <a href="/videos"><button type="button">Library Issues{{if gt .LibraryIssueCount 0}} ({{.LibraryIssueCount}}){{end}}</button></a>
+        </div>
+        <div>
+            <a href="/guess-test"><button>Quizmaster Testing</button></a>
+        </div>
         {{end}}
     </div>
 </div>

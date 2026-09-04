@@ -83,6 +83,49 @@
                 value="2"
                 autocomplete="off"
             />
+
+            <label for="playbackMode">Playback</label>
+            <select id="playbackMode" name="playbackMode" autocomplete="off" onchange="ttTogglePlaybackClip()">
+                <option value="sample" selected="selected">Random clip from the middle</option>
+                <option value="intro">Clip from the beginning</option>
+                <option value="full">Play the whole song</option>
+            </select>
+
+            <label for="clipSeconds" id="clipSecondsLabel">Clip Length (seconds)</label>
+            <input
+                type="number"
+                id="clipSeconds"
+                name="clipSeconds"
+                min="5"
+                max="60"
+                value="20"
+                autocomplete="off"
+            />
+
+            <label for="guessMode">Naming the Song</label>
+            <select id="guessMode" name="guessMode" autocomplete="off">
+                <option value="both" selected="selected">Title and artist both required for a token</option>
+                <option value="title">Title only (artist field hidden)</option>
+                <option value="either">Title or artist correct earns the token</option>
+                <option value="off">Disabled</option>
+            </select>
+
+            <label for="guessJudge">AI Judge</label>
+            <select id="guessJudge" name="guessJudge" autocomplete="off" onchange="ttToggleGuessJudge()">
+                <option value="local" {{if not .ClaudeReady}}selected="selected"{{end}}>No</option>
+                <option value="claude" {{if .ClaudeReady}}selected="selected"{{end}} {{if not .ClaudeReady}}disabled="disabled"{{end}}>Yes</option>
+            </select>
+            {{if not .ClaudeReady}}
+            <p class="hint">Yes needs TRACK_TIMELINE_ANTHROPIC_API_KEY on the server.</p>
+            {{end}}
+
+            <label for="guessMatchPercent" id="guessMatchPercentLabel">Match required</label>
+            <select id="guessMatchPercent" name="guessMatchPercent" autocomplete="off">
+                <option value="60" selected="selected">60%</option>
+                <option value="70">70%</option>
+                <option value="80">80%</option>
+                <option value="90">90%</option>
+            </select>
         </div>
 
         <details>
@@ -199,6 +242,24 @@
         ttCountTimer = setTimeout(ttDoRecalcCount, 250);
     }
 
+    // Clip length is meaningless when the whole song plays, so it hides in
+    // that mode rather than sitting there inert.
+    function ttTogglePlaybackClip() {
+        var mode = document.getElementById("playbackMode").value;
+        var showClip = mode !== "full";
+        document.getElementById("clipSeconds").style.display = showClip ? "" : "none";
+        document.getElementById("clipSecondsLabel").style.display = showClip ? "" : "none";
+    }
+
+    function ttToggleGuessJudge() {
+        var el = document.getElementById("guessJudge");
+        var ai = el && el.value === "claude";
+        var label = document.getElementById("guessMatchPercentLabel");
+        if (label) {
+            label.textContent = ai ? "Heuristic fallback" : "Match required";
+        }
+    }
+
     function ttDoRecalcCount() {
         const form = document.getElementById("lobby-create-form");
         const estimate = document.getElementById("tt-count-estimate");
@@ -234,5 +295,7 @@
                 estimate.textContent = "Could not check how many songs match.";
             });
     }
+
+    ttToggleGuessJudge();
 </script>
 {{end}}

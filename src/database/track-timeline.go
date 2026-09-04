@@ -16,8 +16,18 @@ import (
 // Round phases. See TRACK_TIMELINE_GAME.sql for what each one permits.
 const (
 	PhaseListening = "listening"
-	PhaseChallenge = "challenge"
+	PhaseStealJoin = "steal_join"
+	PhaseStealTurn = "steal_turn"
 	PhaseReveal    = "reveal"
+)
+
+// Durations of the two timed phases, server-authoritative: the deadline
+// broadcast to clients and enforced by a scheduled time.AfterFunc is
+// PHASE_STARTED_ON_DATE plus the relevant one of these, not something each
+// client just starts counting down from zero on receipt.
+const (
+	StealJoinWindow = 5 * time.Second
+	StealTurnWindow = 15 * time.Second
 )
 
 // Game statuses.
@@ -39,7 +49,152 @@ const (
 
 	MinStartingTokens = 0
 	MaxStartingTokens = 5
+
+	MinClipSeconds = 5
+	MaxClipSeconds = 60
 )
+
+// Playback modes: how much of each song a lobby hears. See
+// TRACK_TIMELINE_GAME.PLAYBACK_MODE.
+const (
+	PlaybackFull   = "full"
+	PlaybackIntro  = "intro"
+	PlaybackSample = "sample"
+)
+
+// Free-form title/artist guess modes. See TRACK_TIMELINE_GAME.GUESS_MODE.
+const (
+	GuessModeOff    = "off"
+	GuessModeBoth   = "both"
+	GuessModeTitle  = "title"
+	GuessModeEither = "either"
+)
+
+// Guess match bars offered in lobby setup. 100 is deliberately not on the
+// list so a small typo can still count.
+const (
+	DefaultGuessMatchPercent = 60
+)
+
+func ValidateGuessMatchPercent(percent int) error {
+	switch percent {
+	case 60, 70, 80, 90:
+		return nil
+	}
+	return fmt.Errorf("guess match percent (%d) must be 60, 70, 80, or 90", percent)
+}
+
+const (
+	GuessJudgeLocal  = "local"
+	GuessJudgeClaude = "claude"
+)
+
+func ValidateGuessJudge(kind string) error {
+	switch kind {
+	case GuessJudgeLocal, GuessJudgeClaude:
+		return nil
+	}
+	return fmt.Errorf("unknown guess judge %q", kind)
+}
+
+// SampleLeadInSeconds is how much of a song the 'sample' mode always skips.
+// The opening is where the title is most likely to be sung and where a
+// recognisable intro lives, so starting a "guess the year" clip there gives
+// the answer away far more often than a window from the middle does.
+const SampleLeadInSeconds = 30
+
+// ValidatePlaybackMode rejects anything that is not one of the three modes.
+func ValidatePlaybackMode(mode string) error {
+	switch mode {
+	case PlaybackFull, PlaybackIntro, PlaybackSample:
+		return nil
+	}
+	return fmt.Errorf("unknown playback mode %q", mode)
+}
+
+// ValidateGuessMode rejects anything that is not one of the four modes.
+func ValidateGuessMode(mode string) error {
+	switch mode {
+	case GuessModeOff, GuessModeBoth, GuessModeTitle, GuessModeEither:
+		return nil
+	}
+	return fmt.Errorf("unknown guess mode %q", mode)
+}
+
+// ValidateClipSeconds bounds the clip length. Ignored by PlaybackFull, which
+// plays to the end of the song regardless.
+func ValidateClipSeconds(clipSeconds int) error {
+	if clipSeconds < MinClipSeconds || clipSeconds > MaxClipSeconds {
+		return fmt.Errorf("clip length (%d) must be between %d and %d seconds", clipSeconds, MinClipSeconds, MaxClipSeconds)
+	}
+	return nil
+}
+
+// ClipWindow is where in a song one round's playback starts and stops.
+// EndSeconds of 0 means "play to the end of the video" -- only PlaybackFull
+// produces that.
+type ClipWindow struct {
+	StartSeconds int
+	EndSeconds   int
+}
+
+// ResolveClipWindow picks the slice of a song a round will actually play,
+// given the lobby's mode and what is known about the video's length.
+//
+// PlaybackSample deliberately re-rolls every time it is called rather than
+// storing a chosen offset: the same song drawn again in a later game should
+// not open in the same place, and a replay within a round is meant to be the
+// same clip again (callers reuse the window rather than re-resolving).
+//
+// When the duration is known but the song is too short for a middle sample,
+// falls back to PlaybackIntro. When the duration is unknown, still picks a
+// random start past the lead-in rather than always opening at 0 — many cards
+// have never had a video-status check, and starting every one of those at the
+// top made sample mode look broken after the first few measured songs.
+func ResolveClipWindow(mode string, clipSeconds int, durationSeconds int) ClipWindow {
+	if mode == PlaybackFull {
+		return ClipWindow{}
+	}
+
+	if mode == PlaybackSample {
+		// The last legal start still leaves a full clip before the end.
+		latestStart := durationSeconds - clipSeconds
+		if durationSeconds > 0 && latestStart > SampleLeadInSeconds {
+			start := SampleLeadInSeconds + rand.Intn(latestStart-SampleLeadInSeconds+1)
+			return ClipWindow{StartSeconds: start, EndSeconds: start + clipSeconds}
+		}
+		if durationSeconds == 0 {
+			// No measured length: assume a few minutes of usable audio past
+			// the lead-in. YouTube will just end early if the video is shorter.
+			const unknownSampleSpan = 180
+			start := SampleLeadInSeconds + rand.Intn(unknownSampleSpan+1)
+			return ClipWindow{StartSeconds: start, EndSeconds: start + clipSeconds}
+		}
+	}
+
+	return ClipWindow{StartSeconds: 0, EndSeconds: clipSeconds}
+}
+
+// SampleWouldFit reports whether a middle sample of clipSeconds can be carved
+// out of a song of durationSeconds past the lead-in.
+func SampleWouldFit(clipSeconds int, durationSeconds int) bool {
+	return durationSeconds > 0 && durationSeconds-clipSeconds > SampleLeadInSeconds
+}
+
+// SetReplayUsed records that this round's one paid replay has been spent (or
+// clears it for a fresh round).
+func SetReplayUsed(gameId uuid.UUID, used bool) error {
+	return execute("UPDATE TRACK_TIMELINE_GAME SET REPLAY_USED = ? WHERE ID = ?", used, gameId)
+}
+
+// SetClipWindow stamps the window the song in play will be heard over, so a
+// replay can reuse it instead of re-rolling a random sample.
+func SetClipWindow(gameId uuid.UUID, window ClipWindow) error {
+	return execute(
+		"UPDATE TRACK_TIMELINE_GAME SET CLIP_START_SECONDS = ?, CLIP_END_SECONDS = ? WHERE ID = ?",
+		window.StartSeconds, window.EndSeconds, gameId,
+	)
+}
 
 // ValidateCardsToWin reports why a target is unreachable, or nil if it is fine.
 func ValidateCardsToWin(cardsToWin int, totalCards int) error {
@@ -69,16 +224,39 @@ func ValidateStartingTokens(startingTokens int) error {
 
 // Game is one game's root state.
 type Game struct {
-	Id                    uuid.UUID
-	LobbyId               uuid.UUID
-	CreatedOnDate         time.Time
-	CurrentPlayerId       uuid.NullUUID
-	GameStatus            string
-	RoundPhase            string
-	ChallengeOpenedOnDate sql.NullTime
-	CardsToWin            int
-	StartingTokens        int
-	WinnerId              uuid.NullUUID
+	Id              uuid.UUID
+	LobbyId         uuid.UUID
+	CreatedOnDate   time.Time
+	CurrentPlayerId uuid.NullUUID
+	GameStatus      string
+	RoundPhase      string
+	// PhaseStartedOnDate is set whenever RoundPhase enters a timed phase
+	// (PhaseStealJoin, PhaseStealTurn) and cleared otherwise -- the deadline
+	// is this plus StealJoinWindow/StealTurnWindow, computed by the caller
+	// rather than stored, since the two phases have different durations.
+	PhaseStartedOnDate sql.NullTime
+	// StealerPlayerId is whoever has claimed the sole steal attempt this
+	// round, if anyone -- set the moment a claim succeeds (PhaseStealJoin ->
+	// PhaseStealTurn) and cleared when the round resolves. There is never
+	// more than one; a claim is atomic (see database.ClaimSteal).
+	StealerPlayerId   uuid.NullUUID
+	CardsToWin        int
+	StartingTokens    int
+	GuessMode         string
+	GuessMatchPercent int
+	GuessJudge        string
+	PlaybackMode      string
+	ClipSeconds       int
+	// ClipStartSeconds/ClipEndSeconds are the window chosen for the song
+	// currently in play, stamped the first time it is played. A paid replay
+	// reuses them rather than re-resolving, so it is the same clip again and
+	// not a fresh random sample. An end of 0 means "to the end of the video".
+	ClipStartSeconds int
+	ClipEndSeconds   int
+	// ReplayUsed is whether the player on turn has already spent a token to
+	// hear this round's clip a second time. Reset on every turn advance.
+	ReplayUsed bool
+	WinnerId   uuid.NullUUID
 }
 
 // CurrentCard is everything about the song in play that is safe to send to any
@@ -89,12 +267,18 @@ type Game struct {
 // player with developer tools open can look it up, which this game treats the
 // same way its tabletop ancestors do: as something nobody who wants to play
 // will bother doing.
+//
+// DurationSeconds is the video's measured length, or 0 when unknown (never
+// checked, or a live stream / unstarted premiere, which YouTube reports as
+// zero-length). It is not part of the answer -- how long a recording runs
+// says nothing about what year it came out -- and the 'sample' playback mode
+// needs it to pick a random window that won't run off the end.
 type CurrentCard struct {
-	CardId             uuid.UUID
-	YouTubeVideoId     string
-	StartOffsetSeconds int
-	CategoryName       sql.NullString
-	DeckName           string
+	CardId          uuid.UUID
+	YouTubeVideoId  string
+	DurationSeconds int
+	CategoryName    sql.NullString
+	DeckName        string
 }
 
 // CurrentCardAnswer adds the fields that may only be sent once the round has
@@ -135,15 +319,14 @@ type Player struct {
 
 // PlayerTimeline is one player's row on the board.
 type PlayerTimeline struct {
-	PlayerId    uuid.UUID
-	PlayerName  string
-	IsCurrent   bool
-	IsMe        bool
-	TokenCount  int
-	Timeline    []TimelineCard
-	HasPlaced   bool
-	PlacedAt    int
-	IsChallenge bool
+	PlayerId   uuid.UUID
+	PlayerName string
+	IsCurrent  bool
+	IsMe       bool
+	TokenCount int
+	Timeline   []TimelineCard
+	HasPlaced  bool
+	PlacedAt   int
 }
 
 // DeckInfo is one deck's contribution to a draw pile, derived from the pile
@@ -187,9 +370,18 @@ func getGameByColumn(column string, value uuid.UUID) (Game, error) {
 			CURRENT_PLAYER_ID,
 			GAME_STATUS,
 			ROUND_PHASE,
-			CHALLENGE_OPENED_ON_DATE,
+			PHASE_STARTED_ON_DATE,
+			STEALER_PLAYER_ID,
 			CARDS_TO_WIN,
 			STARTING_TOKENS,
+			GUESS_MODE,
+			GUESS_MATCH_PERCENT,
+			GUESS_JUDGE,
+			PLAYBACK_MODE,
+			CLIP_SECONDS,
+			CLIP_START_SECONDS,
+			CLIP_END_SECONDS,
+			REPLAY_USED,
 			WINNER_ID
 		FROM TRACK_TIMELINE_GAME
 		WHERE %s = ?
@@ -208,13 +400,31 @@ func getGameByColumn(column string, value uuid.UUID) (Game, error) {
 			&game.CurrentPlayerId,
 			&game.GameStatus,
 			&game.RoundPhase,
-			&game.ChallengeOpenedOnDate,
+			&game.PhaseStartedOnDate,
+			&game.StealerPlayerId,
 			&game.CardsToWin,
 			&game.StartingTokens,
+			&game.GuessMode,
+			&game.GuessMatchPercent,
+			&game.GuessJudge,
+			&game.PlaybackMode,
+			&game.ClipSeconds,
+			&game.ClipStartSeconds,
+			&game.ClipEndSeconds,
+			&game.ReplayUsed,
 			&game.WinnerId,
 		); err != nil {
 			log.Println(err)
 			return game, errors.New("failed to scan row in query results")
+		}
+		if game.GuessMode == "" {
+			game.GuessMode = GuessModeBoth
+		}
+		if game.GuessMatchPercent == 0 {
+			game.GuessMatchPercent = DefaultGuessMatchPercent
+		}
+		if game.GuessJudge == "" {
+			game.GuessJudge = GuessJudgeLocal
 		}
 	}
 
@@ -222,7 +432,7 @@ func getGameByColumn(column string, value uuid.UUID) (Game, error) {
 }
 
 // CreateGame creates the game row for a lobby.
-func CreateGame(lobbyId uuid.UUID, cardsToWin int, startingTokens int) (uuid.UUID, error) {
+func CreateGame(lobbyId uuid.UUID, cardsToWin int, startingTokens int, guessMode string, guessMatchPercent int, guessJudge string, playbackMode string, clipSeconds int) (uuid.UUID, error) {
 	id, err := uuid.NewUUID()
 	if err != nil {
 		log.Println(err)
@@ -230,14 +440,17 @@ func CreateGame(lobbyId uuid.UUID, cardsToWin int, startingTokens int) (uuid.UUI
 	}
 
 	sqlString := `
-		INSERT INTO TRACK_TIMELINE_GAME(ID, LOBBY_ID, CARDS_TO_WIN, STARTING_TOKENS)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO TRACK_TIMELINE_GAME(ID, LOBBY_ID, CARDS_TO_WIN, STARTING_TOKENS, GUESS_MODE, GUESS_MATCH_PERCENT, GUESS_JUDGE, PLAYBACK_MODE, CLIP_SECONDS)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	return id, execute(sqlString, id, lobbyId, cardsToWin, startingTokens)
+	return id, execute(sqlString, id, lobbyId, cardsToWin, startingTokens, guessMode, guessMatchPercent, guessJudge, playbackMode, clipSeconds)
 }
 
 // InitializeDrawPile fills a game's pile with every playable card from the
-// given decks: it must have a release year, and its genre must not be excluded.
+// given decks: it must have a release year, a real YouTube link, its video
+// must not be confirmed unavailable (a card never checked is still playable
+// -- only a confirmed bad link excludes it), and its genre must not be
+// excluded.
 func InitializeDrawPile(gameId uuid.UUID, deckIds []uuid.UUID, excludedCategoryIds []uuid.UUID) error {
 	if len(deckIds) == 0 {
 		return errors.New("no decks provided")
@@ -254,8 +467,11 @@ func InitializeDrawPile(gameId uuid.UUID, deckIds []uuid.UUID, excludedCategoryI
 		INSERT INTO TRACK_TIMELINE_DRAW_PILE (ID, TRACK_TIMELINE_GAME_ID, CARD_ID, RELEASE_YEAR)
 		SELECT UUID(), ?, C.ID, C.RELEASE_YEAR
 		FROM CARD C
+			LEFT JOIN TRACK_TIMELINE_CARD_VIDEO_STATUS S ON S.CARD_ID = C.ID
 		WHERE C.DECK_ID IN (` + deckPlaceholders + `)
 			AND C.RELEASE_YEAR IS NOT NULL
+			AND C.YOUTUBE_VIDEO_ID IS NOT NULL
+			AND (S.CARD_ID IS NULL OR (S.AVAILABLE = 1 AND S.AWAITING_VALIDATION = 0))
 	`
 	if len(excludedCategoryIds) > 0 {
 		categoryPlaceholders := strings.TrimSuffix(strings.Repeat("?,", len(excludedCategoryIds)), ",")
@@ -265,7 +481,52 @@ func InitializeDrawPile(gameId uuid.UUID, deckIds []uuid.UUID, excludedCategoryI
 		}
 	}
 
-	return execute(sqlString, args...)
+	if err := execute(sqlString, args...); err != nil {
+		return err
+	}
+	return ShuffleDrawPile(gameId)
+}
+
+// ShuffleDrawPile assigns a random permutation to every undrawn pile row so
+// subsequent draws pull in that fixed order (lowest SHUFFLE_ORDER first)
+// instead of re-rolling ORDER BY RAND() on every draw. Called after the pile
+// is built (and safe to call again after a prune that leaves holes).
+func ShuffleDrawPile(gameId uuid.UUID) error {
+	sqlString := `
+		SELECT ID
+		FROM TRACK_TIMELINE_DRAW_PILE
+		WHERE TRACK_TIMELINE_GAME_ID = ? AND DRAWN = 0
+	`
+	rows, err := query(sqlString, gameId)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	ids := make([]uuid.UUID, 0)
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			log.Println(err)
+			return errors.New("failed to scan row in query results")
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	rand.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
+
+	for order, id := range ids {
+		if err := execute(
+			"UPDATE TRACK_TIMELINE_DRAW_PILE SET SHUFFLE_ORDER = ? WHERE ID = ?",
+			order, id,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // AddYearRange stores one inclusive era filter.
@@ -329,7 +590,10 @@ func ApplyYearRangeFilter(gameId uuid.UUID) error {
 					AND RELEASE_YEAR BETWEEN R.FROM_YEAR AND R.TO_YEAR
 			)
 	`
-	return execute(sqlString, gameId, gameId)
+	if err := execute(sqlString, gameId, gameId); err != nil {
+		return err
+	}
+	return ShuffleDrawPile(gameId)
 }
 
 // CountCardsInDecksForRanges counts how many cards would land in a draw pile
@@ -350,8 +614,11 @@ func CountCardsInDecksForRanges(deckIds []uuid.UUID, ranges []YearRange, exclude
 	sqlString := `
 		SELECT COUNT(*)
 		FROM CARD
+			LEFT JOIN TRACK_TIMELINE_CARD_VIDEO_STATUS S ON S.CARD_ID = CARD.ID
 		WHERE DECK_ID IN (` + deckPlaceholders + `)
 			AND RELEASE_YEAR IS NOT NULL
+			AND YOUTUBE_VIDEO_ID IS NOT NULL
+			AND (S.CARD_ID IS NULL OR (S.AVAILABLE = 1 AND S.AWAITING_VALIDATION = 0))
 	`
 	if len(ranges) > 0 {
 		rangeClauses := make([]string, 0, len(ranges))
@@ -386,8 +653,9 @@ func CountCardsInDecksForRanges(deckIds []uuid.UUID, ranges []YearRange, exclude
 	return count, nil
 }
 
-// DrawCard makes a random undrawn pile card the song in play. Leaves no current
-// card when the pile is exhausted; callers check for uuid.Nil.
+// DrawCard makes the next undrawn pile card (lowest SHUFFLE_ORDER) the song in
+// play. Leaves no current card when the pile is exhausted; callers check for
+// uuid.Nil.
 func DrawCard(gameId uuid.UUID) error {
 	if err := execute("DELETE FROM TRACK_TIMELINE_CURRENT_CARD WHERE TRACK_TIMELINE_GAME_ID = ?", gameId); err != nil {
 		return err
@@ -398,7 +666,7 @@ func DrawCard(gameId uuid.UUID) error {
 		SELECT UUID(), ?, CARD_ID, RELEASE_YEAR
 		FROM TRACK_TIMELINE_DRAW_PILE
 		WHERE TRACK_TIMELINE_GAME_ID = ? AND DRAWN = 0
-		ORDER BY RAND()
+		ORDER BY SHUFFLE_ORDER ASC, ID ASC
 		LIMIT 1
 	`
 	if err := execute(sqlDraw, gameId, gameId); err != nil {
@@ -415,8 +683,20 @@ func DrawCard(gameId uuid.UUID) error {
 		return err
 	}
 
-	// Stats only; a failure here must not break the round.
-	if card, err := GetCurrentCard(gameId); err == nil && card.CardId != uuid.Nil {
+	card, err := GetCurrentCard(gameId)
+	if err == nil && card.CardId != uuid.Nil {
+		// Choose this round's clip window once, here, rather than when the
+		// song is played: 'sample' picks at random, so resolving at play time
+		// would hand the turn player a different slice on every press of Play
+		// and make the paid replay meaningless.
+		if game, gameErr := GetGameById(gameId); gameErr == nil {
+			window := ResolveClipWindow(game.PlaybackMode, game.ClipSeconds, card.DurationSeconds)
+			if windowErr := SetClipWindow(gameId, window); windowErr != nil {
+				log.Println(windowErr)
+			}
+		}
+
+		// Stats only; a failure here must not break the round.
 		if logErr := LogCardEvent(card.CardId, CardEventDrawn); logErr != nil {
 			log.Println(logErr)
 		}
@@ -431,11 +711,12 @@ func GetCurrentCard(gameId uuid.UUID) (CurrentCard, error) {
 	var card CurrentCard
 
 	sqlString := `
-		SELECT CC.CARD_ID, C.YOUTUBE_VIDEO_ID, C.START_OFFSET_SECONDS, TC.NAME, COALESCE(D.NAME, '')
+		SELECT CC.CARD_ID, COALESCE(C.YOUTUBE_VIDEO_ID, ''), COALESCE(S.DURATION_SECONDS, 0), TC.NAME, COALESCE(D.NAME, '')
 		FROM TRACK_TIMELINE_CURRENT_CARD CC
 			INNER JOIN CARD C ON C.ID = CC.CARD_ID
 			LEFT JOIN TRACK_TIMELINE_CATEGORY TC ON TC.ID = C.CATEGORY_ID
 			LEFT JOIN DECK D ON D.ID = C.DECK_ID
+			LEFT JOIN TRACK_TIMELINE_CARD_VIDEO_STATUS S ON S.CARD_ID = C.ID
 		WHERE CC.TRACK_TIMELINE_GAME_ID = ?
 	`
 	rows, err := query(sqlString, gameId)
@@ -445,7 +726,7 @@ func GetCurrentCard(gameId uuid.UUID) (CurrentCard, error) {
 	defer rows.Close()
 
 	for rows.Next() {
-		if err := rows.Scan(&card.CardId, &card.YouTubeVideoId, &card.StartOffsetSeconds, &card.CategoryName, &card.DeckName); err != nil {
+		if err := rows.Scan(&card.CardId, &card.YouTubeVideoId, &card.DurationSeconds, &card.CategoryName, &card.DeckName); err != nil {
 			log.Println(err)
 			return card, errors.New("failed to scan row in query results")
 		}
@@ -461,12 +742,13 @@ func GetCurrentCardAnswer(gameId uuid.UUID) (CurrentCardAnswer, error) {
 	var card CurrentCardAnswer
 
 	sqlString := `
-		SELECT CC.CARD_ID, C.YOUTUBE_VIDEO_ID, C.START_OFFSET_SECONDS, TC.NAME, COALESCE(D.NAME, ''),
+		SELECT CC.CARD_ID, COALESCE(C.YOUTUBE_VIDEO_ID, ''), COALESCE(S.DURATION_SECONDS, 0), TC.NAME, COALESCE(D.NAME, ''),
 			C.TITLE, C.ARTIST, CC.RELEASE_YEAR
 		FROM TRACK_TIMELINE_CURRENT_CARD CC
 			INNER JOIN CARD C ON C.ID = CC.CARD_ID
 			LEFT JOIN TRACK_TIMELINE_CATEGORY TC ON TC.ID = C.CATEGORY_ID
 			LEFT JOIN DECK D ON D.ID = C.DECK_ID
+			LEFT JOIN TRACK_TIMELINE_CARD_VIDEO_STATUS S ON S.CARD_ID = C.ID
 		WHERE CC.TRACK_TIMELINE_GAME_ID = ?
 	`
 	rows, err := query(sqlString, gameId)
@@ -477,7 +759,7 @@ func GetCurrentCardAnswer(gameId uuid.UUID) (CurrentCardAnswer, error) {
 
 	for rows.Next() {
 		if err := rows.Scan(
-			&card.CardId, &card.YouTubeVideoId, &card.StartOffsetSeconds, &card.CategoryName, &card.DeckName,
+			&card.CardId, &card.YouTubeVideoId, &card.DurationSeconds, &card.CategoryName, &card.DeckName,
 			&card.Title, &card.Artist, &card.ReleaseYear,
 		); err != nil {
 			log.Println(err)
@@ -668,23 +950,20 @@ func GetLastPlacedCardId(gameId uuid.UUID) (uuid.UUID, error) {
 
 // GetAllPlayerTimelines assembles the whole board for one viewer.
 //
-// The placement markers it returns are phase-aware: during PhaseChallenge a
-// player sees only that others have committed, never where, because seeing a
-// rival's guess before choosing your own would make the challenge a copy rather
-// than a judgement. At PhaseReveal every position becomes visible.
+// The placement markers it returns are phase-aware: before PhaseReveal a
+// player sees only that the turn player has committed, never where, because
+// seeing a rival's guess before choosing your own (or before your own steal
+// turn) would make it a copy rather than a judgement. At PhaseReveal every
+// position becomes visible.
 func GetAllPlayerTimelines(gameId uuid.UUID, currentPlayerId uuid.UUID, viewingPlayerId uuid.UUID, revealPositions bool) ([]PlayerTimeline, error) {
 	players, err := GetPlayers(gameId)
 	if err != nil {
 		return nil, err
 	}
 
-	placements, err := GetPlacements(gameId)
+	placement, err := GetPlacement(gameId)
 	if err != nil {
 		return nil, err
-	}
-	placementByPlayer := make(map[uuid.UUID]Placement, len(placements))
-	for _, placement := range placements {
-		placementByPlayer[placement.PlayerId] = placement
 	}
 
 	lastPlacedCardId, err := GetLastPlacedCardId(gameId)
@@ -713,9 +992,8 @@ func GetAllPlayerTimelines(gameId uuid.UUID, currentPlayerId uuid.UUID, viewingP
 			TokenCount: player.TokenCount,
 			Timeline:   timeline,
 		}
-		if placement, ok := placementByPlayer[player.PlayerId]; ok {
+		if placement.Id != uuid.Nil && placement.PlayerId == player.PlayerId {
 			row.HasPlaced = true
-			row.IsChallenge = placement.IsChallenge
 			// Your own marker is always yours to see; everyone else's waits
 			// for the reveal.
 			if revealPositions || player.PlayerId == viewingPlayerId {
@@ -735,17 +1013,39 @@ func SetCurrentPlayer(gameId uuid.UUID, playerId uuid.UUID) error {
 	return execute("UPDATE TRACK_TIMELINE_GAME SET CURRENT_PLAYER_ID = ? WHERE ID = ?", playerId, gameId)
 }
 
-// SetRoundPhase moves the round to a new phase, stamping the challenge window's
-// start when entering it and clearing the stamp otherwise.
+// SetRoundPhase moves the round to a new phase, stamping PHASE_STARTED_ON_DATE
+// when entering a timed phase and clearing it otherwise -- both the client
+// countdown and the server's own scheduled timeout compute their deadline as
+// this stamp plus StealJoinWindow/StealTurnWindow.
+//
+// The stamp is Go's own time.Now(), passed as a bound parameter, deliberately
+// not the SQL CURRENT_TIMESTAMP(3) function: this process's clock and the
+// database server's clock/session timezone are not guaranteed to agree (and
+// in practice do not), and every duration computed from this stamp elsewhere
+// (time.Until(deadline) when scheduling the server-side timeout, and the
+// deadlineMs sent to clients) is computed against time.Now() too. Passing a
+// Go time.Time as a parameter round-trips through the same driver timezone
+// handling on the way back out (parseTime=true), so what SetRoundPhase wrote
+// and what a later read-back gets are the same instant regardless of what
+// timezone the database server itself is running in.
 func SetRoundPhase(gameId uuid.UUID, phase string) error {
-	if phase == PhaseChallenge {
+	if phase == PhaseStealTurn {
+		// STEALER_PLAYER_ID is set separately and atomically by ClaimSteal,
+		// the moment before this is called -- not touched here, so as not to
+		// race with or overwrite that claim.
 		return execute(
-			"UPDATE TRACK_TIMELINE_GAME SET ROUND_PHASE = ?, CHALLENGE_OPENED_ON_DATE = CURRENT_TIMESTAMP() WHERE ID = ?",
-			phase, gameId,
+			"UPDATE TRACK_TIMELINE_GAME SET ROUND_PHASE = ?, PHASE_STARTED_ON_DATE = ? WHERE ID = ?",
+			phase, time.Now(), gameId,
+		)
+	}
+	if phase == PhaseStealJoin {
+		return execute(
+			"UPDATE TRACK_TIMELINE_GAME SET ROUND_PHASE = ?, PHASE_STARTED_ON_DATE = ?, STEALER_PLAYER_ID = NULL WHERE ID = ?",
+			phase, time.Now(), gameId,
 		)
 	}
 	return execute(
-		"UPDATE TRACK_TIMELINE_GAME SET ROUND_PHASE = ?, CHALLENGE_OPENED_ON_DATE = NULL WHERE ID = ?",
+		"UPDATE TRACK_TIMELINE_GAME SET ROUND_PHASE = ?, PHASE_STARTED_ON_DATE = NULL, STEALER_PLAYER_ID = NULL WHERE ID = ?",
 		phase, gameId,
 	)
 }
@@ -884,7 +1184,7 @@ func StartGame(gameId uuid.UUID) error {
 
 	sqlStart := `
 		UPDATE TRACK_TIMELINE_GAME
-		SET GAME_STATUS = ?, ROUND_PHASE = ?, CHALLENGE_OPENED_ON_DATE = NULL, CURRENT_PLAYER_ID = ?
+		SET GAME_STATUS = ?, ROUND_PHASE = ?, PHASE_STARTED_ON_DATE = NULL, CURRENT_PLAYER_ID = ?
 		WHERE ID = ?
 	`
 	if err := execute(sqlStart, StatusActive, PhaseListening, firstPlayer, gameId); err != nil {
@@ -894,8 +1194,8 @@ func StartGame(gameId uuid.UUID) error {
 	return DrawCard(gameId)
 }
 
-// takeCardFromPile pulls one random undrawn card out of the pile and marks it
-// drawn, returning its id and year.
+// takeCardFromPile pulls the next undrawn card (lowest SHUFFLE_ORDER) out of
+// the pile and marks it drawn, returning its id and year.
 func takeCardFromPile(gameId uuid.UUID) (uuid.UUID, int, error) {
 	var cardId uuid.UUID
 	var releaseYear int
@@ -904,7 +1204,7 @@ func takeCardFromPile(gameId uuid.UUID) (uuid.UUID, int, error) {
 		SELECT CARD_ID, RELEASE_YEAR
 		FROM TRACK_TIMELINE_DRAW_PILE
 		WHERE TRACK_TIMELINE_GAME_ID = ? AND DRAWN = 0
-		ORDER BY RAND()
+		ORDER BY SHUFFLE_ORDER ASC, ID ASC
 		LIMIT 1
 	`
 	rows, err := query(sqlGet, gameId)
@@ -957,7 +1257,7 @@ func ResetGame(gameId uuid.UUID) error {
 
 	sqlResetGame := `
 		UPDATE TRACK_TIMELINE_GAME
-		SET GAME_STATUS = ?, ROUND_PHASE = ?, CHALLENGE_OPENED_ON_DATE = NULL,
+		SET GAME_STATUS = ?, ROUND_PHASE = ?, PHASE_STARTED_ON_DATE = NULL,
 			CURRENT_PLAYER_ID = NULL, WINNER_ID = NULL
 		WHERE ID = ?
 	`

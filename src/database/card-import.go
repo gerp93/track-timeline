@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -19,26 +21,48 @@ const MaxImportCards = 1000
 // strictly (unknown fields are rejected) so a typo'd key fails loudly at import
 // time rather than silently importing a card with a missing field.
 type CardImportEntry struct {
-	Title        string `json:"title"`
-	Artist       string `json:"artist"`
-	Year         *int   `json:"year"`
-	VideoId      string `json:"videoId"`
-	StartSeconds *int   `json:"startSeconds"`
-	Category     string `json:"category"`
+	Title    string `json:"title"`
+	Artist   string `json:"artist"`
+	Year     *int   `json:"year"`
+	VideoId  string `json:"videoId"`
+	Category string `json:"category"`
+	// MissingVideo is set during parse when videoId was empty or malformed.
+	// The bad string is never kept — VideoId is cleared and the card is
+	// imported with a NULL link, then marked unavailable for Dead Videos.
+	MissingVideo bool `json:"-"`
 }
 
-// CardImportResult reports what an import actually did. Skipped counts cards
-// already present in the deck; Uncategorized counts cards imported with a
-// category name that does not exist here, which land with no genre rather than
-// failing the whole file.
+// CardImportResult reports what an import actually did.
 type CardImportResult struct {
-	Imported      int
-	Skipped       int
-	Uncategorized int
+	Imported                 int
+	SkippedDuplicateVideo    int
+	SkippedDuplicateMetadata int // same title + artist + year in this deck
+	Failed                   int
+	Uncategorized            int
+	MissingVideo             int // imported with no usable YouTube link
+}
+
+// FormatImportReport is the human-readable summary shown after an import.
+func (r CardImportResult) FormatImportReport() string {
+	parts := []string{
+		fmt.Sprintf("Imported: %d", r.Imported),
+		fmt.Sprintf("Failed: %d", r.Failed),
+		fmt.Sprintf("Skipped (duplicate video ID): %d", r.SkippedDuplicateVideo),
+		fmt.Sprintf("Skipped (duplicate title/artist/year): %d", r.SkippedDuplicateMetadata),
+	}
+	if r.MissingVideo > 0 {
+		parts = append(parts, fmt.Sprintf("Imported with no video link (Dead Videos): %d", r.MissingVideo))
+	}
+	if r.Uncategorized > 0 {
+		parts = append(parts, fmt.Sprintf("Imported without a matching genre: %d", r.Uncategorized))
+	}
+	return strings.Join(parts, "\n")
 }
 
 // ParseCardImportJSON validates an uploaded file into entries. Every problem is
 // reported against the entry's index so an author can find it in the file.
+// Malformed or blank videoIds do not fail the file — those entries are marked
+// MissingVideo with VideoId cleared.
 func ParseCardImportJSON(data []byte) ([]CardImportEntry, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -58,6 +82,7 @@ func ParseCardImportJSON(data []byte) ([]CardImportEntry, error) {
 		entries[i].Title = strings.TrimSpace(entries[i].Title)
 		entries[i].Artist = strings.TrimSpace(entries[i].Artist)
 		entries[i].Category = strings.TrimSpace(entries[i].Category)
+		entries[i].VideoId = strings.TrimSpace(entries[i].VideoId)
 
 		if entries[i].Title == "" {
 			return nil, fmt.Errorf("card %d has no title", i+1)
@@ -66,24 +91,75 @@ func ParseCardImportJSON(data []byte) ([]CardImportEntry, error) {
 			return nil, fmt.Errorf("card %d has no artist", i+1)
 		}
 
+		if entries[i].VideoId == "" {
+			entries[i].MissingVideo = true
+			continue
+		}
 		videoId, err := ParseYouTubeVideoId(entries[i].VideoId)
 		if err != nil {
-			return nil, fmt.Errorf("card %d (%s): %w", i+1, entries[i].Title, err)
+			entries[i].VideoId = ""
+			entries[i].MissingVideo = true
+			continue
 		}
 		entries[i].VideoId = videoId
-
-		if entries[i].StartSeconds != nil && *entries[i].StartSeconds < 0 {
-			return nil, fmt.Errorf("card %d (%s) has a negative start offset", i+1, entries[i].Title)
-		}
 	}
 
 	return entries, nil
 }
 
+func importMetadataKey(title, artist string, year sql.NullInt64) string {
+	yearPart := "null"
+	if year.Valid {
+		yearPart = strconv.FormatInt(year.Int64, 10)
+	}
+	return title + "\x00" + artist + "\x00" + yearPart
+}
+
+func entryReleaseYear(entry CardImportEntry) sql.NullInt64 {
+	if entry.Year == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(*entry.Year), Valid: true}
+}
+
+// loadDeckImportKeys returns existing video ids and title/artist/year keys in
+// a deck so import can skip duplicates without a query per row.
+func loadDeckImportKeys(deckId uuid.UUID) (videos map[string]bool, metadata map[string]bool, err error) {
+	rows, err := query(`
+		SELECT COALESCE(YOUTUBE_VIDEO_ID, ''), TITLE, ARTIST, RELEASE_YEAR
+		FROM CARD
+		WHERE DECK_ID = ?
+	`, deckId)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	videos = make(map[string]bool)
+	metadata = make(map[string]bool)
+	for rows.Next() {
+		var videoId, title, artist string
+		var year sql.NullInt64
+		if err := rows.Scan(&videoId, &title, &artist, &year); err != nil {
+			log.Println(err)
+			return nil, nil, errors.New("failed to scan row in query results")
+		}
+		if videoId != "" {
+			videos[videoId] = true
+		}
+		metadata[importMetadataKey(title, artist, year)] = true
+	}
+	return videos, metadata, nil
+}
+
 // ImportCardsIntoDeck inserts entries that are not already in the deck, matching
 // categories by name. A card whose category name is unknown is imported without
 // one rather than rejected: the alternative is failing an otherwise good file
-// over a genre label.
+// over a genre label. Cards with MissingVideo get a NULL YouTube id and are
+// marked unavailable so they appear on Dead Videos for repair.
+//
+// Skips when the deck (or an earlier row in this file) already has the same
+// video id, or the same title + artist + year.
 func ImportCardsIntoDeck(deckId uuid.UUID, entries []CardImportEntry) (CardImportResult, error) {
 	var result CardImportResult
 
@@ -96,24 +172,22 @@ func ImportCardsIntoDeck(deckId uuid.UUID, entries []CardImportEntry) (CardImpor
 		categoryByName[strings.ToLower(category.Name)] = category.Id
 	}
 
+	videos, metadata, err := loadDeckImportKeys(deckId)
+	if err != nil {
+		return result, err
+	}
+
 	for _, entry := range entries {
-		existingId, err := GetCardIdByVideo(deckId, entry.VideoId)
-		if err != nil {
-			return result, err
-		}
-		if existingId != uuid.Nil {
-			result.Skipped++
+		releaseYear := entryReleaseYear(entry)
+		metaKey := importMetadataKey(entry.Title, entry.Artist, releaseYear)
+
+		if entry.VideoId != "" && videos[entry.VideoId] {
+			result.SkippedDuplicateVideo++
 			continue
 		}
-
-		var releaseYear sql.NullInt64
-		if entry.Year != nil {
-			releaseYear = sql.NullInt64{Int64: int64(*entry.Year), Valid: true}
-		}
-
-		startSeconds := 0
-		if entry.StartSeconds != nil {
-			startSeconds = *entry.StartSeconds
+		if metadata[metaKey] {
+			result.SkippedDuplicateMetadata++
+			continue
 		}
 
 		var categoryId uuid.NullUUID
@@ -127,9 +201,26 @@ func ImportCardsIntoDeck(deckId uuid.UUID, entries []CardImportEntry) (CardImpor
 			result.Uncategorized++
 		}
 
-		if _, err := CreateCard(deckId, entry.VideoId, startSeconds, entry.Title, entry.Artist, releaseYear, categoryId); err != nil {
-			return result, err
+		cardId, err := CreateCard(deckId, entry.VideoId, entry.Title, entry.Artist, releaseYear, categoryId)
+		if err != nil {
+			log.Println(err)
+			result.Failed++
+			continue
 		}
+		if entry.MissingVideo {
+			if err := MarkVideoUnavailable(cardId); err != nil {
+				log.Println(err)
+				result.Failed++
+				_ = DeleteCard(cardId)
+				continue
+			}
+			result.MissingVideo++
+		}
+
+		if entry.VideoId != "" {
+			videos[entry.VideoId] = true
+		}
+		metadata[metaKey] = true
 		result.Imported++
 	}
 

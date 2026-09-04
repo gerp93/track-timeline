@@ -6,43 +6,15 @@
 <script src="/gs/js/timer.js"></script>
 <script src="/static/js/track-timeline.js"></script>
 
-<div id="tt-header">
-    <div class="tt-header-title">
-        <h2>{{.Lobby.Name}}</h2>
-        <span
-            title="Edit lobby message"
-            class="bi bi-pencil clickable"
-            onclick="document.getElementById('lobby-message-dialog').showModal()"
-        ></span>
-        <span
-            title="Turn timer"
-            class="bi bi-stopwatch clickable"
-            onclick="document.getElementById('turn-timer-dialog').showModal()"
-        ></span>
-    </div>
-
-    <div class="tt-header-stats">
-        <span>First to <strong>{{.Game.CardsToWin}}</strong></span>
-        <span>Songs left: <strong id="tt-draw-pile-count">{{.DrawPileCount}}</strong></span>
-        <span class="tt-deck-tooltip">
-            Decks
-            <span id="tt-deck-info" class="tt-tooltip-body"></span>
-        </span>
-        <span id="tt-turn-timer-stat" {{if eq .TurnTimerSeconds 0}}style="display: none"{{end}}>
-            Timer: <span id="tt-turn-timer"></span>
-        </span>
-    </div>
-
-    {{if .YearRanges}}
-    <div class="tt-era-chips">
-        {{range .YearRanges}}
-        <span class="chip">{{.FromYear}}&ndash;{{.ToYear}}</span>
-        {{end}}
-    </div>
-    {{end}}
-
-    <div id="tt-lobby-message" {{if not .Lobby.Message.Valid}}style="display: none"{{end}}>{{if .Lobby.Message.Valid}}{{.Lobby.Message.String}}{{end}}</div>
-</div>
+<!--
+    The whole page is one fixed-height grid — the game area on top scrolls
+    internally if it overflows, and chat is a fixed-height row pinned to the
+    bottom, same layout timeline-trivia uses. #content/#body (framework's
+    base.html) already carve the viewport down to the space below the top
+    bar, so height:100% here is enough — no magic-number calc needed.
+-->
+<div id="tt-page">
+<div id="tt-main">
 
 <!--
     The player is deliberately parked off-screen. It has to exist and have real
@@ -58,13 +30,66 @@
     <span class="bi bi-volume-up"></span> Tap to enable sound
 </button>
 
-<div id="tt-current-card" hx-get="/api/track-timeline/{{.Lobby.Id}}/current-card" hx-trigger="load"></div>
+<!--
+    The lobby header and the current-card fragment share one "turntable deck"
+    frame (see .turntable-card) — the header is page-level (rendered once),
+    the deck-stage below it is the htmx fragment (#tt-current-card, re-fetched
+    on every refresh broadcast), so the frame itself lives here rather than in
+    the fragment to avoid re-rendering it every swap.
+-->
+<div class="turntable-card">
+    <div id="tt-header" class="header-bar">
+        <div class="header-bar-row">
+            <div class="title-group">
+                <h2>{{.Lobby.Name}}</h2>
+                <span
+                    title="Edit lobby message"
+                    class="bi bi-pencil clickable icon-btn"
+                    onclick="document.getElementById('lobby-message-dialog').showModal()"
+                ></span>
+                <span
+                    title="Turn timer"
+                    class="bi bi-stopwatch clickable icon-btn"
+                    onclick="document.getElementById('turn-timer-dialog').showModal()"
+                ></span>
+            </div>
+
+            <div class="stats-badges">
+                <span class="badge">First to <strong>{{.Game.CardsToWin}}</strong></span>
+                <span class="badge">Songs left: <strong id="tt-draw-pile-count">{{.DrawPileCount}}</strong></span>
+                <span class="badge tt-deck-tooltip">
+                    Decks
+                    <span id="tt-deck-info" class="tt-tooltip-body"></span>
+                </span>
+                <span class="badge" id="tt-turn-timer-stat" {{if eq .TurnTimerSeconds 0}}style="display: none"{{end}}>
+                    Timer: <span id="tt-turn-timer" class="gs-timer"></span>
+                </span>
+                <!-- Tokens + Buy — filled from the timeline fragment on load/refresh. -->
+                <span id="tt-self-status" class="tt-self-status"></span>
+            </div>
+        </div>
+
+        <!-- Inside .header-bar (above its border-bottom "line") on purpose:
+             this is the lobby's own note, not part of the current round. -->
+        <div id="tt-lobby-message" {{if not .Lobby.Message.Valid}}style="display: none"{{end}}>{{if .Lobby.Message.Valid}}{{.Lobby.Message.String}}{{end}}</div>
+    </div>
+
+    {{if .YearRanges}}
+    <div class="tt-era-chips">
+        {{range .YearRanges}}
+        <span class="chip">{{.FromYear}}&ndash;{{.ToYear}}</span>
+        {{end}}
+    </div>
+    {{end}}
+
+    <div id="tt-current-card" hx-get="/api/track-timeline/{{.Lobby.Id}}/current-card" hx-trigger="load"></div>
+</div>
 
 <div id="tt-board" hx-get="/api/track-timeline/{{.Lobby.Id}}/timeline" hx-trigger="load"></div>
 
 <div id="tt-controls">
     {{if eq .Game.GameStatus "waiting"}}
-    <button hx-post="/api/track-timeline/{{.Lobby.Id}}/start" hx-swap="none">
+    <button type="button" onclick="ttStartGame()">
         <span class="bi bi-play-circle"></span> Start Game
     </button>
     <p class="hint">Everyone who is going to play should join before you start.</p>
@@ -82,7 +107,7 @@
 -->
 <div id="tt-message"></div>
 
-<div id="tt-players" hx-get="/api/track-timeline/{{.Lobby.Id}}/players" hx-trigger="load"></div>
+</div><!-- #tt-main -->
 
 <div id="tt-chat">
     <div id="chat-messages" class="gs-chat-messages"></div>
@@ -97,6 +122,8 @@
         <button type="submit" class="btn-small">Send</button>
     </form>
 </div>
+
+</div><!-- #tt-page -->
 
 <dialog id="lobby-message-dialog">
     <div style="display: grid; grid-auto-flow: column">
@@ -142,7 +169,7 @@
             <input
                 type="number"
                 id="turnTimerSeconds"
-                name="seconds"
+                name="turnTimerSeconds"
                 min="0"
                 max="300"
                 value="{{.TurnTimerSeconds}}"

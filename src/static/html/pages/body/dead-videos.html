@@ -1,0 +1,832 @@
+{{define "body"}}
+<div style="display: grid; grid-auto-flow: column">
+    <h2>Library</h2>
+    <div style="text-align: right;">
+        <a href="/decks"><button type="button">Decks</button></a>
+    </div>
+</div>
+
+<nav class="library-tabs" aria-label="Library sections">
+    <a
+        href="/videos?tab=dead"
+        class="library-tab{{if eq .Tab "dead"}} library-tab-active{{end}}"
+    >Dead Videos ({{.DeadTabCount}})</a>
+    <a
+        href="/videos?tab=duplicates"
+        class="library-tab{{if eq .Tab "duplicates"}} library-tab-active{{end}}"
+    >Duplicates ({{.DuplicateTabCount}})</a>
+    <a
+        href="/videos?tab=genres"
+        class="library-tab{{if eq .Tab "genres"}} library-tab-active{{end}}"
+    >Ungenred ({{.UngenredTabCount}})</a>
+</nav>
+
+{{if eq .Tab "duplicates"}}
+<p>
+    Songs across every deck that share the same title and artist after
+    normalizing case, punctuation, remaster tags, and similar noise. Delete
+    extras you do not want, or mark a cluster as not duplicates so it leaves
+    the suspected list.
+</p>
+
+<nav class="library-subtabs" aria-label="Duplicate views">
+    <a
+        href="/videos?tab=duplicates&amp;search={{urlquery .Search}}"
+        class="library-subtab{{if eq .DupView "active"}} library-subtab-active{{end}}"
+    >Suspected ({{.DuplicateTabCount}})</a>
+    <a
+        href="/videos?tab=duplicates&amp;dup=dismissed&amp;search={{urlquery .Search}}"
+        class="library-subtab{{if eq .DupView "dismissed"}} library-subtab-active{{end}}"
+    >Not duplicates ({{.DismissedDupTabCount}})</a>
+</nav>
+
+<form method="get" action="/videos" class="dead-video-filters">
+    <input type="hidden" name="tab" value="duplicates" />
+    {{if eq .DupView "dismissed"}}
+    <input type="hidden" name="dup" value="dismissed" />
+    {{end}}
+    <span>
+        <label for="dup-search">Search</label>
+        <input
+            type="text"
+            id="dup-search"
+            name="search"
+            maxlength="255"
+            placeholder="Title, artist, or deck"
+            value="{{.Search}}"
+            autocomplete="off"
+        />
+    </span>
+    <button type="submit"><span class="bi bi-search"></span></button>
+</form>
+
+{{if eq .DupView "active"}}
+<div class="dead-video-toolbar">
+    <div class="dead-video-toolbar-group library-dup-exact-actions">
+        <span class="dead-video-toolbar-label">Exact matches (title, artist, year, video ID)</span>
+        <button
+            type="button"
+            hx-post="/api/videos/delete-exact-duplicate-latests"
+            hx-target="#tt-dup-result"
+            hx-swap="innerHTML"
+            hx-confirm="Delete newer copies that match exactly on title, artist, year, and video (keeping the oldest in each set; decks may differ)? {{.ExactDuplicateDeleteCount}} song(s) would be removed."
+            {{if eq .ExactDuplicateDeleteCount 0}}disabled title="No exact duplicate copies"{{end}}
+        >
+            Delete latest copy ({{.ExactDuplicateDeleteCount}})
+        </button>
+        <span class="dead-video-toolbar-label">Exact matches (title, artist, year)</span>
+        <button
+            type="button"
+            hx-post="/api/videos/delete-exact-title-artist-latests"
+            hx-target="#tt-dup-result"
+            hx-swap="innerHTML"
+            hx-confirm="Delete newer copies that match exactly on title, artist, and year (video may differ; keeping the oldest in each set)? {{.ExactTitleArtistDeleteCount}} song(s) would be removed."
+            {{if eq .ExactTitleArtistDeleteCount 0}}disabled title="No exact duplicate copies"{{end}}
+        >
+            Delete latest copy ({{.ExactTitleArtistDeleteCount}})
+        </button>
+    </div>
+</div>
+<div id="tt-dup-toolbar-result" class="htmx-result"></div>
+{{end}}
+
+{{if eq .RowCount 0}}
+{{if eq .DupView "dismissed"}}
+<p>No clusters marked as not duplicates{{if .Search}} matching that search{{end}}.</p>
+{{else}}
+<p>No suspected duplicates{{if .Search}} matching that search{{end}}.</p>
+{{end}}
+{{else}}
+<p class="hint">{{.RowCount}} group(s) &mdash; page {{.Page}} of {{.LastPage}}</p>
+
+{{range .DuplicateGroups}}
+<section class="library-dup-group">
+    <div class="library-dup-group-header">
+        <strong>{{(index .Cards 0).Title}}</strong>
+        <span class="hint">— {{(index .Cards 0).Artist}} ({{len .Cards}} copies)</span>
+        {{if eq $.DupView "dismissed"}}
+        <form
+            class="library-dup-dismiss"
+            hx-post="/api/videos/undismiss-duplicates"
+            hx-target="#tt-dup-result"
+            hx-swap="innerHTML"
+            hx-confirm="Put these {{len .Cards}} songs back on the suspected list?"
+        >
+            {{range .Cards}}
+            <input type="hidden" name="cardId" value="{{.CardId}}" />
+            {{end}}
+            <button type="submit" class="btn-small">Back to suspected</button>
+        </form>
+        {{else}}
+        <form
+            class="library-dup-dismiss"
+            hx-post="/api/videos/dismiss-duplicates"
+            hx-target="#tt-dup-result"
+            hx-swap="innerHTML"
+            hx-confirm="Mark these {{len .Cards}} songs as not duplicates?"
+        >
+            {{range .Cards}}
+            <input type="hidden" name="cardId" value="{{.CardId}}" />
+            {{end}}
+            <button type="submit" class="btn-small">Not duplicates</button>
+        </form>
+        {{end}}
+    </div>
+    <table class="library-dup-table">
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Artist</th>
+                <th>Year</th>
+                <th>Deck</th>
+                <th>Video</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Cards}}
+            <tr>
+                <td>{{.Title}}</td>
+                <td>{{.Artist}}</td>
+                <td>{{if .ReleaseYear}}{{.ReleaseYear}}{{else}}—{{end}}</td>
+                <td>
+                    <a href="/deck/{{.DeckId}}">{{.DeckName}}</a>
+                </td>
+                <td>
+                    {{if .YouTubeVideoId}}
+                    <a href="https://www.youtube.com/watch?v={{.YouTubeVideoId}}" target="_blank">
+                        {{.YouTubeVideoId}}
+                        <span class="bi bi-box-arrow-up-right"></span>
+                    </a>
+                    {{else}}—{{end}}
+                </td>
+                <td>
+                    <button
+                        type="button"
+                        class="btn-small"
+                        hx-post="/api/videos/delete"
+                        hx-vals='{"cardId":"{{.CardId}}"}'
+                        hx-target="#tt-dup-result"
+                        hx-confirm="Delete {{.Title}} from {{.DeckName}}?"
+                    >Delete</button>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</section>
+{{end}}
+
+<div id="tt-dup-result" class="htmx-result"></div>
+
+<div>
+    {{if gt .Page 1}}
+    <a href="/videos?tab=duplicates{{if eq .DupView "dismissed"}}&amp;dup=dismissed{{end}}&amp;search={{urlquery .Search}}&amp;page={{add .Page -1}}"><button type="button">Previous</button></a>
+    {{end}}
+    {{if lt .Page .LastPage}}
+    <a href="/videos?tab=duplicates{{if eq .DupView "dismissed"}}&amp;dup=dismissed{{end}}&amp;search={{urlquery .Search}}&amp;page={{add .Page 1}}"><button type="button">Next</button></a>
+    {{end}}
+</div>
+{{end}}
+
+{{else if eq .Tab "genres"}}
+<p>
+    Songs with no genre, or whose genre id no longer matches a category.
+    Assign a genre by hand, or ask the Claude API to pick from your genre list
+    (one API call per song). Results land on the Claude API log.
+</p>
+
+<nav class="library-subtabs" aria-label="Ungenred views">
+    <a
+        href="/videos?tab=genres&amp;search={{urlquery .Search}}"
+        class="library-subtab{{if eq .GenreView "needs"}} library-subtab-active{{end}}"
+    >Needs genre ({{.UngenredTabCount}})</a>
+    <a
+        href="/videos?tab=genres&amp;genre=log&amp;search={{urlquery .Search}}"
+        class="library-subtab{{if eq .GenreView "log"}} library-subtab-active{{end}}"
+    >Claude API log ({{.GenreLogTabCount}})</a>
+</nav>
+
+<form method="get" action="/videos" class="dead-video-filters">
+    <input type="hidden" name="tab" value="genres" />
+    {{if eq .GenreView "log"}}
+    <input type="hidden" name="genre" value="log" />
+    {{end}}
+    <span>
+        <label for="genre-search">Search</label>
+        <input
+            type="text"
+            id="genre-search"
+            name="search"
+            maxlength="255"
+            placeholder="Title, artist, or deck"
+            value="{{.Search}}"
+            autocomplete="off"
+        />
+    </span>
+    <button type="submit"><span class="bi bi-search"></span></button>
+</form>
+
+{{if eq .GenreView "log"}}
+<p class="hint">
+    Every Claude API genre assignment attempt, newest first. Failures stay in
+    the log so you can see what went wrong.
+</p>
+{{if eq .RowCount 0}}
+<p>No Claude API genre assignments{{if .Search}} matching that search{{end}}.</p>
+{{else}}
+<p class="hint">{{.RowCount}} log row(s) &mdash; page {{.Page}} of {{.LastPage}}</p>
+<table class="library-dup-table">
+    <thead>
+        <tr>
+            <th>When</th>
+            <th>Title</th>
+            <th>Artist</th>
+            <th>Deck</th>
+            <th>Genre</th>
+            <th>Result</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .GenreAssignLogs}}
+        <tr>
+            <td>{{formatTime .CreatedOnDate}}</td>
+            <td>{{.Title}}</td>
+            <td>{{.Artist}}</td>
+            <td>{{.DeckName}}</td>
+            <td>{{if .GenreName}}{{.GenreName}}{{else}}—{{end}}</td>
+            <td>
+                {{if .Success}}
+                <span class="library-genre-log-ok">Assigned</span>
+                {{else}}
+                <span class="library-genre-log-fail" title="{{.ErrorText}}">Failed{{if .ErrorText}}: {{.ErrorText}}{{end}}</span>
+                {{end}}
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+<div>
+    {{if gt .Page 1}}
+    <a href="/videos?tab=genres&amp;genre=log&amp;search={{urlquery .Search}}&amp;page={{add .Page -1}}"><button type="button">Previous</button></a>
+    {{end}}
+    {{if lt .Page .LastPage}}
+    <a href="/videos?tab=genres&amp;genre=log&amp;search={{urlquery .Search}}&amp;page={{add .Page 1}}"><button type="button">Next</button></a>
+    {{end}}
+</div>
+{{end}}
+
+{{else}}
+{{if eq .RowCount 0}}
+<p>No ungenred songs{{if .Search}} matching that search{{end}}.</p>
+{{else}}
+<div class="dead-video-toolbar">
+    <div class="dead-video-toolbar-group">
+        <span class="dead-video-toolbar-label">Claude API</span>
+        <button
+            type="button"
+            hx-post="/api/videos/suggest-genres"
+            hx-vals='{"search":{{printf "%q" .Search}}}'
+            hx-target="#tt-genre-result"
+            hx-swap="innerHTML"
+            hx-indicator="#tt-claude-spinner"
+            hx-timeout="600000"
+            hx-confirm="Call the Claude API once per song to assign a genre to all {{.RowCount}} ungenred song(s){{if .Search}} matching this search{{end}}? This spends Anthropic API credits. Results appear on the Claude API log."
+            {{if not .ClaudeGenreReady}}disabled title="Set TRACK_TIMELINE_ANTHROPIC_API_KEY to use the Claude API"{{end}}
+            {{if eq (len .Categories) 0}}disabled title="Create at least one genre first"{{end}}
+        >
+            Assign all via Claude API ({{.RowCount}})
+        </button>
+    </div>
+</div>
+
+<div id="tt-claude-spinner" class="htmx-indicator library-claude-spinner" aria-live="polite">
+    <span class="library-claude-spinner-icon" aria-hidden="true"></span>
+    Calling Claude API&hellip; assigning genres. Stay on this page.
+</div>
+
+<p class="hint">{{.RowCount}} song(s) &mdash; page {{.Page}} of {{.LastPage}}</p>
+
+<table class="library-dup-table">
+    <thead>
+        <tr>
+            <th>Title</th>
+            <th>Artist</th>
+            <th>Year</th>
+            <th>Deck</th>
+            <th>Genre</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .UngenredCards}}
+        <tr>
+            <td>{{.Title}}</td>
+            <td>{{.Artist}}</td>
+            <td>{{if .ReleaseYear}}{{.ReleaseYear}}{{else}}—{{end}}</td>
+            <td>
+                <a href="/deck/{{.DeckId}}">{{.DeckName}}</a>
+            </td>
+            <td>
+                <form
+                    class="library-genre-assign"
+                    hx-put="/api/card/{{.CardId}}/category"
+                    hx-target="#tt-genre-result"
+                    hx-swap="innerHTML"
+                >
+                    <select name="categoryId" required>
+                        <option value="">Select genre…</option>
+                        {{range $.Categories}}
+                        <option value="{{.Id}}">{{.Name}}</option>
+                        {{end}}
+                    </select>
+                    <button type="submit" class="btn-small">Save</button>
+                </form>
+            </td>
+            <td class="library-genre-row-actions">
+                <button
+                    type="button"
+                    class="btn-small"
+                    hx-post="/api/card/{{.CardId}}/suggest-genre"
+                    hx-target="#tt-genre-result"
+                    hx-swap="innerHTML"
+                    hx-indicator="#tt-claude-spinner"
+                    hx-timeout="60000"
+                    hx-confirm="Call the Claude API to pick a genre for {{.Title}} and save it? Result appears on the Claude API log."
+                    {{if not $.ClaudeGenreReady}}disabled title="Set TRACK_TIMELINE_ANTHROPIC_API_KEY to use the Claude API"{{end}}
+                    {{if eq (len $.Categories) 0}}disabled title="Create at least one genre first"{{end}}
+                >Claude API</button>
+                <button
+                    type="button"
+                    class="btn-small"
+                    hx-delete="/api/card/{{.CardId}}"
+                    hx-target="#tt-genre-result"
+                    hx-confirm="Delete {{.Title}} from {{.DeckName}}?"
+                >Delete</button>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+
+<div id="tt-genre-result" class="htmx-result"></div>
+
+<div>
+    {{if gt .Page 1}}
+    <a href="/videos?tab=genres&amp;search={{urlquery .Search}}&amp;page={{add .Page -1}}"><button type="button">Previous</button></a>
+    {{end}}
+    {{if lt .Page .LastPage}}
+    <a href="/videos?tab=genres&amp;search={{urlquery .Search}}&amp;page={{add .Page 1}}"><button type="button">Next</button></a>
+    {{end}}
+</div>
+{{end}}
+{{end}}
+
+{{else}}
+<p>
+    Songs whose YouTube link was last found unreachable, or whose link was
+    edited and has not been re-checked yet. Updating a link or finding a
+    replacement marks the song Awaiting Recheck until you Resolve.
+</p>
+
+<div
+    class="dead-video-quota"
+    title="Local estimate from this app’s usage log. Google does not return remaining quota on API responses — Cloud Console is authoritative."
+>
+    <div class="dead-video-quota-stats">
+        <div><span class="dead-video-quota-num">{{.QuotaUsed}}</span> used</div>
+        <div><span class="dead-video-quota-num">{{.QuotaRemaining}}</span> left</div>
+        <div><span class="dead-video-quota-num">{{.QuotaLimit}}</span> daily</div>
+    </div>
+    <div class="dead-video-quota-notes">
+        <div>Find via API → 100 units / song</div>
+        <div>Resolve / Check → 1 unit / ≤50 songs</div>
+        <div>Estimate from app log (not live Google quota)</div>
+    </div>
+</div>
+
+<form method="get" action="/videos" class="dead-video-filters">
+    <input type="hidden" name="tab" value="dead" />
+    <span>
+        <label for="search">Search</label>
+        <input
+            type="text"
+            id="search"
+            name="search"
+            maxlength="255"
+            placeholder="Title, artist, or deck"
+            value="{{.Search}}"
+            autocomplete="off"
+        />
+    </span>
+    <span>
+        <label for="status">Status</label>
+        <select id="status" name="status">
+            <option value="all" {{if eq .Status "all"}}selected{{end}}>All</option>
+            <option value="unavailable" {{if eq .Status "unavailable"}}selected{{end}}>Unavailable</option>
+            <option value="awaiting" {{if eq .Status "awaiting"}}selected{{end}}>Awaiting Recheck</option>
+            <option value="incorrect" {{if eq .Status "incorrect"}}selected{{end}}>Incorrect video</option>
+        </select>
+    </span>
+    <button type="submit"><span class="bi bi-search"></span></button>
+    <label class="dead-video-toolbar-toggle">
+        <input
+            type="checkbox"
+            id="tt-dead-show-embeds"
+            onchange="ttSetDeadEmbeds(this.checked)"
+            {{if .ShowEmbeds}}checked{{end}}
+        />
+        Show video previews
+    </label>
+</form>
+
+<div class="dead-video-toolbar">
+    <div class="dead-video-toolbar-group">
+        <span class="dead-video-toolbar-label">YouTube API status updates</span>
+        <button
+            type="button"
+            hx-post="/api/videos/resolve"
+            hx-target="#tt-dead-toolbar-result"
+            hx-swap="innerHTML"
+            hx-confirm="Re-check {{.ResolveCount}} song(s) awaiting recheck against YouTube?"
+            {{if eq .ResolveCount 0}}disabled title="Nothing awaiting recheck"{{end}}
+            title="Re-check songs marked Awaiting Recheck after Find/Save"
+        >
+            <span class="bi bi-check2-circle"></span> Resolve Awaiting Recheck via API ({{.ResolveCount}})
+        </button>
+        <button
+            type="button"
+            hx-post="/api/videos/check-stale"
+            hx-target="#tt-dead-toolbar-result"
+            hx-swap="innerHTML"
+            hx-confirm="Check every song not verified in the last 24 hours against YouTube ({{.StaleCount}} song(s))?"
+            {{if eq .StaleCount 0}}disabled title="Nothing is stale"{{end}}
+        >
+            <span class="bi bi-arrow-repeat"></span> Check Not Checked in 24 hrs via API ({{.StaleCount}})
+        </button>
+        <button
+            type="button"
+            id="tt-dead-find-selected"
+            onclick="ttFindSelectedVideos()"
+            title="Search YouTube for each selected row (100 units each)"
+            disabled
+        >
+            <span class="bi bi-search"></span> Find selected via API (<span id="tt-dead-find-count">0</span>)
+        </button>
+    </div>
+
+    <div class="dead-video-toolbar-group">
+        <span class="dead-video-toolbar-label">Manual status updates</span>
+        <button
+            type="button"
+            id="tt-dead-mark-ok-selected"
+            onclick="ttUpdateSelectedVideos('/api/videos/mark-ok', 'Mark selected songs OK?')"
+            disabled
+        >
+            Mark OK (<span id="tt-dead-mark-ok-count">0</span>)
+        </button>
+        <button
+            type="button"
+            id="tt-dead-mark-unavailable-selected"
+            onclick="ttUpdateSelectedVideos('/api/videos/mark-unavailable', 'Mark selected songs unavailable?')"
+            disabled
+        >
+            Mark Unavailable (<span id="tt-dead-mark-unavailable-count">0</span>)
+        </button>
+        <button
+            type="button"
+            id="tt-dead-mark-incorrect-selected"
+            onclick="ttUpdateSelectedVideos('/api/videos/mark-incorrect', 'Mark selected songs incorrect?')"
+            disabled
+        >
+            Mark Incorrect (<span id="tt-dead-mark-incorrect-count">0</span>)
+        </button>
+    </div>
+
+    <div class="dead-video-toolbar-group">
+        <span class="dead-video-toolbar-label">Library management</span>
+        <button
+            type="button"
+            id="tt-dead-delete-selected"
+            onclick="ttUpdateSelectedVideos('/api/videos/delete', 'Delete selected songs?')"
+            disabled
+        >
+            Delete selected (<span id="tt-dead-delete-count">0</span>)
+        </button>
+        <button
+            type="button"
+            id="tt-dead-export-selected"
+            onclick="ttExportDeadVideos(false)"
+            disabled
+        >
+            <span class="bi bi-download"></span> Export selected (<span id="tt-dead-export-count">0</span>)
+        </button>
+        <button type="button" onclick="ttExportDeadVideos(true)">
+            <span class="bi bi-download"></span> Export all
+        </button>
+        <button type="button" onclick="document.getElementById('dead-video-import').showModal()">
+            <span class="bi bi-upload"></span> Import links
+        </button>
+    </div>
+</div>
+<div id="tt-dead-toolbar-result" class="htmx-result"></div>
+
+{{if eq .RowCount 0}}
+<p>No songs found{{if .Search}} matching that search{{end}}.</p>
+{{else}}
+<p class="hint">{{.RowCount}} song(s) &mdash; page {{.Page}} of {{.LastPage}}</p>
+<table class="dead-videos-table">
+    <thead>
+        <tr>
+            <th class="dead-col-check">
+                <input type="checkbox" id="tt-dead-select-all" onchange="ttToggleDeadSelectAll(this)" title="Select page" />
+            </th>
+            <th class="dead-col-title">Title</th>
+            <th class="dead-col-artist">Artist</th>
+            <th class="dead-col-deck">Deck</th>
+            <th class="dead-col-status">Status</th>
+            <th class="dead-col-link">Video link</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Cards}}
+        <tr>
+            <td class="dead-col-check">
+                <input
+                    type="checkbox"
+                    class="tt-dead-row"
+                    name="cardId"
+                    value="{{.CardId}}"
+                    onchange="ttSyncDeadSelectedCounts()"
+                />
+            </td>
+            <td class="dead-col-title">{{.Title}}</td>
+            <td class="dead-col-artist">{{.Artist}}</td>
+            <td class="dead-col-deck">{{.DeckName}}</td>
+            <td class="dead-col-status">
+                {{if .AwaitingValidation}}
+                Awaiting Recheck
+                {{else if .IncorrectVideo}}
+                Incorrect video
+                {{else}}
+                Unavailable
+                {{end}}
+            </td>
+            <td class="dead-col-link">
+                <div class="dead-video-link-row">
+                    <form hx-put="/api/card/{{.CardId}}/video" hx-target="find .htmx-result">
+                        <input
+                            type="text"
+                            name="videoId"
+                            value="{{.YouTubeVideoId}}"
+                            maxlength="255"
+                            placeholder="YouTube URL or id"
+                            autocomplete="off"
+                            required="required"
+                        />
+                        <input type="submit" value="Save" />
+                        <a href="https://www.youtube.com/watch?v={{.YouTubeVideoId}}" target="_blank" title="Open current link">
+                            <span class="bi bi-box-arrow-up-right"></span>
+                        </a>
+                        <div class="htmx-result"></div>
+                    </form>
+                    {{if not .AwaitingValidation}}
+                    <button
+                        type="button"
+                        class="btn-small"
+                        hx-post="/api/card/{{.CardId}}/find-video"
+                        hx-target="#tt-find-result-{{.CardId}}"
+                        hx-swap="innerHTML"
+                        hx-confirm="Search YouTube for {{.Artist}} — {{.Title}}? (100 API units)"
+                        title="Search YouTube for this song (100 units)"
+                    >
+                        <span class="bi bi-search"></span> Find via API
+                    </button>
+                    {{end}}
+                </div>
+                <div class="dead-video-row-actions">
+                    <button
+                        type="button"
+                        class="btn-small"
+                        hx-post="/api/card/{{.CardId}}/mark-ok"
+                        hx-target="#tt-find-result-{{.CardId}}"
+                        hx-confirm="Mark OK?"
+                    >OK</button>
+                    <button
+                        type="button"
+                        class="btn-small"
+                        hx-post="/api/card/{{.CardId}}/mark-unavailable"
+                        hx-target="#tt-find-result-{{.CardId}}"
+                        hx-confirm="Mark unavailable?"
+                    >Unavailable</button>
+                    <button
+                        type="button"
+                        class="btn-small"
+                        hx-post="/api/card/{{.CardId}}/mark-incorrect"
+                        hx-target="#tt-find-result-{{.CardId}}"
+                        hx-confirm="Mark incorrect?"
+                    >Incorrect</button>
+                    <button
+                        type="button"
+                        class="btn-small"
+                        hx-delete="/api/card/{{.CardId}}"
+                        hx-target="#tt-find-result-{{.CardId}}"
+                        hx-confirm="Delete this song?"
+                    >Delete</button>
+                </div>
+                <div id="tt-find-result-{{.CardId}}" class="htmx-result"></div>
+                <div
+                    class="tt-dead-video-preview"
+                    data-video-id="{{.YouTubeVideoId}}"
+                    data-video-title="{{.Title}} by {{.Artist}}"
+                ></div>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+
+<div>
+    {{if gt .Page 1}}
+    <a href="/videos?tab=dead&amp;search={{urlquery .Search}}&amp;status={{.Status}}&amp;page={{add .Page -1}}"><button type="button">Previous</button></a>
+    {{end}}
+    {{if lt .Page .LastPage}}
+    <a href="/videos?tab=dead&amp;search={{urlquery .Search}}&amp;status={{.Status}}&amp;page={{add .Page 1}}"><button type="button">Next</button></a>
+    {{end}}
+</div>
+{{end}}
+
+<dialog id="dead-video-import">
+    <div style="display: grid; grid-auto-flow: column">
+        <div><h3>Import video links</h3></div>
+        <div>
+            <span class="bi bi-x-lg close-button" onclick="document.getElementById('dead-video-import').close()"></span>
+        </div>
+    </div>
+    <p class="hint">
+        JSON array of objects with <code>id</code> and <code>youtubeVideoId</code>.
+        Only the video link is updated. Run Resolve afterward to validate.
+    </p>
+    <form hx-post="/api/videos/import-links" hx-encoding="multipart/form-data" hx-target="find .htmx-result">
+        <input type="file" name="file" accept="application/json,.json" required="required" />
+        <div class="htmx-result"></div>
+        <input type="submit" value="Import" />
+    </form>
+</dialog>
+
+<script>
+    const ttDeadEmbedStorageKey = "tt-dead-show-embeds";
+
+    function ttToggleDeadSelectAll(box) {
+        document.querySelectorAll(".tt-dead-row").forEach((el) => { el.checked = box.checked; });
+        ttSyncDeadSelectedCounts();
+    }
+
+    function ttSelectedDeadCardIds() {
+        const ids = [];
+        document.querySelectorAll(".tt-dead-row:checked").forEach((el) => ids.push(el.value));
+        return ids;
+    }
+
+    function ttSyncDeadSelectedCounts() {
+        const n = ttSelectedDeadCardIds().length;
+        [
+            "find",
+            "mark-ok",
+            "mark-unavailable",
+            "mark-incorrect",
+            "delete",
+            "export",
+        ].forEach((action) => {
+            const count = document.getElementById("tt-dead-" + action + "-count");
+            const button = document.getElementById("tt-dead-" + action + "-selected");
+            if (count) count.textContent = String(n);
+            if (button) button.disabled = n === 0;
+        });
+    }
+
+    function ttApplyDeadEmbeds(show) {
+        document.querySelectorAll(".tt-dead-video-preview").forEach((host) => {
+            host.replaceChildren();
+            if (!show) return;
+
+            const iframe = document.createElement("iframe");
+            iframe.src = "https://www.youtube.com/embed/" + encodeURIComponent(host.dataset.videoId);
+            iframe.title = host.dataset.videoTitle;
+            iframe.width = "320";
+            iframe.height = "180";
+            iframe.loading = "lazy";
+            iframe.allow = "encrypted-media";
+            iframe.allowFullscreen = true;
+            host.appendChild(iframe);
+        });
+    }
+
+    function ttSetDeadEmbeds(show) {
+        try {
+            localStorage.setItem(ttDeadEmbedStorageKey, show ? "1" : "0");
+        } catch (e) {
+            // The preference is optional when storage is unavailable.
+        }
+        ttApplyDeadEmbeds(show);
+    }
+
+    function ttRestoreDeadEmbeds() {
+        let show = false;
+        try {
+            show = localStorage.getItem(ttDeadEmbedStorageKey) === "1";
+        } catch (e) {
+            // Default off when storage is unavailable.
+        }
+        const box = document.getElementById("tt-dead-show-embeds");
+        if (box) box.checked = show;
+        ttApplyDeadEmbeds(show);
+    }
+
+    function ttFindSelectedVideos() {
+        const ids = ttSelectedDeadCardIds();
+        if (ids.length === 0) {
+            alert("Select at least one row.");
+            return;
+        }
+        const units = ids.length * 100;
+        if (!confirm("Search YouTube for " + ids.length + " song(s)? (~" + units + " API units)")) {
+            return;
+        }
+
+        const body = new URLSearchParams();
+        ids.forEach((id) => body.append("cardId", id));
+        const dest = document.getElementById("tt-dead-toolbar-result");
+        if (dest) dest.textContent = "Searching…";
+        fetch("/api/videos/find-videos", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: body,
+        })
+            .then((r) => r.text().then((text) => ({ text: text, refresh: r.headers.get("HX-Refresh") })))
+            .then((result) => {
+                if (dest) dest.textContent = result.text;
+                if (result.refresh === "true") {
+                    location.reload();
+                }
+            })
+            .catch((e) => {
+                if (dest) dest.textContent = "Find failed.";
+                console.error(e);
+            });
+    }
+
+    function ttUpdateSelectedVideos(url, confirmation) {
+        const ids = ttSelectedDeadCardIds();
+        if (ids.length === 0) {
+            alert("Select at least one row.");
+            return;
+        }
+        if (!confirm(confirmation)) {
+            return;
+        }
+
+        const body = new URLSearchParams();
+        ids.forEach((id) => body.append("cardId", id));
+        const dest = document.getElementById("tt-dead-toolbar-result");
+        fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: body,
+        })
+            .then((r) => r.text().then((text) => ({ text: text, refresh: r.headers.get("HX-Refresh") })))
+            .then((result) => {
+                if (dest) dest.textContent = result.text;
+                if (result.refresh === "true") {
+                    location.reload();
+                }
+            })
+            .catch((e) => {
+                if (dest) dest.textContent = "Action failed.";
+                console.error(e);
+            });
+    }
+
+    function ttExportDeadVideos(all) {
+        const ids = [];
+        if (!all) {
+            document.querySelectorAll(".tt-dead-row:checked").forEach((el) => ids.push(el.value));
+            if (ids.length === 0) {
+                alert("Select at least one row, or use Export all.");
+                return;
+            }
+        }
+        const params = new URLSearchParams();
+        if (all) {
+            params.set("all", "1");
+        } else {
+            ids.forEach((id) => params.append("cardId", id));
+        }
+        window.location = "/api/videos/dead-export?" + params.toString();
+    }
+
+    ttRestoreDeadEmbeds();
+    ttSyncDeadSelectedCounts();
+</script>
+{{end}}
+{{end}}

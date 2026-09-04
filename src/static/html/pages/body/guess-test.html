@@ -1,0 +1,136 @@
+{{define "body"}}
+<h2>Quizmaster Testing</h2>
+<p>
+    Sandbox for the title/artist match engine. Nothing is saved to a game.
+    Each test runs the heuristic and Claude side by side. The answer is shown
+    because this is only for admins.
+</p>
+{{if not .ClaudeReady}}
+<p class="hint">Claude needs TRACK_TIMELINE_ANTHROPIC_API_KEY on the server. The heuristic column will still run.</p>
+{{end}}
+
+<form method="get" action="/guess-test">
+    <div class="form-input">
+        <label for="guess-test-q">Find song</label>
+        <span>
+            <input
+                type="text"
+                id="guess-test-q"
+                name="q"
+                value="{{.Search}}"
+                maxlength="250"
+                placeholder="Song name"
+                autocomplete="off"
+            />
+            <input type="submit" value="Find" />
+        </span>
+    </div>
+</form>
+
+{{if .Results}}
+<p>{{len .Results}} match(es):</p>
+<ul>
+    {{range .Results}}
+    <li>
+        <a href="/guess-test?cardId={{.Id}}">
+            {{.Artist}} — “{{.Title}}”
+            {{if .ReleaseYear.Valid}}({{.ReleaseYear.Int64}}){{end}}
+        </a>
+    </li>
+    {{end}}
+</ul>
+{{else if and .Search (not .HasCard)}}
+<p>No songs match that name.</p>
+{{end}}
+
+{{if .HasCard}}
+<p>
+    <strong>{{.Card.Artist}}</strong> — “{{.Card.Title}}”
+    {{if .Card.ReleaseYear.Valid}}({{.Card.ReleaseYear.Int64}}){{end}}
+</p>
+<p>
+    <a href="/guess-test"><button type="button" class="btn-small">Another song</button></a>
+</p>
+
+<div class="guess-test-layout">
+<form
+    class="guess-test-form"
+    hx-post="/api/guess-test"
+    hx-target="#guess-test-result"
+    hx-timeout="20000"
+>
+    <input type="hidden" name="cardId" value="{{.Card.Id}}" />
+    <div class="form-input">
+        <label for="guessMode">Naming the Song</label>
+        <select id="guessMode" name="guessMode" autocomplete="off" onchange="gtOnModeChange()">
+            <option value="both" selected="selected">Title and artist both required for a token</option>
+            <option value="title">Title only (artist field hidden)</option>
+            <option value="either">Title or artist correct earns the token</option>
+        </select>
+
+        <label for="guessMatchPercent">Heuristic match required</label>
+        <select id="guessMatchPercent" name="guessMatchPercent" autocomplete="off">
+            <option value="60" selected="selected">60%</option>
+            <option value="70">70%</option>
+            <option value="80">80%</option>
+            <option value="90">90%</option>
+        </select>
+
+        <label for="guessTitle">Song name</label>
+        <input type="text" id="guessTitle" name="guessTitle" maxlength="250" autocomplete="off" oninput="gtRefreshPrompt()" />
+
+        <label for="guessArtist" id="guessArtistLabel">Artist</label>
+        <input type="text" id="guessArtist" name="guessArtist" maxlength="250" autocomplete="off" oninput="gtRefreshPrompt()" />
+    </div>
+    <div class="htmx-result htmx-result-persist" id="guess-test-result"></div>
+    <input type="submit" value="Compare" />
+</form>
+
+<aside class="guess-test-claude">
+    <h3>Claude config</h3>
+    <p>Model: <code id="gt-claude-model">{{.ClaudeModel}}</code></p>
+    <h4>Prompt for this naming mode</h4>
+    <pre id="gt-claude-prompt" class="guess-test-prompt"></pre>
+    <script type="application/json" id="gt-prompt-both">{{.PromptBothJSON}}</script>
+    <script type="application/json" id="gt-prompt-title">{{.PromptTitleJSON}}</script>
+</aside>
+</div>
+
+<script>
+    var gtPromptBoth = JSON.parse(document.getElementById("gt-prompt-both").textContent);
+    var gtPromptTitle = JSON.parse(document.getElementById("gt-prompt-title").textContent);
+
+    function gtCombined(title, artist) {
+        title = (title || "").trim();
+        artist = (artist || "").trim();
+        if (title && artist) return title + " by " + artist;
+        if (title) return title;
+        return artist;
+    }
+
+    function gtRefreshPrompt() {
+        var titleOnly = document.getElementById("guessMode").value === "title";
+        var titleSaid = document.getElementById("guessTitle").value;
+        var artistSaid = titleOnly ? "" : document.getElementById("guessArtist").value;
+        var tpl = titleOnly ? gtPromptTitle : gtPromptBoth;
+        var text = tpl
+            .replaceAll("@@TITLE_SAID@@", titleSaid)
+            .replaceAll("@@ARTIST_SAID@@", artistSaid)
+            .replaceAll("@@COMBINED@@", gtCombined(titleSaid, artistSaid));
+        document.getElementById("gt-claude-prompt").textContent = text;
+    }
+
+    function gtOnModeChange() {
+        var titleOnly = document.getElementById("guessMode").value === "title";
+        document.getElementById("guessArtist").style.display = titleOnly ? "none" : "";
+        document.getElementById("guessArtistLabel").style.display = titleOnly ? "none" : "";
+        if (titleOnly) document.getElementById("guessArtist").value = "";
+        gtRefreshPrompt();
+    }
+
+    gtOnModeChange();
+</script>
+{{else if not .Search}}
+<p>No songs in the library yet. Add some to a deck first.</p>
+{{end}}
+{{end}}
