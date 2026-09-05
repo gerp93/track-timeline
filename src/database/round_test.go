@@ -223,41 +223,48 @@ func TestGuessQualifies(t *testing.T) {
 	}
 }
 
-func TestPickGuessTokenWinnerFirstQualifying(t *testing.T) {
+func TestPickGuessTokenWinnerTurnPlayerSupersedes(t *testing.T) {
 	first := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	second := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	turn := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	turnId := uuid.NullUUID{UUID: turn, Valid: true}
 
+	// The turn player's qualifying guess wins even though it was submitted
+	// last — being on turn supersedes submit order entirely.
 	guesses := []Guess{
 		{PlayerId: first, PlayerName: "Kaleb", TitleCorrect: true, ArtistCorrect: true, GuessText: "full"},
-		{PlayerId: turn, PlayerName: "test2", TitleCorrect: true, ArtistCorrect: false, GuessText: "title only"},
 		{PlayerId: second, PlayerName: "other", TitleCorrect: true, ArtistCorrect: true, GuessText: "also full"},
-	}
-
-	got, ok := pickGuessTokenWinner(guesses, GuessModeBoth)
-	if !ok || got.PlayerId != first {
-		t.Fatalf("both mode: want first full guess, got ok=%v %+v", ok, got)
-	}
-
-	got, ok = pickGuessTokenWinner(guesses, GuessModeEither)
-	if !ok || got.PlayerId != first {
-		t.Fatalf("either mode: earliest qualifying is still first, not the later title-only turn player, got ok=%v %+v", ok, got)
-	}
-
-	// Title-only from the turn player is earlier than a later full guess —
-	// first submit that qualifies wins, even if a better guess arrives after.
-	lateFull := []Guess{
 		{PlayerId: turn, PlayerName: "test2", TitleCorrect: true, ArtistCorrect: false, GuessText: "title only"},
+	}
+	got, ok := pickGuessTokenWinner(guesses, GuessModeEither, turnId)
+	if !ok || got.PlayerId != turn {
+		t.Fatalf("turn player's qualifying guess should win regardless of order, got ok=%v %+v", ok, got)
+	}
+
+	// GuessModeBoth: the turn player's title-only guess does not qualify, so
+	// it falls back to a pure race among the non-turn players -- earliest
+	// qualifying submit among them wins.
+	got, ok = pickGuessTokenWinner(guesses, GuessModeBoth, turnId)
+	if !ok || got.PlayerId != first {
+		t.Fatalf("both mode: turn player doesn't qualify, want earliest qualifying non-turn guess, got ok=%v %+v", ok, got)
+	}
+
+	// The turn player never guessed this round: falls back to the race among
+	// everyone else, in submit order.
+	noTurnGuess := []Guess{
+		{PlayerId: second, PlayerName: "other", TitleCorrect: true, ArtistCorrect: true, GuessText: "also full"},
 		{PlayerId: first, PlayerName: "Kaleb", TitleCorrect: true, ArtistCorrect: true, GuessText: "full"},
 	}
-	got, ok = pickGuessTokenWinner(lateFull, GuessModeEither)
-	if !ok || got.PlayerId != turn {
-		t.Fatalf("either mode: earlier title-only should beat a later full guess, got ok=%v %+v", ok, got)
+	got, ok = pickGuessTokenWinner(noTurnGuess, GuessModeEither, turnId)
+	if !ok || got.PlayerId != second {
+		t.Fatalf("no turn-player guess: want earliest qualifying non-turn guess, got ok=%v %+v", ok, got)
 	}
 
-	got, ok = pickGuessTokenWinner(lateFull, GuessModeBoth)
-	if !ok || got.PlayerId != first {
-		t.Fatalf("both mode: title-only does not qualify, later full guess should win, got ok=%v %+v", ok, got)
+	// No current turn player at all (invalid uuid): pure race among everyone,
+	// submit order only.
+	got, ok = pickGuessTokenWinner(noTurnGuess, GuessModeEither, uuid.NullUUID{})
+	if !ok || got.PlayerId != second {
+		t.Fatalf("no current player: want earliest qualifying guess, got ok=%v %+v", ok, got)
 	}
 }
 

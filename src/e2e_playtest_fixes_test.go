@@ -349,6 +349,77 @@ func TestSkipResetsReplayUsed(t *testing.T) {
 	}
 }
 
+// TestGuessTokenTurnPlayerSupersedes guards the corrected guess-token rule:
+// among the players who aren't on turn, it's a pure first-to-submit-and-qualify
+// race, but the turn player's own qualifying guess always wins the token
+// outright — even though (per PlaceCard) it's necessarily submitted after
+// every non-turn guess, since the turn player only guesses as part of placing.
+func TestGuessTokenTurnPlayerSupersedes(t *testing.T) {
+	gameId, lobbyId, _, players, srv := newPlaytestFixesGame(t, "guesssupersede", 20, 10, 6)
+	defer closePlaytestFixesGame(players, srv)
+
+	current := gamePlayerByUserId(players, mustCurrentPlayerUserId(t, gameId))
+	var others []*player
+	for _, p := range players {
+		if p != current {
+			others = append(others, p)
+		}
+	}
+
+	card, err := database.GetCurrentCardAnswer(gameId)
+	if err != nil || card.CardId == uuid.Nil {
+		t.Fatalf("current card: %v", err)
+	}
+
+	// A non-turn player guesses fully correctly first -- under a pure race,
+	// this would win. It must not, once the turn player also guesses right.
+	rec := serve(apiTrackTimeline.SubmitGuess, authedRequest(t, "POST",
+		"/api/track-timeline/"+lobbyId.String()+"/guess",
+		url.Values{"guessTitle": {card.Title}, "guessArtist": {card.Artist}}, others[0].userId))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("non-turn guess: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Zero every other player's tokens so nobody can open a steal window --
+	// the round resolves immediately on this placement, isolating the
+	// guess-token award from the steal mechanic.
+	for _, p := range others {
+		if err := database.SetPlayerTokens(gameId, p.playerId, 0); err != nil {
+			t.Fatalf("zero tokens: %v", err)
+		}
+	}
+	preTokens, err := database.GetPlayerTokens(gameId, current.playerId)
+	if err != nil {
+		t.Fatalf("pre-resolve tokens: %v", err)
+	}
+
+	// The turn player places (correctly or not doesn't matter for this test)
+	// and guesses fully correctly too, bundled into the same submission --
+	// necessarily after the non-turn guess above.
+	timeline, err := database.GetPlayerTimeline(gameId, current.playerId)
+	if err != nil {
+		t.Fatalf("current player timeline: %v", err)
+	}
+	rec = serve(apiTrackTimeline.PlaceCard, authedRequest(t, "POST",
+		"/api/track-timeline/"+lobbyId.String()+"/place-card",
+		url.Values{
+			"position":    {fmt.Sprint(correctPosition(timeline, card.ReleaseYear))},
+			"guessTitle":  {card.Title},
+			"guessArtist": {card.Artist},
+		}, current.userId))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("place card: %d %s", rec.Code, rec.Body.String())
+	}
+
+	postTokens, err := database.GetPlayerTokens(gameId, current.playerId)
+	if err != nil || postTokens != preTokens+1 {
+		t.Errorf("expected the turn player to win the guess token despite guessing later, got %d -> %d (%v)", preTokens, postTokens, err)
+	}
+	if otherTokens, err := database.GetPlayerTokens(gameId, others[0].playerId); err != nil || otherTokens != 0 {
+		t.Errorf("expected the earlier non-turn guess to NOT be awarded the token, got %d (%v)", otherTokens, err)
+	}
+}
+
 func mustCurrentPlayerUserId(t *testing.T, gameId uuid.UUID) uuid.UUID {
 	t.Helper()
 	g, err := database.GetGameById(gameId)

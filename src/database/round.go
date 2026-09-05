@@ -213,7 +213,9 @@ type Guess struct {
 }
 
 // GetGuesses returns this round's guesses oldest first — the order used to
-// decide who earns the guess token (first qualifying submit wins).
+// decide who earns the guess token among non-turn players (first qualifying
+// submit wins there); the turn player's guess is checked separately and
+// supersedes submit order entirely. See AwardGuessToken.
 func GetGuesses(gameId uuid.UUID) ([]Guess, error) {
 	sqlString := `
 		SELECT G.PLAYER_ID, U.NAME, G.GUESS_TEXT, G.TITLE_CORRECT, G.ARTIST_CORRECT,
@@ -247,15 +249,16 @@ func GetGuesses(gameId uuid.UUID) ([]Guess, error) {
 }
 
 // AwardGuessToken resolves this round's guess-token economy under the lobby's
-// GuessMode: the earliest-submitted qualifying guess wins, regardless of who
-// is on turn. hasWinner is false if none qualify, or if GuessMode is off.
+// GuessMode. Being on turn supersedes submit order entirely: if the turn
+// player's own guess qualifies, they win the token no matter when the other
+// guesses came in. Only when the turn player didn't guess, or their guess
+// doesn't qualify, does it become a pure race among everyone else — the
+// earliest-submitted qualifying guess among the non-turn players wins.
+// hasWinner is false if none qualify, or if GuessMode is off.
 //
 // This is deliberately separate from ResolveRound's placement/card judging:
 // the guess-token economy and the card economy are independent, and this runs
 // regardless of whether the turn player's placement was correct.
-//
-// currentPlayerId is unused (kept so call sites stay stable); submit time is
-// the only tie-break.
 func AwardGuessToken(gameId uuid.UUID, currentPlayerId uuid.NullUUID, guessMode string) (winningGuess Guess, hasWinner bool, err error) {
 	if guessMode == GuessModeOff || guessMode == "" {
 		return winningGuess, false, nil
@@ -266,7 +269,7 @@ func AwardGuessToken(gameId uuid.UUID, currentPlayerId uuid.NullUUID, guessMode 
 		return winningGuess, false, err
 	}
 
-	winningGuess, hasWinner = pickGuessTokenWinner(guesses, guessMode)
+	winningGuess, hasWinner = pickGuessTokenWinner(guesses, guessMode, currentPlayerId)
 	if !hasWinner {
 		return winningGuess, false, nil
 	}
@@ -277,10 +280,22 @@ func AwardGuessToken(gameId uuid.UUID, currentPlayerId uuid.NullUUID, guessMode 
 	return winningGuess, true, nil
 }
 
-// pickGuessTokenWinner returns the first guess in submit order that qualifies
-// under guessMode. guesses must already be oldest-first.
-func pickGuessTokenWinner(guesses []Guess, guessMode string) (Guess, bool) {
+// pickGuessTokenWinner returns the turn player's guess if one exists and
+// qualifies — that supersedes every other guess regardless of submit time.
+// Otherwise it returns the first non-turn guess in submit order that
+// qualifies. guesses must already be oldest-first.
+func pickGuessTokenWinner(guesses []Guess, guessMode string, currentPlayerId uuid.NullUUID) (Guess, bool) {
+	if currentPlayerId.Valid {
+		for _, g := range guesses {
+			if g.PlayerId == currentPlayerId.UUID && GuessQualifies(g, guessMode) {
+				return g, true
+			}
+		}
+	}
 	for _, g := range guesses {
+		if currentPlayerId.Valid && g.PlayerId == currentPlayerId.UUID {
+			continue
+		}
 		if GuessQualifies(g, guessMode) {
 			return g, true
 		}
