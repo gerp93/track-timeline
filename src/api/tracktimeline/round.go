@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	gsDatabase "github.com/gerp93/gameshell-framework/database"
 	gsWebsocket "github.com/gerp93/gameshell-framework/websocket"
@@ -731,9 +732,7 @@ func submitGuessForPlayer(httpCtx context.Context, ctx gameContext, card databas
 	if guessText == "" {
 		return
 	}
-	if len(guessText) > 500 {
-		guessText = guessText[:500]
-	}
+	guessText = truncateRunes(guessText, 500)
 
 	if already, err := database.HasGuessed(ctx.Game.Id, ctx.Player.Id); err != nil || already {
 		return
@@ -807,6 +806,17 @@ func describeVerdictPublic(verdict guess.Verdict, guessMode string) string {
 		return fmt.Sprintf("title %s (%.0f%% match), artist %s (%.0f%% match)",
 			titleWord, verdict.TitleMatchPercent, artistWord, verdict.ArtistMatchPercent)
 	}
+}
+
+// truncateRunes caps s at maxRunes runes, not bytes: s[:maxRunes] on the raw
+// string can slice a multi-byte character (an accented letter, an emoji) in
+// half, leaving invalid UTF-8 that renders as garbled trailing characters
+// once stored and redisplayed.
+func truncateRunes(s string, maxRunes int) string {
+	if utf8.RuneCountInString(s) <= maxRunes {
+		return s
+	}
+	return string([]rune(s)[:maxRunes])
 }
 
 func correctWord(correct bool) string {

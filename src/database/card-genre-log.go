@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -27,8 +28,10 @@ func LogGenreAssign(card UngenredCard, genreName string, success bool, errText s
 	if err != nil {
 		return err
 	}
-	if len(errText) > 512 {
-		errText = errText[:512]
+	// Rune-safe: errText[:512] would slice by byte, which can cut a
+	// multi-byte character in half and garble the stored text from there on.
+	if utf8.RuneCountInString(errText) > 512 {
+		errText = string([]rune(errText)[:512])
 	}
 	return execute(`
 		INSERT INTO TRACK_TIMELINE_LOG_GENRE_ASSIGN (
