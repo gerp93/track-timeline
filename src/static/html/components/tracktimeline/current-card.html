@@ -118,8 +118,23 @@
             {{if ne .GuessMode "off"}}
             {{if not .HasGuessed}}
             {{if .IsCurrentPlayer}}
-            <div class="guess-form turn-player-guess">
-                <div id="tt-guess-fields" class="guess-fields">
+            <!-- A real submit button here too, not just the fields bundled into
+                 place-card/lock-year: locking in a guess must not require
+                 placing the card in the same breath. Posts to the same /guess
+                 endpoint every other player uses -- submitGuessForPlayer's own
+                 already-guessed check makes a later bundled submit (via
+                 hx-include on the drop-zone/lock-year buttons) a safe no-op if
+                 this already landed. -->
+            <form
+                class="guess-form turn-player-guess"
+                hx-post="/api/track-timeline/{{.LobbyId}}/guess"
+                hx-target="find .htmx-result"
+            >
+                <!-- hx-preserve keeps this node (and whatever the player has
+                     typed into it) across the frequent lobby-wide "refresh"
+                     broadcasts (other placements, buys, steal windows) that
+                     re-fetch this whole fragment for everyone. -->
+                <div id="tt-guess-fields" class="guess-fields" hx-preserve="true">
                     <input
                         type="text"
                         id="tt-guess-title"
@@ -140,19 +155,26 @@
                     />
                     {{end}}
                 </div>
+                <button type="submit" class="btn-small">
+                    <span class="bi bi-lightbulb"></span> Guess
+                </button>
                 <p class="guess-hint">Optional — 1 token if correct.</p>
-            </div>
+                <div class="htmx-result"></div>
+            </form>
             {{else}}
             <form
                 class="guess-form"
                 hx-post="/api/track-timeline/{{.LobbyId}}/guess"
                 hx-target="find .htmx-result"
             >
-                <div class="guess-fields">
-                    <input type="text" name="guessTitle" maxlength="250" placeholder="Song name" autocomplete="off" />
+                <!-- Same hx-preserve reasoning as the turn player's fields
+                     above: without it, someone else's guess/placement/buy
+                     wipes out whatever this player is mid-typing. -->
+                <div id="tt-guess-fields-other" class="guess-fields" hx-preserve="true">
+                    <input type="text" id="tt-guess-title-other" name="guessTitle" maxlength="250" placeholder="Song name" autocomplete="off" />
                     {{if ne .GuessMode "title"}}
                     <span class="guess-by">by</span>
-                    <input type="text" name="guessArtist" maxlength="250" placeholder="Artist" autocomplete="off" />
+                    <input type="text" id="tt-guess-artist-other" name="guessArtist" maxlength="250" placeholder="Artist" autocomplete="off" />
                     {{end}}
                 </div>
                 <button type="submit" class="btn-small">

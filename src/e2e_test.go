@@ -894,7 +894,28 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 
 	// ================= 6b. buy a card: any player, any time during listening,
 	// never touches the round already in progress ============================
-	buyer := otherPlayers(currentPlayer())[0]
+	// Picked as whichever candidate has the fewest cards so far (ties
+	// included) rather than an arbitrary one of the two: by this point in the
+	// test several steals/placements have already happened, and this section
+	// is testing the buy mechanic itself, not the separate in-the-lead
+	// restriction (covered on its own in TestBuyCardCostAndStrictLeaderRestriction) --
+	// picking whoever is behind guarantees they are never the strict leader.
+	candidates := otherPlayers(currentPlayer())
+	buyer := candidates[0]
+	buyerLen, err := database.GetPlayerTimeline(gameId, buyer.playerId)
+	if err != nil {
+		t.Fatalf("buyer timeline: %v", err)
+	}
+	for _, c := range candidates[1:] {
+		cLen, err := database.GetPlayerTimeline(gameId, c.playerId)
+		if err != nil {
+			t.Fatalf("candidate timeline: %v", err)
+		}
+		if len(cLen) < len(buyerLen) {
+			buyer = c
+			buyerLen = cLen
+		}
+	}
 	if err := database.SetPlayerTokens(gameId, buyer.playerId, database.BuyCardCost); err != nil {
 		t.Fatalf("top up buyer tokens: %v", err)
 	}

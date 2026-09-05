@@ -148,6 +148,36 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 		ctx.Game.StealerPlayerId.Valid &&
 		ctx.Game.StealerPlayerId.UUID == ctx.Player.Id
 
+	// Computed from the timelines already fetched above rather than a second
+	// database round-trip: strictly more cards than every other active
+	// player disables Buy — a leader shopping the pile for the finish is not
+	// the point of the token.
+	myTimelineLen, maxOtherTimelineLen := -1, -1
+	currentPlayerName := ""
+	for _, t := range timelines {
+		if t.IsMe {
+			myTimelineLen = len(t.Timeline)
+		}
+		if t.IsCurrent {
+			currentPlayerName = t.PlayerName
+		}
+		if !t.IsMe && len(t.Timeline) > maxOtherTimelineLen {
+			maxOtherTimelineLen = len(t.Timeline)
+		}
+	}
+	inLead := myTimelineLen > maxOtherTimelineLen
+
+	// Live "who's still deciding" status for the persistent board banner,
+	// not a toast that vanishes after a few seconds: how many of the active
+	// players have already submitted a guess this round. Safe to show before
+	// reveal — it says who has guessed, never what or whether it was right.
+	guessedCount := 0
+	if ctx.Game.GuessMode != database.GuessModeOff {
+		if guesses, guessErr := database.GetGuesses(ctx.Game.Id); guessErr == nil {
+			guessedCount = len(guesses)
+		}
+	}
+
 	tmpl, err := template.New("timeline.html").Funcs(template.FuncMap{
 		"add": func(a, b int) int { return a + b },
 		"sub": func(a, b int) int { return a - b },
@@ -159,25 +189,37 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type data struct {
-		Timelines   []database.PlayerTimeline
-		LobbyId     uuid.UUID
-		GameStatus  string
-		RoundPhase  string
-		CanPlace    bool
-		CanSteal    bool
-		TokenCount  int
-		CardsToWin  int
+		Timelines         []database.PlayerTimeline
+		LobbyId           uuid.UUID
+		GameStatus        string
+		RoundPhase        string
+		CanPlace          bool
+		CanSteal          bool
+		TokenCount        int
+		CardsToWin        int
+		InLead            bool
+		BuyCardCost       int
+		CurrentPlayerName string
+		GuessMode         string
+		GuessedCount      int
+		ActivePlayerCount int
 	}
 
 	_ = tmpl.Execute(w, data{
-		Timelines:  timelines,
-		LobbyId:    ctx.LobbyId,
-		GameStatus: ctx.Game.GameStatus,
-		RoundPhase: ctx.Game.RoundPhase,
-		CanPlace:   canPlace,
-		CanSteal:   canSteal,
-		TokenCount: tokens,
-		CardsToWin: ctx.Game.CardsToWin,
+		Timelines:         timelines,
+		LobbyId:           ctx.LobbyId,
+		GameStatus:        ctx.Game.GameStatus,
+		RoundPhase:        ctx.Game.RoundPhase,
+		CanPlace:          canPlace,
+		CanSteal:          canSteal,
+		TokenCount:        tokens,
+		CardsToWin:        ctx.Game.CardsToWin,
+		InLead:            inLead,
+		BuyCardCost:       database.BuyCardCost,
+		CurrentPlayerName: currentPlayerName,
+		GuessMode:         ctx.Game.GuessMode,
+		GuessedCount:      guessedCount,
+		ActivePlayerCount: len(timelines),
 	})
 }
 

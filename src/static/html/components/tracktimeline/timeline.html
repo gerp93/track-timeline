@@ -11,11 +11,11 @@
         class="badge btn-buy"
         hx-post="/api/track-timeline/{{$root.LobbyId}}/buy-card"
         hx-swap="none"
-        hx-confirm="Spend 2 tokens to draw a fresh song and place it on your timeline automatically, with no listen and no guess?"
-        title="{{if $oneFromWin}}You can't buy when you're one song from winning{{else}}Buy a card: draw a fresh song from the pile and place it automatically for 2 tokens, any time{{end}}"
-        {{if or (ne $root.RoundPhase "listening") (lt .TokenCount 2) $oneFromWin}}disabled{{end}}
+        hx-confirm="Spend {{$root.BuyCardCost}} tokens to draw a fresh song and place it on your timeline automatically, with no listen and no guess?"
+        title="{{if $root.InLead}}You can't buy while you're in the lead{{else if $oneFromWin}}You can't buy when you're one song from winning{{else}}Buy a card: draw a fresh song from the pile and place it automatically for {{$root.BuyCardCost}} tokens, any time{{end}}"
+        {{if or (ne $root.RoundPhase "listening") (lt .TokenCount $root.BuyCardCost) $oneFromWin $root.InLead}}disabled{{end}}
     >
-        <span class="bi bi-cart"></span> Buy (2)
+        <span class="bi bi-cart"></span> Buy ({{$root.BuyCardCost}})
     </button>
     {{end}}
     {{end}}
@@ -29,7 +29,7 @@
             {{if $root.CanPlace}}
             Your turn — listen, then choose where it goes.
             {{else}}
-            Waiting for the player on turn to place the song.
+            Waiting for {{if $root.CurrentPlayerName}}{{$root.CurrentPlayerName}}{{else}}the player on turn{{end}} to place the song.
             {{end}}
         {{else if eq .RoundPhase "steal_join"}}
             Steal window open — first to claim it gets the shot.
@@ -42,6 +42,9 @@
         {{else}}
             Revealed.
         {{end}}
+        {{if and (ne $root.RoundPhase "reveal") (ne $root.GuessMode "off")}}
+        <div class="board-banner-guesses">{{$root.GuessedCount}} of {{$root.ActivePlayerCount}} guessed so far</div>
+        {{end}}
     </div>
     {{end}}
 
@@ -52,6 +55,7 @@
             <span class="player-name" title="{{.PlayerName}}">
                 {{.PlayerName}}{{if .HasPlaced}} <span class="player-placed bi bi-check2" title="Has committed a placement"></span>{{end}}
             </span>
+            <span class="player-tokens" title="{{.PlayerName}}'s tokens">{{.TokenCount}} <span class="bi bi-coin"></span></span>
 
             <div class="timeline-track">
                 {{$canAct := false}}
