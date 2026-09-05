@@ -123,14 +123,17 @@ func TestPlacementYearRangeFormat(t *testing.T) {
 }
 
 func TestCanBuyCard(t *testing.T) {
-	if !CanBuyCard(3, 2, 5) {
-		t.Fatal("3 songs with 2 tokens toward 5 should allow buy")
+	if !CanBuyCard(3, 3, 5, false) {
+		t.Fatal("3 songs with 3 tokens toward 5 should allow buy")
 	}
-	if CanBuyCard(4, 2, 5) {
+	if CanBuyCard(4, 3, 5, false) {
 		t.Fatal("one away from winning must not allow buy")
 	}
-	if CanBuyCard(3, 1, 5) {
+	if CanBuyCard(3, 2, 5, false) {
 		t.Fatal("not enough tokens must not allow buy")
+	}
+	if CanBuyCard(3, 3, 5, true) {
+		t.Fatal("a strict leader must not be allowed to buy")
 	}
 }
 

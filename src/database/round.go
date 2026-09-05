@@ -528,19 +528,43 @@ func cardAlreadyOnAnyTimeline(gameId uuid.UUID, cardId uuid.UUID) (bool, error) 
 }
 
 // BuyCardCost is how many tokens the buy-a-free-card action spends.
-const BuyCardCost = 2
+const BuyCardCost = 3
 
 // CanBuyCard reports whether buying a free card is allowed for this seat:
-// enough tokens, and the purchase would not be the winning song (wins must
-// come from a real placement or steal).
-func CanBuyCard(timelineLen, tokenCount, cardsToWin int) bool {
+// enough tokens, the purchase would not be the winning song (wins must come
+// from a real placement or steal), and the buyer is not already strictly
+// ahead of every other active player — buying tokens away a game that is
+// already close, so a leader shopping for the finish is not the intent.
+func CanBuyCard(timelineLen, tokenCount, cardsToWin int, inLead bool) bool {
 	if tokenCount < BuyCardCost {
 		return false
 	}
 	if timelineLen+1 >= cardsToWin {
 		return false
 	}
+	if inLead {
+		return false
+	}
 	return true
+}
+
+// IsStrictlyInLead reports whether playerId's timeline is strictly longer
+// than every other active player's — a tie for first does not count, only
+// sole possession of the lead does.
+func IsStrictlyInLead(gameId uuid.UUID, playerId uuid.UUID, timelineLen int) (bool, error) {
+	players, err := GetPlayers(gameId)
+	if err != nil {
+		return false, err
+	}
+	for _, p := range players {
+		if !p.IsActive || p.PlayerId == playerId {
+			continue
+		}
+		if p.TimelineSize >= timelineLen {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // BoughtCard is what a successful BuyCard produced — enough to announce it,
@@ -631,9 +655,16 @@ func BuyCard(gameId uuid.UUID, playerId uuid.UUID) (BoughtCard, error) {
 	if err != nil {
 		return bought, err
 	}
-	if !CanBuyCard(len(timeline), tokens, game.CardsToWin) {
+	inLead, err := IsStrictlyInLead(gameId, playerId, len(timeline))
+	if err != nil {
+		return bought, err
+	}
+	if !CanBuyCard(len(timeline), tokens, game.CardsToWin, inLead) {
 		if tokens < BuyCardCost {
 			return bought, errors.New("not enough tokens")
+		}
+		if inLead {
+			return bought, errors.New("you can't buy a card while you're in the lead")
 		}
 		return bought, errors.New("that would be the winning card — it has to come from a real guess")
 	}
@@ -691,6 +722,13 @@ type RoundOutcome struct {
 	GuessTokenGuessText          string
 	GuessTokenTitleMatchPercent  int
 	GuessTokenArtistMatchPercent int
+
+	// Guesses is every guess submitted this round, oldest first. Announcing
+	// these to chat is deferred until reveal (unlike the exact-year wager,
+	// there is no separate per-guess field to leak early) so nobody watching
+	// chat can read off who nailed the title/artist before the song is
+	// actually revealed.
+	Guesses []Guess
 
 	// Exact-year wager on the turn player's placement, if any. Announced at
 	// reveal so the steal window is not spoiled by the year digits.
@@ -803,6 +841,14 @@ func resolveRound(gameId uuid.UUID, winnerPlayerId uuid.UUID, winnerName string,
 		if logErr := LogCardEvent(card.CardId, CardEventDiscarded); logErr != nil {
 			log.Println(logErr)
 		}
+	}
+
+	// Snapshotted before ClearGuesses below so the caller can announce every
+	// guess to chat now that the round is actually over.
+	if guesses, guessErr := GetGuesses(gameId); guessErr == nil {
+		outcome.Guesses = guesses
+	} else {
+		log.Println(guessErr)
 	}
 
 	// The guess-token economy is independent of the card economy above: it
@@ -950,6 +996,12 @@ func SkipCurrentCard(gameId uuid.UUID) error {
 		return err
 	}
 	if err := ClearGuesses(gameId); err != nil {
+		return err
+	}
+	// The replacement song has not been heard at all yet, so a replay already
+	// spent on the abandoned song must not carry over and hide the Restart
+	// button (or block the token spend) for a clip nobody has used it on.
+	if err := SetReplayUsed(gameId, false); err != nil {
 		return err
 	}
 	if err := SetRoundPhase(gameId, PhaseListening); err != nil {

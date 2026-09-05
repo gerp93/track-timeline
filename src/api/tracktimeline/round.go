@@ -492,14 +492,21 @@ func announceAndFinish(ctx gameContext, outcome database.RoundOutcome) {
 		}
 	}
 
+	// Every guess submitted this round, oldest first — held back from chat at
+	// submit time (see submitGuessForPlayer) so nobody could read off who was
+	// right about the title/artist before the song was actually revealed.
+	for _, g := range outcome.Guesses {
+		announce(ctx.LobbyId, fmt.Sprintf(
+			"<blue>%s</> guessed “%s” — %s",
+			esc(g.PlayerName), esc(g.GuessText), describeGuessPublic(g, ctx.Game.GuessMode),
+		))
+	}
+
 	if outcome.GuessTokenWinnerPlayerId.Valid {
 		payload.GuessTokenWinnerName = outcome.GuessTokenWinnerName
 		payload.GuessTokenGuessText = outcome.GuessTokenGuessText
 		payload.GuessTokenTitleMatchPercent = outcome.GuessTokenTitleMatchPercent
 		payload.GuessTokenArtistMatchPercent = outcome.GuessTokenArtistMatchPercent
-		// Guess text + verdict already went to chat at submit time — only
-		// announce the token award here so the lobby does not see the same
-		// guess twice.
 		announce(ctx.LobbyId, fmt.Sprintf(
 			"<green>%s</> earned 1 token for naming the song",
 			esc(outcome.GuessTokenWinnerName),
@@ -757,17 +764,15 @@ func submitGuessForPlayer(httpCtx context.Context, ctx gameContext, card databas
 		log.Println(logErr)
 	}
 
-	// Match percents and the typed text go to the lobby as a chat line once,
-	// at submit. Reveal only records who actually won the token.
+	// The verdict is private to the guesser for now — a public chat line
+	// naming who was right about the title/artist would leak the answer to
+	// everyone else before the song is actually revealed. The public line is
+	// sent later, at reveal, from the stored guess (see announceAndFinish).
 	private := describeVerdict(verdict, ctx.Game.GuessMode)
 	if verdict.Explanation != "" {
 		private += " " + verdict.Explanation
 	}
 	gsWebsocket.PlayerBroadcast(ctx.Player.Id, "alert:"+private)
-	announce(ctx.LobbyId, fmt.Sprintf(
-		"<blue>%s</> guessed “%s” — %s",
-		esc(ctx.Player.Name), esc(guessText), describeVerdictPublic(verdict, ctx.Game.GuessMode),
-	))
 }
 
 func describeVerdict(verdict guess.Verdict, guessMode string) string {
@@ -809,6 +814,20 @@ func correctWord(correct bool) string {
 		return "right"
 	}
 	return "wrong"
+}
+
+// describeGuessPublic is describeVerdictPublic's counterpart for a guess
+// that was already recorded and is only now, at reveal, being told to chat —
+// there is no live guess.Verdict at that point (ByAI is not persisted), so
+// this always shows match percents rather than the AI-Quizmaster phrasing.
+func describeGuessPublic(g database.Guess, guessMode string) string {
+	titleWord := correctWord(g.TitleCorrect)
+	artistWord := correctWord(g.ArtistCorrect)
+	if guessMode == database.GuessModeTitle {
+		return fmt.Sprintf("title %s (%d%% match)", titleWord, g.TitleMatchPercent)
+	}
+	return fmt.Sprintf("title %s (%d%% match), artist %s (%d%% match)",
+		titleWord, g.TitleMatchPercent, artistWord, g.ArtistMatchPercent)
 }
 
 // SkipCard spends a token to abandon the song in play and draw a replacement.

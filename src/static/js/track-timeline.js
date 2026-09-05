@@ -162,6 +162,7 @@ function handleMessage(message) {
             ttClipListenedThisRound = false;
             ttClipFinished = false;
             ttPlaybackStartedThisRound = false;
+            ttClearListenGate();
             refreshGame();
             if (payload.gameOver) {
                 refreshControls();
@@ -469,11 +470,14 @@ function syncPlacementButtons() {
             btn.classList.remove("is-disabled");
             return;
         }
-        const blocked = !ttPlaybackStartedThisRound || exactYearOn;
+        const listenGateOpen = ttListenGateSatisfied();
+        const blocked = !ttPlaybackStartedThisRound || exactYearOn || !listenGateOpen;
         btn.disabled = blocked;
         btn.classList.toggle("is-disabled", blocked);
         if (!ttPlaybackStartedThisRound) {
             btn.title = "Play the song first";
+        } else if (!listenGateOpen) {
+            btn.title = "Give everyone a chance to guess — " + ttListenGateRemainingSeconds() + "s left before you can place";
         } else if (exactYearOn) {
             btn.title = "Using exact-year wager — lock in below";
         } else {
@@ -598,6 +602,7 @@ function playSong(videoId, startSeconds, endSeconds) {
     // ttHoldTimerForPlayback).
     ttHoldTimerForPlayback();
     ttPlaybackStartedThisRound = true;
+    ttStartListenGate();
 
     try {
         // endSeconds is the IFrame API's own clip support: it stops there and
@@ -652,6 +657,7 @@ function stopSong() {
     ttPlaybackStartedThisRound = false;
     ttClipListenedThisRound = false;
     ttClipFinished = false;
+    ttClearListenGate();
 
     // stopVideo's own onStateChange event can lag by a beat; update the UI
     // immediately rather than waiting on it.
@@ -717,6 +723,50 @@ let ttClipFinished = false;
 // codes get auto-skipped for free.
 let ttPlaybackStartedThisRound = false;
 
+// The listen gate holds placement (not guessing) back for a flat
+// TT_MIN_LISTEN_MS after Play is pressed, so a fast placement by the turn
+// player cannot end the round -- and close everyone else's guessing window
+// (SubmitGuess refuses once the phase reaches reveal) -- before the rest of
+// the lobby has had a real chance to type a guess. Deliberately a flat
+// duration rather than a fraction of the clip: it is measuring real time to
+// think/type, not clip length, so it applies the same way even to a clip
+// shorter than TT_MIN_LISTEN_MS.
+//
+// Client-side only, same trust model this file already uses for "Play the
+// song first" (ttPlaybackStartedThisRound has no server-side check either):
+// a good-faith courtesy, not an anti-cheat boundary.
+const TT_MIN_LISTEN_MS = 30000;
+let ttListenGateDeadlineMs = 0;
+let ttListenGateInterval = null;
+
+function ttStartListenGate() {
+    ttListenGateDeadlineMs = Date.now() + TT_MIN_LISTEN_MS;
+    if (ttListenGateInterval) clearInterval(ttListenGateInterval);
+    ttListenGateInterval = setInterval(() => {
+        if (Date.now() >= ttListenGateDeadlineMs && ttListenGateInterval) {
+            clearInterval(ttListenGateInterval);
+            ttListenGateInterval = null;
+        }
+        syncPlacementButtons();
+    }, 500);
+}
+
+function ttClearListenGate() {
+    ttListenGateDeadlineMs = 0;
+    if (ttListenGateInterval) {
+        clearInterval(ttListenGateInterval);
+        ttListenGateInterval = null;
+    }
+}
+
+function ttListenGateSatisfied() {
+    return ttListenGateDeadlineMs !== 0 && Date.now() >= ttListenGateDeadlineMs;
+}
+
+function ttListenGateRemainingSeconds() {
+    return Math.max(0, Math.ceil((ttListenGateDeadlineMs - Date.now()) / 1000));
+}
+
 // setTurnTimerSeconds keeps the tracked duration and the header badge's
 // visibility in sync. The badge element is always in the DOM (even when the
 // lobby loaded with the timer off) so a mid-game enable can show it without
@@ -740,6 +790,15 @@ function ttCloseTurnTimerBanner() {
     }
     const existing = document.getElementById("tt-turn-timer-modal");
     if (existing) existing.remove();
+
+    // The header badge is only ever written by the banner's own tick, so
+    // without this it keeps showing whatever number the ordinary countdown
+    // last wrote — frozen and increasingly wrong — all the way through a
+    // steal window/turn (which suppress the ordinary timer entirely) and
+    // into the next round, until a fresh ordinary countdown happens to
+    // start and overwrite it again.
+    const badgeEl = document.getElementById("tt-turn-timer");
+    if (badgeEl) badgeEl.textContent = "";
 }
 
 function ttHoldTimerForPlayback() {
@@ -1344,9 +1403,12 @@ function ttValidateExactYear() {
     const wagerOk = hasNumber && n >= 1 && Number.isInteger(max) && n <= max;
     const yearOk = !!(year && /^\d{4}$/.test(String(year.value).trim()));
     const played = ttPlaybackStartedThisRound;
-    lock.disabled = !(played && wagerOk && yearOk);
+    const listenGateOpen = ttListenGateSatisfied();
+    lock.disabled = !(played && listenGateOpen && wagerOk && yearOk);
     if (!played) {
         lock.title = "Play the song first";
+    } else if (!listenGateOpen) {
+        lock.title = "Give everyone a chance to guess — " + ttListenGateRemainingSeconds() + "s left before you can lock in";
     } else if (notEnough) {
         lock.title = "Not enough tokens for that wager.";
     } else if (!wagerOk) {
