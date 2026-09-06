@@ -17,6 +17,7 @@ import (
 )
 
 const hostCookieName = "TRACK-TIMELINE-ROOM-HOST"
+const guestNightCookieName = "TRACK-TIMELINE-ROOM-GUEST"
 
 // Create starts a room-mode session: lobby + game + room row + host cookie,
 // then redirects the creator's browser to the seatless host display. The
@@ -251,10 +252,41 @@ func setHostCookie(w http.ResponseWriter, code string, token string) {
 		Name:     hostCookieName,
 		Value:    strings.ToUpper(code) + ":" + token,
 		Path:     "/",
-		MaxAge:   12 * 60 * 60,
+		// Long enough for an early-evening start through a late night.
+		MaxAge:   16 * 60 * 60,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+// setGuestNightCookie keeps a seat recoverable for the same room overnight even
+// when the framework auth cookie (Secure + 12h HMAC) expires or was dropped on
+// plain HTTP LAN phones. Rejoining with this cookie remints the auth session.
+func setGuestNightCookie(w http.ResponseWriter, code string, userId uuid.UUID) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     guestNightCookieName,
+		Value:    strings.ToUpper(code) + ":" + userId.String(),
+		Path:     "/",
+		MaxAge:   16 * 60 * 60,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func readGuestNightUser(r *http.Request, code string) (uuid.UUID, bool) {
+	c, err := r.Cookie(guestNightCookieName)
+	if err != nil || c.Value == "" {
+		return uuid.Nil, false
+	}
+	parts := strings.SplitN(c.Value, ":", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], code) {
+		return uuid.Nil, false
+	}
+	userId, err := uuid.Parse(parts[1])
+	if err != nil || userId == uuid.Nil {
+		return uuid.Nil, false
+	}
+	return userId, true
 }
 
 func readHostToken(r *http.Request, code string) (string, bool) {

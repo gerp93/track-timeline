@@ -103,7 +103,13 @@ function roomHostAppendLog(text) {
     const list = document.getElementById("room-log-list");
     if (!list) return;
     const li = document.createElement("li");
-    li.textContent = text;
+    // Match gameshell chat markup: <blue>/<green>/<red> … </>
+    const raw = String(text || "")
+        .replaceAll("<red>", '<span class="gs-chat-red">')
+        .replaceAll("<green>", '<span class="gs-chat-green">')
+        .replaceAll("<blue>", '<span class="gs-chat-blue">')
+        .replaceAll("</>", "</span>");
+    li.innerHTML = raw;
     list.prepend(li);
     while (list.children.length > 80) list.removeChild(list.lastChild);
 }

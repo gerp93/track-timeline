@@ -1,5 +1,6 @@
 {{define "body"}}
 <link rel="stylesheet" href="/static/css/track-timeline.css" />
+<link rel="stylesheet" href="/static/css/room.css" />
 <div class="tt-room-create">
   <h1>Host a Room</h1>
   <p>Sets up the big-screen display. Everyone (including you) joins on their phone with the room code.</p>
@@ -9,53 +10,207 @@
     hx-post="/api/room/create"
     hx-swap="none"
   >
-    <label>
-      Room name
-      <input name="name" maxlength="80" placeholder="Living Room Night" />
-    </label>
+    <label for="name">Room name</label>
+    <input id="name" name="name" maxlength="80" placeholder="Living Room Night" autocomplete="off" />
 
-    <label>
-      Songs to win
-      <input type="number" name="cardsToWin" min="5" max="20" value="10" required />
-    </label>
+    <label for="cardsToWin">Songs to win</label>
+    <input
+      type="number"
+      id="cardsToWin"
+      name="cardsToWin"
+      min="5"
+      max="20"
+      value="10"
+      required
+      autocomplete="off"
+      onchange="ttRecalcCount()"
+    />
 
-    <input type="hidden" name="startingTokens" value="2" />
+    <label for="startingTokens">Starting tokens</label>
+    <input
+      type="number"
+      id="startingTokens"
+      name="startingTokens"
+      min="0"
+      max="5"
+      value="2"
+      autocomplete="off"
+    />
 
-    <label>
-      Playback
-      <select name="playbackMode">
-        <option value="sample" selected>Random clip</option>
-        <option value="intro">From the start</option>
-        <option value="full">Whole song</option>
-      </select>
-    </label>
+    <label for="playbackMode">Playback</label>
+    <select id="playbackMode" name="playbackMode" autocomplete="off" onchange="ttTogglePlaybackClip()">
+      <option value="sample" selected>Random clip from the middle</option>
+      <option value="intro">Clip from the beginning</option>
+      <option value="full">Play the whole song</option>
+    </select>
 
-    <label>
-      Clip seconds
-      <input type="number" name="clipSeconds" min="5" max="60" value="20" />
-    </label>
+    <label for="clipSeconds" id="clipSecondsLabel">Clip length (seconds)</label>
+    <input
+      type="number"
+      id="clipSeconds"
+      name="clipSeconds"
+      min="5"
+      max="60"
+      value="20"
+      autocomplete="off"
+    />
 
-    <label>
-      Guess mode
-      <select name="guessMode">
-        <option value="both" selected>Title and artist</option>
-        <option value="title">Title only</option>
-        <option value="either">Title or artist</option>
-        <option value="off">Off</option>
-      </select>
-    </label>
+    <label for="guessMode">Naming the song</label>
+    <select id="guessMode" name="guessMode" autocomplete="off">
+      <option value="both" selected>Title and artist both required for a token</option>
+      <option value="title">Title only (artist field hidden)</option>
+      <option value="either">Title or artist correct earns the token</option>
+      <option value="off">Disabled</option>
+    </select>
 
-    <fieldset>
-      <legend>Decks</legend>
+    <label for="guessJudge">AI judge</label>
+    <select id="guessJudge" name="guessJudge" autocomplete="off" onchange="ttToggleGuessJudge()">
+      <option value="local" {{if not .ClaudeReady}}selected{{end}}>No</option>
+      <option value="claude" {{if .ClaudeReady}}selected{{end}} {{if not .ClaudeReady}}disabled{{end}}>Yes</option>
+    </select>
+    {{if not .ClaudeReady}}
+    <p class="hint">Yes needs TRACK_TIMELINE_ANTHROPIC_API_KEY on the server.</p>
+    {{end}}
+
+    <label for="guessMatchPercent" id="guessMatchPercentLabel">Match required</label>
+    <select id="guessMatchPercent" name="guessMatchPercent" autocomplete="off">
+      <option value="60" selected>60%</option>
+      <option value="70">70%</option>
+      <option value="80">80%</option>
+      <option value="90">90%</option>
+    </select>
+
+    <h4>Decks</h4>
+    {{if .Decks}}
+    <div class="checkbox-list">
       {{range .Decks}}
-      <label><input type="checkbox" name="deckId" value="{{.Id}}" /> {{.Name}}</label>
-      {{else}}
-      <p>No decks available. Create or unlock a deck first.</p>
+      <label>
+        <input type="checkbox" name="deckId" value="{{.Id}}" onchange="ttRecalcCount()" />
+        {{.Name}}
+      </label>
       {{end}}
-    </fieldset>
+    </div>
+    {{else}}
+    <p>You have no decks yet. <a href="/decks">Create one</a> and add some songs first.</p>
+    {{end}}
+
+    {{if .Categories}}
+    <h4>Exclude genres</h4>
+    <div class="checkbox-list">
+      {{range .Categories}}
+      <label>
+        <input type="checkbox" name="excludedCategoryId" value="{{.Id}}" onchange="ttRecalcCount()" />
+        {{.Name}}
+      </label>
+      {{end}}
+    </div>
+    {{end}}
+
+    <h4>Eras</h4>
+    <p class="hint">Leave empty to allow every year.</p>
+    <div id="era-rows"></div>
+    <button type="button" class="btn-small" onclick="ttAddEraRow()">
+      <span class="bi bi-plus"></span> Add era
+    </button>
+
+    <p id="tt-count-estimate" class="hint">Select a deck to see how many songs match.</p>
 
     <button type="submit">Open host display</button>
     <div class="htmx-result"></div>
   </form>
 </div>
+
+<script>
+  function ttAddEraRow() {
+    const container = document.getElementById("era-rows");
+    const row = document.createElement("div");
+    row.className = "era-row";
+
+    const from = document.createElement("input");
+    from.type = "number";
+    from.name = "fromYear";
+    from.placeholder = "From";
+    from.autocomplete = "off";
+    from.addEventListener("change", ttRecalcCount);
+
+    const to = document.createElement("input");
+    to.type = "number";
+    to.name = "toYear";
+    to.placeholder = "To";
+    to.autocomplete = "off";
+    to.addEventListener("change", ttRecalcCount);
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "btn-small";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", function () {
+      row.remove();
+      ttRecalcCount();
+    });
+
+    row.appendChild(from);
+    row.appendChild(to);
+    row.appendChild(remove);
+    container.appendChild(row);
+  }
+
+  let ttCountTimer = null;
+
+  function ttRecalcCount() {
+    if (ttCountTimer) clearTimeout(ttCountTimer);
+    ttCountTimer = setTimeout(ttDoRecalcCount, 250);
+  }
+
+  function ttTogglePlaybackClip() {
+    var mode = document.getElementById("playbackMode").value;
+    var showClip = mode !== "full";
+    document.getElementById("clipSeconds").style.display = showClip ? "" : "none";
+    document.getElementById("clipSecondsLabel").style.display = showClip ? "" : "none";
+  }
+
+  function ttToggleGuessJudge() {
+    var el = document.getElementById("guessJudge");
+    var ai = el && el.value === "claude";
+    var label = document.getElementById("guessMatchPercentLabel");
+    if (label) {
+      label.textContent = ai ? "Heuristic fallback" : "Match required";
+    }
+  }
+
+  function ttDoRecalcCount() {
+    const form = document.getElementById("room-create-form");
+    const estimate = document.getElementById("tt-count-estimate");
+    if (!form || !estimate) return;
+
+    const data = new FormData(form);
+    const params = new URLSearchParams();
+    for (const name of ["deckId", "excludedCategoryId", "fromYear", "toYear"]) {
+      for (const value of data.getAll(name)) {
+        params.append(name, value);
+      }
+    }
+
+    if (params.getAll("deckId").length === 0) {
+      estimate.textContent = "Select a deck to see how many songs match.";
+      return;
+    }
+
+    fetch("/api/track-timeline/card-count", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    })
+      .then(function (r) { return r.text(); })
+      .then(function (text) {
+        estimate.textContent = text;
+      })
+      .catch(function () {
+        estimate.textContent = "Could not count matching songs.";
+      });
+  }
+
+  ttTogglePlaybackClip();
+  ttToggleGuessJudge();
+</script>
 {{end}}

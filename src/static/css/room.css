@@ -88,4 +88,20 @@
   gap: 12px;
 }
 .tt-room-create label { display: block; margin-bottom: 8px; }
-.tt-room-create fieldset label { display: block; }
+.tt-room-create fieldset label,
+.tt-room-create .checkbox-list label { display: block; }
+.tt-room-create .era-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+.tt-room-create .era-row input { width: 7rem; }
+.tt-room-voice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0;
+}
+.room-phone .tt-room-voice .btn-small { flex: 1 1 auto; }

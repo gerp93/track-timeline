@@ -66,6 +66,7 @@ func JoinGuest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	gsAuth.SetUserId(w, userId)
+	setGuestNightCookie(w, room.Code, userId)
 	Broadcast(room.LobbyId, "log:"+displayName+" sat down")
 	Broadcast(room.LobbyId, "refresh")
 	w.Header().Add("HX-Redirect", "/room/"+room.Code+"/play")
@@ -105,6 +106,8 @@ func JoinAccount(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		name = user.Name
 	}
+	gsAuth.SetUserId(w, userId)
+	setGuestNightCookie(w, room.Code, userId)
 	Broadcast(room.LobbyId, "log:"+name+" sat down")
 	Broadcast(room.LobbyId, "refresh")
 	w.Header().Add("HX-Redirect", "/room/"+room.Code+"/play")

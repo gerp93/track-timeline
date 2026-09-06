@@ -97,8 +97,8 @@ func TestRoomModeEndToEnd(t *testing.T) {
 	if hostCookie == nil || hostCookie.Value == "" {
 		t.Fatal("create room did not set host cookie")
 	}
-	if hostCookie.MaxAge < 11*60*60 {
-		t.Fatalf("host cookie MaxAge=%d, want ~12h for a night of play", hostCookie.MaxAge)
+	if hostCookie.MaxAge < 15*60*60 {
+		t.Fatalf("host cookie MaxAge=%d, want ~16h for a night of play", hostCookie.MaxAge)
 	}
 
 	room, err := database.GetRoomByCode(code)
@@ -143,6 +143,19 @@ func TestRoomModeEndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(guestRec.Header().Get("HX-Redirect"), "/room/"+code+"/play") {
 		t.Fatalf("join guest redirect = %q", guestRec.Header().Get("HX-Redirect"))
+	}
+	var guestNight *http.Cookie
+	for _, c := range guestRec.Result().Cookies() {
+		if c.Name == "TRACK-TIMELINE-ROOM-GUEST" {
+			guestNight = c
+			break
+		}
+	}
+	if guestNight == nil || !strings.HasPrefix(strings.ToUpper(guestNight.Value), code+":") {
+		t.Fatalf("join guest missing night cookie: %+v", guestNight)
+	}
+	if guestNight.MaxAge < 15*60*60 {
+		t.Fatalf("guest night cookie MaxAge=%d, want ~16h", guestNight.MaxAge)
 	}
 
 	var guestUserId uuid.UUID

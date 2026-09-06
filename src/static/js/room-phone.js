@@ -138,3 +138,107 @@ function roomPhoneOnMessage(message) {
         return;
     }
 }
+
+// ---- Room voice guess (Web Speech API → editable fields → Lock guess) ------
+
+let roomSpeechRecognition = null;
+let roomSpeechListening = false;
+
+function roomSpeechSupported() {
+    return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+}
+
+function roomSetVoiceStatus(text, show) {
+    const el = document.getElementById("tt-voice-status");
+    if (!el) return;
+    el.textContent = text || "";
+    el.hidden = !show;
+}
+
+function roomApplyHeardText(transcript) {
+    const title = document.getElementById("tt-guess-title");
+    const artist = document.getElementById("tt-guess-artist");
+    if (!title) return;
+
+    let heard = (transcript || "").trim();
+    if (!heard) return;
+
+    // Split on " by " when both fields exist; otherwise dump into title.
+    if (artist) {
+        const match = heard.match(/^(.*?)\s+by\s+(.+)$/i);
+        if (match) {
+            title.value = match[1].trim();
+            artist.value = match[2].trim();
+        } else {
+            title.value = heard;
+        }
+    } else {
+        title.value = heard;
+    }
+
+    const reRecord = document.getElementById("tt-re-record");
+    if (reRecord) reRecord.style.display = "";
+    roomSetVoiceStatus("Edit if needed, then Lock guess.", true);
+}
+
+function roomHoldMic(event) {
+    if (event) event.preventDefault();
+    if (!roomSpeechSupported()) {
+        roomSetVoiceStatus("Voice not supported here — type your guess instead.", true);
+        return;
+    }
+
+    if (roomSpeechListening && roomSpeechRecognition) {
+        try { roomSpeechRecognition.stop(); } catch (e) {}
+        return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    roomSpeechRecognition = new SpeechRecognition();
+    roomSpeechRecognition.lang = "en-US";
+    roomSpeechRecognition.interimResults = true;
+    roomSpeechRecognition.continuous = false;
+    roomSpeechRecognition.maxAlternatives = 1;
+
+    let finalText = "";
+    roomSpeechListening = true;
+    roomSetVoiceStatus("Listening… release when done.", true);
+    const mic = document.getElementById("tt-hold-mic");
+    if (mic) mic.textContent = "Listening…";
+
+    roomSpeechRecognition.onresult = function (ev) {
+        let interim = "";
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+            const piece = ev.results[i][0].transcript;
+            if (ev.results[i].isFinal) {
+                finalText += piece + " ";
+            } else {
+                interim += piece;
+            }
+        }
+        roomSetVoiceStatus((finalText || interim || "Listening…").trim(), true);
+    };
+
+    roomSpeechRecognition.onerror = function () {
+        roomSpeechListening = false;
+        if (mic) mic.innerHTML = '<span class="bi bi-mic"></span> Hold to speak';
+        roomSetVoiceStatus("Could not hear that — try again or type.", true);
+    };
+
+    roomSpeechRecognition.onend = function () {
+        roomSpeechListening = false;
+        if (mic) mic.innerHTML = '<span class="bi bi-mic"></span> Hold to speak';
+        if (finalText.trim()) {
+            roomApplyHeardText(finalText.trim());
+        } else {
+            roomSetVoiceStatus("Nothing heard — try again or type.", true);
+        }
+    };
+
+    try {
+        roomSpeechRecognition.start();
+    } catch (e) {
+        roomSpeechListening = false;
+        roomSetVoiceStatus("Mic unavailable — type your guess instead.", true);
+    }
+}

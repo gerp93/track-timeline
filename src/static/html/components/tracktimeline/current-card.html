@@ -157,10 +157,21 @@
                     />
                     {{end}}
                 </div>
+                {{if .IsRoom}}
+                <div id="tt-room-voice" class="tt-room-voice" hx-preserve="true">
+                    <button type="button" id="tt-hold-mic" class="btn-small" onclick="roomHoldMic(event)">
+                        <span class="bi bi-mic"></span> Hold to speak
+                    </button>
+                    <button type="button" id="tt-re-record" class="btn-small" style="display:none" onclick="roomHoldMic(event)">
+                        Re-record
+                    </button>
+                    <p id="tt-voice-status" class="guess-hint" hidden></p>
+                </div>
+                {{end}}
                 <button type="submit" class="btn-small">
-                    <span class="bi bi-lightbulb"></span> Guess
+                    <span class="bi bi-lightbulb"></span> {{if .IsRoom}}Lock guess{{else}}Guess{{end}}
                 </button>
-                <p class="guess-hint">Optional — 1 token if correct.</p>
+                <p class="guess-hint">Optional — 1 token if correct.{{if .IsRoom}} Speak or type, then lock.{{end}}</p>
                 <div class="htmx-result"></div>
             </form>
             {{else if not .IsRoom}}

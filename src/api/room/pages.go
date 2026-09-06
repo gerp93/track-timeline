@@ -8,11 +8,13 @@ import (
 	"strings"
 
 	gsApi "github.com/gerp93/gameshell-framework/api"
+	gsAuth "github.com/gerp93/gameshell-framework/auth"
 	gsDatabase "github.com/gerp93/gameshell-framework/database"
 	gsStatic "github.com/gerp93/gameshell-framework/static"
 	"github.com/google/uuid"
 
 	"github.com/gerp93/track-timeline/database"
+	"github.com/gerp93/track-timeline/guess"
 	"github.com/gerp93/track-timeline/static"
 )
 
@@ -47,13 +49,15 @@ func CreatePage(w http.ResponseWriter, r *http.Request) {
 
 	type data struct {
 		gsApi.BasePageData
-		Decks      []gsDatabase.Deck
-		Categories []database.Category
+		Decks       []gsDatabase.Deck
+		Categories  []database.Category
+		ClaudeReady bool
 	}
 	_ = tmpl.ExecuteTemplate(w, "base", data{
 		BasePageData: base,
 		Decks:        decks,
 		Categories:   categories,
+		ClaudeReady:  guess.ClaudeConfigured(),
 	})
 }
 
@@ -147,6 +151,21 @@ func PlayPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userId := base.User.Id
+	if userId == uuid.Nil {
+		// Framework auth cookie expired or was never set (Secure cookie on
+		// plain HTTP). Remint from the room guest-night cookie when present.
+		if guestId, ok := readGuestNightUser(r, room.Code); ok {
+			if player, playerErr := gsDatabase.GetLobbyUserPlayer(room.LobbyId, guestId); playerErr == nil && player.Id != uuid.Nil {
+				gsAuth.SetUserId(w, guestId)
+				setGuestNightCookie(w, room.Code, guestId)
+				userId = guestId
+				if user, userErr := gsDatabase.GetUser(guestId); userErr == nil {
+					base.User = user
+					base.LoggedIn = true
+				}
+			}
+		}
+	}
 	if userId == uuid.Nil {
 		http.Redirect(w, r, "/room/"+room.Code, http.StatusSeeOther)
 		return

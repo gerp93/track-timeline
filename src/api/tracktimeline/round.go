@@ -808,6 +808,12 @@ func submitGuessForPlayer(httpCtx context.Context, ctx gameContext, card databas
 	}
 	gsWebsocket.PlayerBroadcast(ctx.Player.Id, "alert:"+private)
 	apiRoom.MirrorPlayerBroadcast(ctx.LobbyId, ctx.Player.Id, "alert:"+private)
+
+	// Room TV log: someone locked a guess — never the words or the verdict.
+	if isRoom, roomErr := database.LobbyIsRoom(ctx.LobbyId); roomErr == nil && isRoom {
+		announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> locked a guess", esc(ctx.Player.Name)))
+		refresh(ctx.LobbyId)
+	}
 }
 
 func describeVerdict(verdict guess.Verdict, guessMode string) string {
