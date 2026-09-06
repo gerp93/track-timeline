@@ -36,8 +36,9 @@ function roomHostOnMessage(message) {
     }
     if (message === "resumed") {
         const el = document.getElementById("room-paused");
+        const wasPaused = el && el.style.display !== "none";
         if (el) el.style.display = "none";
-        roomHostAppendLog("Host display back — resumed");
+        if (wasPaused) roomHostAppendLog("Host display back — resumed");
         document.body.dispatchEvent(new Event("room-refresh"));
         return;
     }

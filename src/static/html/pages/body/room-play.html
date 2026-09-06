@@ -42,6 +42,8 @@
 </div>
 
 <script>
-  initRoomPhone({{printf "%q" .Room.Code}}, {{printf "%q" .LobbyId.String}});
+  {{/* html/template JS-escapes string args; do not wrap with printf %q or the
+       value keeps literal quotes and /ws/room/"CODE" 404s. */}}
+  initRoomPhone({{.Room.Code}}, {{.LobbyId.String}});
 </script>
 {{end}}

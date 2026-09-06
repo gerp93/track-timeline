@@ -11,15 +11,25 @@ function initRoomPhone(code, lobbyId) {
     roomPhoneCode = code;
     ttLobbyId = lobbyId;
 
-    // Stub a YouTube player so syncPlaybackUI / ttPlayPauseClick can read
-    // play/pause state without attaching a real IFrame on the phone.
+    // Phones never load the real IFrame API. Stub YT.PlayerState so shared
+    // track-timeline.js (ttPlayPauseClick compares YT.PlayerState.*) does not
+    // throw, and stub ttPlayer so syncPlaybackUI can read play/pause state.
+    //
+    // Important: before the first play this round the stub must look like
+    // UNSTARTED (-1), not PAUSED (2). ttPlayPauseClick maps PAUSED → resume-song
+    // and only UNSTARTED/other → play-song; a PAUSED default would never cue
+    // the host TV clip.
+    if (typeof window.YT === "undefined") {
+        window.YT = {
+            PlayerState: { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 },
+        };
+    }
     ttPlayerReady = true;
     ttPlayer = {
         getPlayerState: function () {
-            if (typeof YT === "undefined") {
-                return roomHostPlaying ? 1 : 2;
-            }
-            return roomHostPlaying ? YT.PlayerState.PLAYING : YT.PlayerState.PAUSED;
+            if (roomHostPlaying) return YT.PlayerState.PLAYING;
+            if (ttPlaybackStartedThisRound) return YT.PlayerState.PAUSED;
+            return YT.PlayerState.UNSTARTED;
         },
         playVideo: function () {},
         pauseVideo: function () {},
@@ -55,7 +65,11 @@ function connectRoomPhoneSocket() {
 
 function roomPhoneOnMessage(message) {
     if (message === "refresh") {
-        refreshGame();
+        // Waiting phones have no #tt-current-card/#tt-board yet — htmx.ajax at a
+        // missing target throws and spamsthe console when seats join.
+        if (document.getElementById("tt-current-card") || document.getElementById("tt-board")) {
+            refreshGame();
+        }
         return;
     }
     if (message === "reload") {

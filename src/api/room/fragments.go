@@ -92,6 +92,7 @@ func HostCurrentCard(w http.ResponseWriter, r *http.Request) {
 		IsRoom:        true,
 		IsHostDisplay: true,
 	})
+	writeRoomPhaseOOB(w, game.RoundPhase)
 }
 
 // HostTimeline renders every seat's timeline for the TV (no placement UI).
@@ -166,4 +167,14 @@ func HostTimeline(w http.ResponseWriter, r *http.Request) {
 		GuessedCount:      guessedCount,
 		ActivePlayerCount: len(timelines),
 	})
+	writeRoomPhaseOOB(w, game.RoundPhase)
+}
+
+// writeRoomPhaseOOB keeps the host chrome phase badge in sync; the badge lives
+// outside the HTMX fragment targets and would otherwise stay stuck on the
+// value from the initial page render.
+func writeRoomPhaseOOB(w http.ResponseWriter, phase string) {
+	_, _ = w.Write([]byte(`<span id="room-phase" class="badge" hx-swap-oob="true">`))
+	template.HTMLEscape(w, []byte(phase))
+	_, _ = w.Write([]byte(`</span>`))
 }

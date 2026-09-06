@@ -53,6 +53,8 @@
 </div>
 
 <script>
-  initRoomHost({{printf "%q" .Room.Code}}, {{printf "%q" .Room.LobbyId.String}});
+  {{/* html/template JS-escapes string args; do not wrap with printf %q or the
+       value keeps literal quotes and /ws/room/"CODE" 404s. */}}
+  initRoomHost({{.Room.Code}}, {{.Room.LobbyId.String}});
 </script>
 {{end}}
