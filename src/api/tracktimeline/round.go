@@ -212,6 +212,7 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 					exactYearGuess, tokensWonLost(yearWager))
 			}
 			gsWebsocket.PlayerBroadcast(ctx.Player.Id, msg)
+			apiRoom.MirrorPlayerBroadcast(ctx.LobbyId, ctx.Player.Id, msg)
 		} else {
 			msg := fmt.Sprintf("alert:Guessed %d, was %d — %s.",
 				exactYearGuess, card.ReleaseYear, tokensWonLost(-yearWager))
@@ -220,6 +221,7 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 					exactYearGuess, card.ReleaseYear, tokensWonLost(-yearWager))
 			}
 			gsWebsocket.PlayerBroadcast(ctx.Player.Id, msg)
+			apiRoom.MirrorPlayerBroadcast(ctx.LobbyId, ctx.Player.Id, msg)
 		}
 	}
 
@@ -805,6 +807,7 @@ func submitGuessForPlayer(httpCtx context.Context, ctx gameContext, card databas
 		private += " " + verdict.Explanation
 	}
 	gsWebsocket.PlayerBroadcast(ctx.Player.Id, "alert:"+private)
+	apiRoom.MirrorPlayerBroadcast(ctx.LobbyId, ctx.Player.Id, "alert:"+private)
 }
 
 func describeVerdict(verdict guess.Verdict, guessMode string) string {

@@ -29,6 +29,7 @@ type currentCardView struct {
 	TokenCount      int
 	GuessMode       string
 	IsRoom          bool
+	IsHostDisplay   bool
 }
 
 func renderCurrentCard(t *testing.T, data currentCardView) string {
@@ -200,6 +201,39 @@ func TestTimelineShowsTokenCountPerPlayer(t *testing.T) {
 // on turn (not a generic placeholder) and show a live guessed-so-far count,
 // both while a guess mode is on, and it must not show the guess count once
 // the mode is off or the round has reached reveal.
+
+func TestCurrentCardHostDisplayHidesWatchTvHint(t *testing.T) {
+	phone := renderCurrentCard(t, currentCardView{
+		CurrentCard:     database.CurrentCard{YouTubeVideoId: "abc123"},
+		GameStatus:      database.StatusActive,
+		RoundPhase:      database.PhaseListening,
+		IsCurrentPlayer: false,
+		HasGuessed:      false,
+		GuessMode:       database.GuessModeBoth,
+		IsRoom:          true,
+		IsHostDisplay:   false,
+		LobbyId:         uuid.New(),
+	})
+	if !strings.Contains(phone, "Watch the TV") {
+		t.Fatalf("room phone spectator should see Watch the TV hint: %s", phone)
+	}
+
+	host := renderCurrentCard(t, currentCardView{
+		CurrentCard:     database.CurrentCard{YouTubeVideoId: "abc123"},
+		GameStatus:      database.StatusActive,
+		RoundPhase:      database.PhaseListening,
+		IsCurrentPlayer: false,
+		HasGuessed:      false,
+		GuessMode:       database.GuessModeBoth,
+		IsRoom:          true,
+		IsHostDisplay:   true,
+		LobbyId:         uuid.New(),
+	})
+	if strings.Contains(host, "Watch the TV") {
+		t.Fatalf("host TV should not tell viewers to watch the TV: %s", host)
+	}
+}
+
 func TestTimelineBoardBannerNamesCurrentPlayerAndGuessCount(t *testing.T) {
 	got := renderTimeline(t, timelineView{
 		GameStatus:        database.StatusActive,

@@ -63,6 +63,26 @@ function roomHostOnMessage(message) {
         try { if (roomYtPlayer) roomYtPlayer.playVideo(); } catch (e) {}
         return;
     }
+    if (message.startsWith("steal:")) {
+        try {
+            const s = JSON.parse(message.slice(6));
+            roomHostAppendLog(s.placerName ? (s.placerName + " placed — steal window open") : "Steal window open");
+        } catch (e) {
+            roomHostAppendLog("Steal window open");
+        }
+        document.body.dispatchEvent(new Event("room-refresh"));
+        return;
+    }
+    if (message.startsWith("stealTurn:")) {
+        try {
+            const s = JSON.parse(message.slice(10));
+            roomHostAppendLog((s.stealerName || "Someone") + " is stealing");
+        } catch (e) {
+            roomHostAppendLog("Steal attempt");
+        }
+        document.body.dispatchEvent(new Event("room-refresh"));
+        return;
+    }
     if (message.startsWith("result:")) {
         try {
             const r = JSON.parse(message.slice(7));

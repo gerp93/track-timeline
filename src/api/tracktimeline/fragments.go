@@ -88,6 +88,7 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		TokenCount      int
 		GuessMode       string
 		IsRoom          bool
+		IsHostDisplay   bool
 	}
 
 	_ = tmpl.Execute(w, data{
@@ -105,6 +106,7 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		TokenCount:      tokens,
 		GuessMode:       ctx.Game.GuessMode,
 		IsRoom:          isRoom,
+		IsHostDisplay:   false,
 	})
 }
 

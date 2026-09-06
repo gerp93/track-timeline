@@ -78,17 +78,19 @@ func HostCurrentCard(w http.ResponseWriter, r *http.Request) {
 		TokenCount      int
 		GuessMode       string
 		IsRoom          bool
+		IsHostDisplay   bool
 	}
 	_ = tmpl.Execute(w, data{
-		CurrentCard: card,
-		Answer:      answer,
-		Revealed:    revealed,
-		LobbyId:     room.LobbyId,
-		GameStatus:  game.GameStatus,
-		RoundPhase:  game.RoundPhase,
-		ReplayUsed:  game.ReplayUsed,
-		GuessMode:   game.GuessMode,
-		IsRoom:      true,
+		CurrentCard:   card,
+		Answer:        answer,
+		Revealed:      revealed,
+		LobbyId:       room.LobbyId,
+		GameStatus:    game.GameStatus,
+		RoundPhase:    game.RoundPhase,
+		ReplayUsed:    game.ReplayUsed,
+		GuessMode:     game.GuessMode,
+		IsRoom:        true,
+		IsHostDisplay: true,
 	})
 }
 

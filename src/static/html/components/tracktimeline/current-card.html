@@ -185,7 +185,7 @@
                 <p class="guess-hint">Optional — 1 token if correct.</p>
                 <div class="htmx-result"></div>
             </form>
-            {{else}}
+            {{else if not .IsHostDisplay}}
             <p class="guess-hint">Only the player on turn can guess. Watch the TV.</p>
             {{end}}
             {{else}}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sync"
 
+	gsDatabase "github.com/gerp93/gameshell-framework/database"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
@@ -31,6 +32,12 @@ type hub struct {
 	broadcast  chan []byte
 	register   chan *client
 	unregister chan *client
+	toUser     chan userMessage
+}
+
+type userMessage struct {
+	userId uuid.UUID
+	payload []byte
 }
 
 var (
@@ -55,6 +62,7 @@ func getHub(lobbyId uuid.UUID) *hub {
 		broadcast:  make(chan []byte, 16),
 		register:   make(chan *client),
 		unregister: make(chan *client),
+		toUser:     make(chan userMessage, 16),
 	}
 	hubs[lobbyId] = h
 	go h.run()
@@ -95,6 +103,8 @@ func (h *hub) run() {
 			}
 		case message := <-h.broadcast:
 			h.sendAll(message)
+		case msg := <-h.toUser:
+			h.sendUser(msg.userId, msg.payload)
 		}
 	}
 }
@@ -110,6 +120,20 @@ func (h *hub) hasHost() bool {
 
 func (h *hub) sendAll(message []byte) {
 	for c := range h.clients {
+		select {
+		case c.send <- message:
+		default:
+			close(c.send)
+			delete(h.clients, c)
+		}
+	}
+}
+
+func (h *hub) sendUser(userId uuid.UUID, message []byte) {
+	for c := range h.clients {
+		if c.role != RoleSeat || c.userId != userId {
+			continue
+		}
 		select {
 		case c.send <- message:
 		default:
@@ -135,6 +159,21 @@ func Broadcast(lobbyId uuid.UUID, message string) {
 	}
 }
 
+// BroadcastToUser sends a private control string to seat clients for one user.
+func BroadcastToUser(lobbyId uuid.UUID, userId uuid.UUID, message string) {
+	hubsMu.Lock()
+	h, ok := hubs[lobbyId]
+	hubsMu.Unlock()
+	if !ok {
+		return
+	}
+	select {
+	case h.toUser <- userMessage{userId: userId, payload: []byte(message)}:
+	default:
+		log.Println("room hub user broadcast dropped for", lobbyId, userId)
+	}
+}
+
 // MirrorBroadcast copies a remote-style gameplay message into the room hub when
 // the lobby is room-mode. Remote LobbyBroadcast stays as-is for online play.
 func MirrorBroadcast(lobbyId uuid.UUID, message string) {
@@ -143,6 +182,21 @@ func MirrorBroadcast(lobbyId uuid.UUID, message string) {
 		return
 	}
 	Broadcast(lobbyId, message)
+}
+
+// MirrorPlayerBroadcast copies a private player alert into the room hub for
+// that player's user. Framework PlayerBroadcast only reaches lobby-WS clients;
+// room phones sit on /ws/room and would otherwise never see guess verdicts.
+func MirrorPlayerBroadcast(lobbyId uuid.UUID, playerId uuid.UUID, message string) {
+	isRoom, err := database.LobbyIsRoom(lobbyId)
+	if err != nil || !isRoom {
+		return
+	}
+	player, err := gsDatabase.GetPlayer(playerId)
+	if err != nil || player.UserId == uuid.Nil {
+		return
+	}
+	BroadcastToUser(lobbyId, player.UserId, message)
 }
 
 func (c *client) writePump() {

@@ -1,27 +1,67 @@
+// Room phone controller — reuses track-timeline.js UI helpers (steal modal,
+// exact-year toggle, play/skip/buy, fragment refresh) but sits on the room
+// websocket instead of the lobby hub. Host TV owns YouTube audio; this page
+// only POSTs play/pause/resume and unlocks listen gates when song: arrives.
+
 let roomPhoneCode = null;
-let roomPhoneLobbyId = null;
 let roomPhoneConn = null;
+let roomHostPlaying = false;
 
 function initRoomPhone(code, lobbyId) {
     roomPhoneCode = code;
-    roomPhoneLobbyId = lobbyId;
+    ttLobbyId = lobbyId;
+
+    // Stub a YouTube player so syncPlaybackUI / ttPlayPauseClick can read
+    // play/pause state without attaching a real IFrame on the phone.
+    ttPlayerReady = true;
+    ttPlayer = {
+        getPlayerState: function () {
+            if (typeof YT === "undefined") {
+                return roomHostPlaying ? 1 : 2;
+            }
+            return roomHostPlaying ? YT.PlayerState.PLAYING : YT.PlayerState.PAUSED;
+        },
+        playVideo: function () {},
+        pauseVideo: function () {},
+        stopVideo: function () {},
+        loadVideoById: function () {},
+    };
+
+    document.body.addEventListener("htmx:afterSwap", function (event) {
+        if (!event.detail || !event.detail.target) return;
+        const id = event.detail.target.id;
+        if (id === "tt-board") {
+            ttSyncSelfStatus();
+            syncPlaybackUI();
+        }
+        if (id === "tt-current-card") {
+            syncPlaybackUI();
+        }
+    });
+
     connectRoomPhoneSocket();
 }
 
 function connectRoomPhoneSocket() {
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     roomPhoneConn = new WebSocket(protocol + "//" + location.host + "/ws/room/" + roomPhoneCode + "?role=seat");
-    roomPhoneConn.onmessage = (e) => roomPhoneOnMessage(e.data);
-    roomPhoneConn.onclose = () => setTimeout(connectRoomPhoneSocket, 1500);
+    roomPhoneConn.onmessage = function (e) {
+        roomPhoneOnMessage(e.data);
+    };
+    roomPhoneConn.onclose = function () {
+        setTimeout(connectRoomPhoneSocket, 1500);
+    };
 }
 
 function roomPhoneOnMessage(message) {
     if (message === "refresh") {
-        document.body.dispatchEvent(new Event("room-refresh"));
+        refreshGame();
         return;
     }
     if (message === "reload") {
-        setTimeout(() => location.reload(), 400);
+        setTimeout(function () {
+            location.reload();
+        }, 400);
         return;
     }
     if (message === "paused") {
@@ -32,11 +72,69 @@ function roomPhoneOnMessage(message) {
     if (message === "resumed") {
         const el = document.getElementById("room-paused-banner");
         if (el) el.hidden = true;
-        document.body.dispatchEvent(new Event("room-refresh"));
+        refreshGame();
         return;
     }
     if (message.startsWith("status:")) {
         const el = document.getElementById("room-phone-status");
         if (el) el.textContent = message.slice(7);
+        showStatus(message.slice(7));
+        return;
+    }
+    if (message.startsWith("alert:")) {
+        showStatus(message.slice(6));
+        return;
+    }
+    if (message.startsWith("song:")) {
+        // Host display plays the clip; phones only unlock listen/skip/place gates.
+        roomHostPlaying = true;
+        ttPlaybackStartedThisRound = true;
+        ttStartListenGate();
+        ttHoldTimerForPlayback();
+        syncPlaybackUI();
+        return;
+    }
+    if (message === "songStop") {
+        roomHostPlaying = false;
+        stopSong();
+        return;
+    }
+    if (message === "songPause") {
+        roomHostPlaying = false;
+        ttClipListenedThisRound = true;
+        ttReleaseTimerAfterPlayback();
+        syncPlaybackUI();
+        return;
+    }
+    if (message === "songResume") {
+        roomHostPlaying = true;
+        ttHoldTimerForPlayback();
+        syncPlaybackUI();
+        return;
+    }
+    if (message.startsWith("steal:")) {
+        try {
+            handleStealJoin(JSON.parse(message.slice(6)));
+        } catch (e) {}
+        refreshGame();
+        return;
+    }
+    if (message.startsWith("stealTurn:")) {
+        try {
+            handleStealTurn(JSON.parse(message.slice(10)));
+        } catch (e) {}
+        refreshGame();
+        return;
+    }
+    if (message.startsWith("result:")) {
+        try {
+            const payload = JSON.parse(message.slice(7));
+            ttCloseStealModal();
+            if (payload.bottomMessage) showStatus(payload.bottomMessage);
+        } catch (e) {}
+        roomHostPlaying = false;
+        stopSong();
+        setTimeout(refreshGame, 300);
+        return;
     }
 }
