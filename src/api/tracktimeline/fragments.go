@@ -71,6 +71,8 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		ctx.Game.WinnerId.Valid &&
 		ctx.Game.WinnerId.UUID == ctx.UserId
 
+	isRoom, _ := database.LobbyIsRoom(ctx.LobbyId)
+
 	type data struct {
 		database.CurrentCard
 		Answer          database.CurrentCardAnswer
@@ -85,6 +87,7 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		ReplayUsed      bool
 		TokenCount      int
 		GuessMode       string
+		IsRoom          bool
 	}
 
 	_ = tmpl.Execute(w, data{
@@ -101,6 +104,7 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		ReplayUsed:      ctx.Game.ReplayUsed,
 		TokenCount:      tokens,
 		GuessMode:       ctx.Game.GuessMode,
+		IsRoom:          isRoom,
 	})
 }
 

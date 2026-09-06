@@ -1,0 +1,61 @@
+{{define "body"}}
+<link rel="stylesheet" href="/static/css/track-timeline.css" />
+<div class="tt-room-create">
+  <h1>Host a Room</h1>
+  <p>Sets up the big-screen display. Everyone (including you) joins on their phone with the room code.</p>
+
+  <form
+    id="room-create-form"
+    hx-post="/api/room/create"
+    hx-swap="none"
+  >
+    <label>
+      Room name
+      <input name="name" maxlength="80" placeholder="Living Room Night" />
+    </label>
+
+    <label>
+      Songs to win
+      <input type="number" name="cardsToWin" min="5" max="20" value="10" required />
+    </label>
+
+    <input type="hidden" name="startingTokens" value="2" />
+
+    <label>
+      Playback
+      <select name="playbackMode">
+        <option value="sample" selected>Random clip</option>
+        <option value="intro">From the start</option>
+        <option value="full">Whole song</option>
+      </select>
+    </label>
+
+    <label>
+      Clip seconds
+      <input type="number" name="clipSeconds" min="5" max="60" value="20" />
+    </label>
+
+    <label>
+      Guess mode
+      <select name="guessMode">
+        <option value="both" selected>Title and artist</option>
+        <option value="title">Title only</option>
+        <option value="either">Title or artist</option>
+        <option value="off">Off</option>
+      </select>
+    </label>
+
+    <fieldset>
+      <legend>Decks</legend>
+      {{range .Decks}}
+      <label><input type="checkbox" name="deckId" value="{{.Id}}" /> {{.Name}}</label>
+      {{else}}
+      <p>No decks available. Create or unlock a deck first.</p>
+      {{end}}
+    </fieldset>
+
+    <button type="submit">Open host display</button>
+    <div class="htmx-result"></div>
+  </form>
+</div>
+{{end}}

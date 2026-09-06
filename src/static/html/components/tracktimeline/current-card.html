@@ -89,13 +89,15 @@
                     <span class="bi bi-arrow-counterclockwise"></span> Restart (1)
                 </button>
                 {{end}}
-                {{if and (eq .RoundPhase "listening") (not .HasPlaced)}}
+                {{if and (eq .RoundPhase "listening") (not .HasPlaced) (or (not .IsRoom) (not .HasGuessed))}}
                 <!-- Starts disabled and is enabled by syncPlaybackUI once the
                      song has actually been cued: skipping is for a song you
                      have tried to play, not a way to shop for an easier one
                      sight-unseen. Rendered even with 0 tokens so the player
                      can see the cost rather than wondering where the button
-                     went; JS keeps it disabled when they cannot pay. -->
+                     went; JS keeps it disabled when they cannot pay. Room
+                     mode also hides skip once a title/artist guess is locked
+                     in — naming the song commits you to this card. -->
                 <button
                     id="tt-skip-btn"
                     class="btn-secondary"
@@ -161,7 +163,7 @@
                 <p class="guess-hint">Optional — 1 token if correct.</p>
                 <div class="htmx-result"></div>
             </form>
-            {{else}}
+            {{else if not .IsRoom}}
             <form
                 class="guess-form"
                 hx-post="/api/track-timeline/{{.LobbyId}}/guess"
@@ -183,6 +185,8 @@
                 <p class="guess-hint">Optional — 1 token if correct.</p>
                 <div class="htmx-result"></div>
             </form>
+            {{else}}
+            <p class="guess-hint">Only the player on turn can guess. Watch the TV.</p>
             {{end}}
             {{else}}
             <div class="guess-spent">You have already guessed this song.</div>

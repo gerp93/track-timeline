@@ -1,0 +1,91 @@
+/* Room mode — host TV and phone controllers. */
+
+.room-host {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  grid-template-rows: auto auto auto 1fr;
+  gap: 12px;
+  min-height: calc(100vh - 4rem);
+  padding: 12px;
+}
+.room-host-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.room-code {
+  font-size: 1.25rem;
+  letter-spacing: 0.12em;
+}
+.room-join-hint {
+  grid-column: 1 / -1;
+  border: 1px dashed #888;
+  padding: 8px 12px;
+}
+.room-status {
+  grid-column: 1;
+  font-weight: 650;
+}
+#tt-current-card { grid-column: 1; }
+#tt-board { grid-column: 1; }
+.room-log {
+  grid-column: 2;
+  grid-row: 3 / span 2;
+  border: 1px solid #ccc;
+  padding: 8px;
+  overflow: auto;
+  max-height: 70vh;
+}
+.room-log ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.9rem;
+}
+.room-log li {
+  padding: 4px 0;
+  border-bottom: 1px solid #eee;
+}
+.room-popup {
+  position: fixed;
+  inset: 0;
+  background: rgba(255,255,255,0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+.room-popup[hidden] { display: none !important; }
+.room-popup-card {
+  background: #fff;
+  border: 2px solid #222;
+  padding: 1.25rem 1.5rem;
+  max-width: 28rem;
+  text-align: center;
+}
+.room-phone {
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.room-paused-banner {
+  background: #fff3cd;
+  border: 1px solid #c9a227;
+  padding: 8px;
+  text-align: center;
+}
+.room-phone .hint { color: #666; font-size: 0.9rem; text-align: center; }
+.tt-room-create {
+  max-width: 36rem;
+  margin: 1rem auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tt-room-create label { display: block; margin-bottom: 8px; }
+.tt-room-create fieldset label { display: block; }

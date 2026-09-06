@@ -1,0 +1,58 @@
+{{define "body"}}
+<link rel="stylesheet" href="/static/css/track-timeline.css" />
+<link rel="stylesheet" href="/static/css/room.css" />
+<script src="https://www.youtube.com/iframe_api"></script>
+<script src="/static/js/room-host.js"></script>
+
+<div id="room-host" class="room-host">
+  <header class="room-host-bar">
+    <div>
+      <h1>{{.Room.Name}}</h1>
+      <div class="room-code">Code <strong>{{.Room.Code}}</strong></div>
+    </div>
+    <div class="room-host-badges">
+      <span class="badge">First to {{.Game.CardsToWin}}</span>
+      <span class="badge" id="room-phase">{{.Game.RoundPhase}}</span>
+      <span class="badge" id="room-paused" {{if not .Room.IsPaused}}style="display:none"{{end}}>PAUSED</span>
+    </div>
+  </header>
+
+  <div class="room-join-hint">
+    Phones join at <code>/room/{{.Room.Code}}</code>
+  </div>
+
+  <div id="tt-youtube-holder" aria-hidden="true">
+    <div id="tt-youtube-player"></div>
+  </div>
+  <button id="tt-audio-unlock" type="button" onclick="roomHostUnlockAudio()" style="display:none">
+    Tap to enable sound on this display
+  </button>
+
+  <div id="room-status" class="room-status"></div>
+
+  <div id="tt-current-card"
+       hx-get="/api/room/{{.Room.Code}}/host/current-card"
+       hx-trigger="load, room-refresh from:body"></div>
+
+  <div id="tt-board"
+       hx-get="/api/room/{{.Room.Code}}/host/timeline"
+       hx-trigger="load, room-refresh from:body"></div>
+
+  <aside id="room-log" class="room-log" aria-live="polite">
+    <h2>Log</h2>
+    <ul id="room-log-list"></ul>
+  </aside>
+
+  <div id="room-popup" class="room-popup" hidden>
+    <div class="room-popup-card">
+      <h2 id="room-popup-title"></h2>
+      <div id="room-popup-body"></div>
+      <button type="button" onclick="roomHostDismissPopup()">OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  initRoomHost({{printf "%q" .Room.Code}}, {{printf "%q" .Room.LobbyId.String}});
+</script>
+{{end}}

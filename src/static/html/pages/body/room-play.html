@@ -1,0 +1,40 @@
+{{define "body"}}
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<link rel="stylesheet" href="/static/css/track-timeline.css" />
+<link rel="stylesheet" href="/static/css/room.css" />
+<script src="/static/js/room-phone.js"></script>
+
+<div id="room-phone" class="room-phone">
+  <header>
+    <div class="room-code">Room {{.Room.Code}}</div>
+    <div class="you">{{.DisplayName}}</div>
+    <div id="room-paused-banner" class="room-paused-banner" {{if not .Room.IsPaused}}hidden{{end}}>
+      Host display disconnected — paused
+    </div>
+  </header>
+
+  <div id="room-phone-status" class="hint">Watch the TV for the board.</div>
+
+  {{if eq .Game.GameStatus "waiting"}}
+  <button type="button" hx-post="/api/track-timeline/{{.LobbyId}}/start" hx-swap="none">
+    Start game
+  </button>
+  <p class="hint">Any seated player can start.</p>
+  {{else if eq .Game.GameStatus "finished"}}
+  <button type="button" hx-post="/api/track-timeline/{{.LobbyId}}/reset" hx-swap="none">
+    Play again
+  </button>
+  {{else}}
+  <div id="tt-current-card"
+       hx-get="/api/track-timeline/{{.LobbyId}}/current-card"
+       hx-trigger="load, room-refresh from:body"></div>
+  <div id="tt-board"
+       hx-get="/api/track-timeline/{{.LobbyId}}/timeline"
+       hx-trigger="load, room-refresh from:body"></div>
+  {{end}}
+</div>
+
+<script>
+  initRoomPhone({{printf "%q" .Room.Code}}, {{printf "%q" .LobbyId.String}});
+</script>
+{{end}}

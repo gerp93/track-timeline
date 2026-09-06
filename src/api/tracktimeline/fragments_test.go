@@ -28,6 +28,7 @@ type currentCardView struct {
 	ReplayUsed      bool
 	TokenCount      int
 	GuessMode       string
+	IsRoom          bool
 }
 
 func renderCurrentCard(t *testing.T, data currentCardView) string {

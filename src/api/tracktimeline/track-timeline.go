@@ -16,6 +16,7 @@ import (
 	gsWebsocket "github.com/gerp93/gameshell-framework/websocket"
 	"github.com/google/uuid"
 
+	apiRoom "github.com/gerp93/track-timeline/api/room"
 	"github.com/gerp93/track-timeline/database"
 	"github.com/gerp93/track-timeline/guess"
 	"github.com/gerp93/track-timeline/static"
@@ -89,11 +90,14 @@ func tokensWonLost(delta int) string {
 // rendered as chat.
 func announce(lobbyId uuid.UUID, message string) {
 	gsWebsocket.LobbyBroadcast(lobbyId, message)
+	apiRoom.MirrorBroadcast(lobbyId, "log:"+message)
+	apiRoom.MirrorBroadcast(lobbyId, message)
 }
 
 // sendStatus updates the bottom status line for everyone, with no popup.
 func sendStatus(lobbyId uuid.UUID, message string) {
 	gsWebsocket.LobbyBroadcast(lobbyId, "status:"+message)
+	apiRoom.MirrorBroadcast(lobbyId, "status:"+message)
 }
 
 // sendResult drives the reveal popup and the status line together.
@@ -104,6 +108,7 @@ func sendResult(lobbyId uuid.UUID, payload resultPayload) {
 		return
 	}
 	gsWebsocket.LobbyBroadcast(lobbyId, "result:"+string(encoded))
+	apiRoom.MirrorBroadcast(lobbyId, "result:"+string(encoded))
 }
 
 // sendSong cues the same song, over the same window, on every client. The
@@ -121,10 +126,12 @@ func sendSong(lobbyId uuid.UUID, card database.CurrentCard, window database.Clip
 		return
 	}
 	gsWebsocket.LobbyBroadcast(lobbyId, "song:"+string(encoded))
+	apiRoom.MirrorBroadcast(lobbyId, "song:"+string(encoded))
 }
 
 func refresh(lobbyId uuid.UUID) {
 	gsWebsocket.LobbyBroadcast(lobbyId, "refresh")
+	apiRoom.MirrorBroadcast(lobbyId, "refresh")
 }
 
 // gameContext is everything a gameplay handler needs about who is acting.
@@ -160,6 +167,14 @@ func loadContext(w http.ResponseWriter, r *http.Request) (gameContext, bool) {
 		return ctx, false
 	}
 	ctx.Game = game
+
+	if room, roomErr := database.GetRoomByLobbyId(lobbyId); roomErr == nil && room.IsPaused {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte("The room is paused until the host display reconnects."))
+			return ctx, false
+		}
+	}
 
 	ctx.UserId = gsApi.GetUserId(r)
 	if ctx.UserId == uuid.Nil {
@@ -639,6 +654,7 @@ func StartGame(w http.ResponseWriter, r *http.Request) {
 
 	announce(ctx.LobbyId, fmt.Sprintf("<blue>Game started</> — turn order: %s", esc(turnOrderNames(ctx.Game.Id))))
 	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "reload")
+	apiRoom.MirrorBroadcast(ctx.LobbyId, "reload")
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("Game started."))
@@ -659,6 +675,7 @@ func ResetGame(w http.ResponseWriter, r *http.Request) {
 
 	announce(ctx.LobbyId, "<blue>Game reset</> — ready for a new game")
 	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "reload")
+	apiRoom.MirrorBroadcast(ctx.LobbyId, "reload")
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("Game reset."))
@@ -810,6 +827,7 @@ func PauseSong(w http.ResponseWriter, r *http.Request) {
 	}
 
 	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "songPause")
+	apiRoom.MirrorBroadcast(ctx.LobbyId, "songPause")
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("Paused."))
@@ -833,6 +851,7 @@ func ResumeSong(w http.ResponseWriter, r *http.Request) {
 	}
 
 	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "songResume")
+	apiRoom.MirrorBroadcast(ctx.LobbyId, "songResume")
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("Resumed."))
