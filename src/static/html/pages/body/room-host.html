@@ -6,9 +6,9 @@
 
 <div id="room-host" class="room-host">
   <header class="room-host-bar">
-    <div>
-      <h1>{{.Room.Name}}</h1>
-      <div class="room-code">Code <strong>{{.Room.Code}}</strong></div>
+    <div class="room-host-identity">
+      <div class="room-code">{{.Room.Code}}</div>
+      <div class="room-host-name">{{.Room.Name}}</div>
     </div>
     <div class="room-host-badges">
       <span class="badge">First to {{.Game.CardsToWin}}</span>
@@ -17,9 +17,11 @@
     </div>
   </header>
 
+  {{if eq .Game.GameStatus "waiting"}}
   <div class="room-join-hint">
     Phones join at <code>/room/{{.Room.Code}}</code>
   </div>
+  {{end}}
 
   <div id="tt-youtube-holder" aria-hidden="true">
     <div id="tt-youtube-player"></div>
@@ -28,20 +30,24 @@
     Tap to enable sound on this display
   </button>
 
-  <div id="room-status" class="room-status"></div>
-
   <div id="tt-current-card"
+       class="room-host-marquee"
        hx-get="/api/room/{{.Room.Code}}/host/current-card"
        hx-trigger="load, room-refresh from:body"></div>
 
-  <div id="tt-board"
-       hx-get="/api/room/{{.Room.Code}}/host/timeline"
-       hx-trigger="load, room-refresh from:body"></div>
+  <div id="room-status" class="room-status" aria-live="polite"></div>
 
-  <aside id="room-log" class="room-log" aria-live="polite">
-    <h2>Log</h2>
-    <ul id="room-log-list"></ul>
-  </aside>
+  <div class="room-host-main">
+    <div id="tt-board"
+         class="room-host-board"
+         hx-get="/api/room/{{.Room.Code}}/host/timeline"
+         hx-trigger="load, room-refresh from:body"></div>
+
+    <aside id="room-log" class="room-log" aria-live="polite">
+      <h2>Log</h2>
+      <ul id="room-log-list"></ul>
+    </aside>
+  </div>
 
   <div id="room-popup" class="room-popup" hidden>
     <div class="room-popup-card">

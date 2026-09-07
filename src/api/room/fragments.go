@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	gsDatabase "github.com/gerp93/gameshell-framework/database"
 	"github.com/google/uuid"
 
 	"github.com/gerp93/track-timeline/database"
@@ -34,9 +35,9 @@ func loadHostRoom(w http.ResponseWriter, r *http.Request) (database.Room, databa
 	return room, game, true
 }
 
-// HostCurrentCard renders the song-in-play chrome for the TV (no turn controls).
+// HostCurrentCard renders the song-in-play marquee for the TV (no turn controls).
 func HostCurrentCard(w http.ResponseWriter, r *http.Request) {
-	room, game, ok := loadHostRoom(w, r)
+	_, game, ok := loadHostRoom(w, r)
 	if !ok {
 		return
 	}
@@ -56,7 +57,26 @@ func HostCurrentCard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tmpl, err := template.ParseFS(static.StaticFiles, "html/components/tracktimeline/current-card.html")
+	currentPlayerName := ""
+	if game.CurrentPlayerId.Valid {
+		if p, err := gsDatabase.GetPlayer(game.CurrentPlayerId.UUID); err == nil {
+			currentPlayerName = p.Name
+		}
+	}
+	if game.RoundPhase == database.PhaseStealTurn && game.StealerPlayerId.Valid {
+		if p, err := gsDatabase.GetPlayer(game.StealerPlayerId.UUID); err == nil && p.Name != "" {
+			currentPlayerName = p.Name
+		}
+	}
+
+	winnerName := ""
+	if game.GameStatus == database.StatusFinished && game.WinnerId.Valid {
+		if u, err := gsDatabase.GetUser(game.WinnerId.UUID); err == nil {
+			winnerName = u.Name
+		}
+	}
+
+	tmpl, err := template.ParseFS(static.StaticFiles, "html/components/tracktimeline/host-now-playing.html")
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to parse template."))
@@ -65,32 +85,21 @@ func HostCurrentCard(w http.ResponseWriter, r *http.Request) {
 
 	type data struct {
 		database.CurrentCard
-		Answer          database.CurrentCardAnswer
-		Revealed        bool
-		LobbyId         uuid.UUID
-		GameStatus      string
-		RoundPhase      string
-		IsCurrentPlayer bool
-		IsWinner        bool
-		HasPlaced       bool
-		HasGuessed      bool
-		ReplayUsed      bool
-		TokenCount      int
-		GuessMode       string
-		IsRoom          bool
-		IsHostDisplay   bool
+		Answer            database.CurrentCardAnswer
+		Revealed          bool
+		GameStatus        string
+		RoundPhase        string
+		CurrentPlayerName string
+		WinnerName        string
 	}
 	_ = tmpl.Execute(w, data{
-		CurrentCard:   card,
-		Answer:        answer,
-		Revealed:      revealed,
-		LobbyId:       room.LobbyId,
-		GameStatus:    game.GameStatus,
-		RoundPhase:    game.RoundPhase,
-		ReplayUsed:    game.ReplayUsed,
-		GuessMode:     game.GuessMode,
-		IsRoom:        true,
-		IsHostDisplay: true,
+		CurrentCard:       card,
+		Answer:            answer,
+		Revealed:          revealed,
+		GameStatus:        game.GameStatus,
+		RoundPhase:        game.RoundPhase,
+		CurrentPlayerName: currentPlayerName,
+		WinnerName:        winnerName,
 	})
 	writeRoomPhaseOOB(w, game.RoundPhase)
 }
