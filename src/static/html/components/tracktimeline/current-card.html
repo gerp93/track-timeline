@@ -17,143 +17,164 @@
     </div>
     {{else if and (eq .GameStatus "active") (ne .RoundPhase "reveal")}}
     {{if .IsCurrentPlayer}}
-    <div class="action-buttons">
-        <button
-            type="button"
-            id="tt-play-pause-btn"
-            class="btn-primary"
-            onclick="ttPlayPauseClick()"
-            title="Play or pause the song for everyone"
-        >
-            <span class="bi bi-play-fill"></span> <span class="btn-label">Play</span>
-        </button>
-        {{if and (eq .RoundPhase "listening") (not .HasPlaced) (not .ReplayUsed)}}
-        <button
-            id="tt-replay-btn"
-            class="btn-secondary"
-            style="display: none"
-            disabled
-            {{if lt .TokenCount 1}}data-no-tokens="1"{{end}}
-            hx-post="/api/track-timeline/{{.LobbyId}}/replay-song"
-            hx-swap="none"
-            hx-confirm="Spend a token to hear the clip again from the beginning?"
-            title="{{if lt .TokenCount 1}}You need a token to restart.{{else}}Restart this clip from the beginning, once, for a token{{end}}"
-        >
-            <span class="bi bi-arrow-counterclockwise"></span> Restart (1)
-        </button>
-        {{end}}
-        {{if and (eq .RoundPhase "listening") (not .HasPlaced) (not .HasGuessed)}}
-        <button
-            id="tt-skip-btn"
-            class="btn-secondary"
-            disabled
-            {{if lt .TokenCount 1}}data-no-tokens="1"{{end}}
-            hx-post="/api/track-timeline/{{.LobbyId}}/skip-card"
-            hx-swap="none"
-            hx-confirm="Spend a token to skip this song and draw another?"
-            title="{{if lt .TokenCount 1}}You need a token to skip.{{else}}Play the song first{{end}}"
-        >
-            <span class="bi bi-skip-forward"></span> Skip (1)
-        </button>
-        {{end}}
-    </div>
-
-    {{if and (ne .GuessMode "off") (not .HasGuessed)}}
-    <form
-        class="guess-form turn-player-guess"
-        hx-post="/api/track-timeline/{{.LobbyId}}/guess"
-        hx-target="find .htmx-result"
-    >
-        <div id="tt-guess-fields" class="guess-fields" hx-preserve="true">
-            <input
-                type="text"
-                id="tt-guess-title"
-                name="guessTitle"
-                maxlength="250"
-                placeholder="Song name"
-                autocomplete="off"
-            />
-            {{if ne .GuessMode "title"}}
-            <input
-                type="text"
-                id="tt-guess-artist"
-                name="guessArtist"
-                maxlength="250"
-                placeholder="Artist"
-                autocomplete="off"
-            />
+    <div id="room-phone-listen" class="room-phone-listen">
+        <div class="action-buttons">
+            <button
+                type="button"
+                id="tt-play-pause-btn"
+                class="btn-primary"
+                onclick="ttPlayPauseClick()"
+                title="Play or pause the song for everyone"
+            >
+                <span class="bi bi-play-fill"></span> <span class="btn-label">Play</span>
+            </button>
+            {{if and (eq .RoundPhase "listening") (not .HasPlaced) (not .ReplayUsed)}}
+            <button
+                id="tt-replay-btn"
+                class="btn-secondary"
+                style="display: none"
+                disabled
+                {{if lt .TokenCount 1}}data-no-tokens="1"{{end}}
+                hx-post="/api/track-timeline/{{.LobbyId}}/replay-song"
+                hx-swap="none"
+                hx-confirm="Spend a token to hear the clip again from the beginning?"
+                title="{{if lt .TokenCount 1}}You need a token to restart.{{else}}Restart this clip from the beginning, once, for a token{{end}}"
+            >
+                <span class="bi bi-arrow-counterclockwise"></span> Restart (1)
+            </button>
+            {{end}}
+            {{if and (eq .RoundPhase "listening") (not .HasPlaced) (not .HasGuessed)}}
+            <button
+                id="tt-skip-btn"
+                class="btn-secondary"
+                disabled
+                {{if lt .TokenCount 1}}data-no-tokens="1"{{end}}
+                hx-post="/api/track-timeline/{{.LobbyId}}/skip-card"
+                hx-swap="none"
+                hx-confirm="Spend a token to skip this song and draw another?"
+                title="{{if lt .TokenCount 1}}You need a token to skip.{{else}}Play the song first{{end}}"
+            >
+                <span class="bi bi-skip-forward"></span> Skip (1)
+            </button>
             {{end}}
         </div>
-        <div id="tt-room-voice" class="tt-room-voice" hx-preserve="true">
-            <button type="button" id="tt-hold-mic" class="btn-primary" onclick="roomHoldMic(event)">
-                <span class="bi bi-mic"></span> Hold to speak
+
+        {{if and (ne .GuessMode "off") (not .HasGuessed)}}
+        <form
+            class="guess-form turn-player-guess"
+            hx-post="/api/track-timeline/{{.LobbyId}}/guess"
+            hx-target="find .htmx-result"
+        >
+            <div id="tt-guess-fields" class="guess-fields" hx-preserve="true">
+                <input
+                    type="text"
+                    id="tt-guess-title"
+                    name="guessTitle"
+                    maxlength="250"
+                    placeholder="Song name"
+                    autocomplete="off"
+                />
+                {{if ne .GuessMode "title"}}
+                <input
+                    type="text"
+                    id="tt-guess-artist"
+                    name="guessArtist"
+                    maxlength="250"
+                    placeholder="Artist"
+                    autocomplete="off"
+                />
+                {{end}}
+            </div>
+            <div id="tt-room-voice" class="tt-room-voice" hx-preserve="true">
+                <button type="button" id="tt-hold-mic" class="btn-primary" onclick="roomHoldMic(event)">
+                    <span class="bi bi-mic"></span> Hold to speak
+                </button>
+                <button type="button" id="tt-re-record" class="btn-secondary" style="display:none" onclick="roomHoldMic(event)">
+                    Re-record
+                </button>
+                <p id="tt-voice-status" class="guess-hint" hidden></p>
+            </div>
+            <button type="submit" class="btn-primary">
+                <span class="bi bi-lightbulb"></span> Lock guess
             </button>
-            <button type="button" id="tt-re-record" class="btn-secondary" style="display:none" onclick="roomHoldMic(event)">
-                Re-record
-            </button>
-            <p id="tt-voice-status" class="guess-hint" hidden></p>
-        </div>
-        <button type="submit" class="btn-primary">
-            <span class="bi bi-lightbulb"></span> Lock guess
+            <p class="guess-hint">Optional — 1 token if correct.</p>
+            <div class="htmx-result"></div>
+        </form>
+        {{else if and (ne .GuessMode "off") .HasGuessed}}
+        <p class="guess-hint">Name guess locked.</p>
+        {{end}}
+
+        {{if and (eq .RoundPhase "listening") (not .HasPlaced)}}
+        <button
+            type="button"
+            id="tt-guess-year-btn"
+            class="btn-primary room-phone-guess-year"
+            disabled
+            onclick="roomEnterPlaceMode()"
+            title="Play the song first"
+        >
+            Guess year
         </button>
-        <p class="guess-hint">Optional — 1 token if correct.</p>
-        <div class="htmx-result"></div>
-    </form>
-    {{else if and (ne .GuessMode "off") .HasGuessed}}
-    <p class="guess-hint">Guess locked. Place it on your timeline below.</p>
-    {{end}}
+        {{end}}
+    </div>
 
     {{if and (eq .RoundPhase "listening") (not .HasPlaced)}}
-    <div class="options-group">
-        <label
-            class="checkbox-label{{if lt .TokenCount 1}} is-disabled{{end}}"
-            {{if lt .TokenCount 1}}title="Need 1 token to wager."{{end}}
-        >
-            <input
-                type="checkbox"
-                id="tt-use-exact-year"
-                onchange="ttToggleExactYear()"
-                {{if lt .TokenCount 1}}disabled{{end}}
-            />
-            Exact-year wager
-        </label>
-    </div>
-    <div id="tt-exact-year-row" style="display:none;">
-        <input
-            type="number"
-            id="tt-exact-year"
-            name="year"
-            min="1000"
-            max="9999"
-            step="1"
-            placeholder="Year"
-            autocomplete="off"
-            oninput="ttValidateExactYear()"
-        />
-        <input
-            type="number"
-            id="tt-year-wager"
-            name="yearWager"
-            min="1"
-            max="{{.TokenCount}}"
-            value="1"
-            autocomplete="off"
-            oninput="ttValidateExactYear()"
-            aria-label="Wager"
-        />
-        <p id="tt-year-wager-error" class="guess-hint field-error" hidden>not enough tokens</p>
-        <button
-            id="tt-lock-year"
-            class="btn-primary"
-            disabled
-            hx-post="/api/track-timeline/{{.LobbyId}}/place-card"
-            hx-include="#tt-exact-year, #tt-year-wager, #tt-guess-title, #tt-guess-artist"
-            hx-swap="none"
-            hx-confirm="Lock in this year?"
-            title="Wager must be between 1 and your tokens."
-        >
-            <span class="bi bi-lock"></span> Lock in year
+    <div id="room-phone-place" class="room-phone-place" hidden>
+        <button type="button" class="btn-secondary" onclick="roomExitPlaceMode()">
+            Back
         </button>
+        <p class="room-place-hint">Tap a slot on your timeline, or lock an exact year.</p>
+        <div class="options-group">
+            <label
+                class="checkbox-label{{if lt .TokenCount 1}} is-disabled{{end}}"
+                {{if lt .TokenCount 1}}title="Need 1 token to wager."{{end}}
+            >
+                <input
+                    type="checkbox"
+                    id="tt-use-exact-year"
+                    onchange="ttToggleExactYear()"
+                    {{if lt .TokenCount 1}}disabled{{end}}
+                />
+                Exact-year wager
+            </label>
+        </div>
+        <div id="tt-exact-year-row" style="display:none;">
+            <input
+                type="number"
+                id="tt-exact-year"
+                name="year"
+                min="1000"
+                max="9999"
+                step="1"
+                placeholder="Year"
+                autocomplete="off"
+                oninput="ttValidateExactYear()"
+            />
+            <input
+                type="number"
+                id="tt-year-wager"
+                name="yearWager"
+                min="1"
+                max="{{.TokenCount}}"
+                value="1"
+                autocomplete="off"
+                oninput="ttValidateExactYear()"
+                aria-label="Wager"
+            />
+            <p id="tt-year-wager-error" class="guess-hint field-error" hidden>not enough tokens</p>
+            <button
+                id="tt-lock-year"
+                class="btn-primary"
+                disabled
+                hx-post="/api/track-timeline/{{.LobbyId}}/place-card"
+                hx-include="#tt-exact-year, #tt-year-wager, #tt-guess-title, #tt-guess-artist"
+                hx-swap="none"
+                hx-confirm="Lock in this year?"
+                title="Wager must be between 1 and your tokens."
+            >
+                <span class="bi bi-lock"></span> Lock in year
+            </button>
+        </div>
     </div>
     {{end}}
 

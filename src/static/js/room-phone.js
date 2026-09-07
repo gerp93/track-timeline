@@ -6,18 +6,76 @@
 let roomPhoneCode = null;
 let roomPhoneConn = null;
 let roomHostPlaying = false;
+let roomPlaceMode = false;
+
+function roomPhoneRoot() {
+    return document.getElementById("room-phone");
+}
+
+function roomEnterPlaceMode() {
+    const root = roomPhoneRoot();
+    if (!root) return;
+    roomPlaceMode = true;
+    root.classList.add("is-placing");
+    const listen = document.getElementById("room-phone-listen");
+    const place = document.getElementById("room-phone-place");
+    if (listen) listen.hidden = true;
+    if (place) place.hidden = false;
+    roomPhoneSyncBoardVisibility();
+    if (typeof syncPlacementButtons === "function") syncPlacementButtons();
+    if (typeof ttValidateExactYear === "function") ttValidateExactYear();
+}
+
+function roomExitPlaceMode() {
+    const root = roomPhoneRoot();
+    if (!root) return;
+    roomPlaceMode = false;
+    root.classList.remove("is-placing");
+    const listen = document.getElementById("room-phone-listen");
+    const place = document.getElementById("room-phone-place");
+    if (listen) listen.hidden = false;
+    if (place) place.hidden = true;
+    const useExact = document.getElementById("tt-use-exact-year");
+    if (useExact && useExact.checked) {
+        useExact.checked = false;
+        if (typeof ttToggleExactYear === "function") ttToggleExactYear();
+    }
+    roomPhoneSyncBoardVisibility();
+}
+
+function roomPhoneSyncGuessYearBtn() {
+    const btn = document.getElementById("tt-guess-year-btn");
+    if (!btn) return;
+    const played = !!ttPlaybackStartedThisRound;
+    const gateOpen = typeof ttListenGateSatisfied === "function" ? ttListenGateSatisfied() : true;
+    const ready = played && gateOpen;
+    btn.disabled = !ready;
+    if (!played) {
+        btn.title = "Play the song first";
+    } else if (!gateOpen) {
+        btn.title = "Give everyone a chance to guess — " +
+            (typeof ttListenGateRemainingSeconds === "function" ? ttListenGateRemainingSeconds() + "s left" : "wait a moment");
+    } else {
+        btn.title = "Choose where this song goes on your timeline";
+    }
+}
 
 function roomPhoneSyncBoardVisibility() {
     const board = document.querySelector(".room-phone-board");
     if (!board) return;
     const steal = !!board.querySelector('[hx-post*="attempt-steal"]');
-    // Own timeline only once the clip is playing (placing) or during a steal.
-    board.classList.toggle("is-deferred", !steal && !ttPlaybackStartedThisRound);
+    if (steal && !roomPlaceMode) {
+        roomEnterPlaceMode();
+        return;
+    }
+    // Timeline only on the Guess year / steal screen — not during listen controls.
+    board.classList.toggle("is-deferred", !steal && !roomPlaceMode);
 }
 
 function initRoomPhone(code, lobbyId) {
     roomPhoneCode = code;
     ttLobbyId = lobbyId;
+    roomPlaceMode = false;
 
     // Phones never load the real IFrame API. Stub YT.PlayerState so shared
     // track-timeline.js (ttPlayPauseClick compares YT.PlayerState.*) does not
@@ -52,15 +110,25 @@ function initRoomPhone(code, lobbyId) {
             ttSyncSelfStatus();
             syncPlaybackUI();
             roomPhoneSyncBoardVisibility();
+            roomPhoneSyncGuessYearBtn();
         }
         if (id === "tt-current-card") {
+            // Fragment refresh rebuilds listen/place panels — re-apply mode
+            // only while the place panel still exists (gone after place/reveal).
+            if (roomPlaceMode && document.getElementById("room-phone-place")) {
+                roomEnterPlaceMode();
+            } else {
+                roomExitPlaceMode();
+            }
             syncPlaybackUI();
             roomPhoneSyncBoardVisibility();
+            roomPhoneSyncGuessYearBtn();
         }
     });
 
     connectRoomPhoneSocket();
     roomPhoneSyncBoardVisibility();
+    roomPhoneSyncGuessYearBtn();
 }
 
 function connectRoomPhoneSocket() {
@@ -118,11 +186,15 @@ function roomPhoneOnMessage(message) {
         ttHoldTimerForPlayback();
         syncPlaybackUI();
         roomPhoneSyncBoardVisibility();
+        roomPhoneSyncGuessYearBtn();
         return;
     }
     if (message === "songStop") {
         roomHostPlaying = false;
         stopSong();
+        // Placement locked — leave Guess-year screen so the next refresh
+        // starts on listen controls (or Watch the TV) rather than an empty place panel.
+        roomExitPlaceMode();
         roomPhoneSyncBoardVisibility();
         return;
     }
@@ -160,6 +232,7 @@ function roomPhoneOnMessage(message) {
             if (payload.bottomMessage) showStatus(payload.bottomMessage);
         } catch (e) {}
         roomHostPlaying = false;
+        roomExitPlaceMode();
         stopSong();
         setTimeout(refreshGame, 300);
         return;

@@ -309,6 +309,7 @@ body:has(.room-host) #body {
   flex-direction: column;
   gap: 12px;
   box-sizing: border-box;
+  min-height: calc(100vh - (2 * var(--top-bar-padding)) - var(--top-bar-height) - 2rem);
 }
 .room-phone-header,
 .room-phone-card,
@@ -323,6 +324,7 @@ body:has(.room-host) #body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 0 0 auto;
 }
 .room-phone-who {
   display: flex;
@@ -348,7 +350,8 @@ body:has(.room-host) #body {
 }
 .room-phone .hint,
 .room-phone .guess-hint,
-.room-phone-wait {
+.room-phone-wait,
+.room-place-hint {
   color: #666;
   font-size: 0.95rem;
   text-align: center;
@@ -363,7 +366,18 @@ body:has(.room-host) #body {
   flex-direction: column;
   gap: 12px;
   width: 100%;
+  flex: 0 0 auto;
 }
+.room-phone-listen,
+.room-phone-place {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+.room-phone.is-placing .room-phone-listen { display: none !important; }
+.room-phone:not(.is-placing) .room-phone-place { display: none !important; }
+.room-phone.is-placing .room-phone-place { display: flex !important; }
 .room-phone .action-buttons,
 .room-phone .tt-room-voice,
 .room-phone .guess-form,
@@ -385,11 +399,18 @@ body:has(.room-host) #body {
 .room-phone .tt-room-voice > button,
 .room-phone #tt-lock-year,
 .room-phone .room-phone-cta,
+.room-phone .room-phone-guess-year,
 .room-phone > .btn-primary {
   width: 100%;
   min-height: 3.5rem;
   font-size: 1.25rem;
   box-sizing: border-box;
+}
+.room-phone .room-phone-guess-year {
+  min-height: 4rem;
+  font-size: 1.35rem;
+  font-weight: 750;
+  margin-top: 0.35rem;
 }
 .room-phone .guess-fields input[type="text"],
 .room-phone #tt-exact-year,
@@ -406,9 +427,17 @@ body:has(.room-host) #body {
   font-size: 1rem;
   line-height: 1.35;
 }
-/* Own timeline stays hidden until Play (or steal) — see roomPhoneSyncBoardVisibility. */
+/* Timeline only on Guess year / steal screen — see roomPhoneSyncBoardVisibility. */
 .room-phone-board.is-deferred {
-  display: none;
+  display: none !important;
+}
+.room-phone.is-placing #tt-board,
+.room-phone.is-placing .room-phone-board {
+  margin-top: auto;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 .room-phone-board .board-banner {
   font-size: 1.05rem;
@@ -427,6 +456,8 @@ body:has(.room-host) #body {
 }
 .room-phone-board .timeline-track {
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 .room-phone-board .drop-zone {
   min-width: 2.75rem;

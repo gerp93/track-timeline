@@ -260,6 +260,22 @@ func TestCurrentCardRoomPhoneTurnOmitsTurntable(t *testing.T) {
 	if !strings.Contains(got, "Lock guess") {
 		t.Fatalf("room phone turn UI missing Lock guess: %s", got)
 	}
+	if !strings.Contains(got, `id="tt-guess-year-btn"`) || !strings.Contains(got, "Guess year") {
+		t.Fatalf("room phone turn UI missing Guess year CTA: %s", got)
+	}
+	if !strings.Contains(got, `id="room-phone-place"`) {
+		t.Fatalf("room phone turn UI missing place panel: %s", got)
+	}
+	if !strings.Contains(got, "Exact-year wager") {
+		t.Fatalf("room phone place panel missing exact-year wager: %s", got)
+	}
+	// Exact year lives on the Guess-year screen, not beside listen controls.
+	listenIdx := strings.Index(got, `id="room-phone-listen"`)
+	placeIdx := strings.Index(got, `id="room-phone-place"`)
+	exactIdx := strings.Index(got, `id="tt-use-exact-year"`)
+	if listenIdx < 0 || placeIdx < 0 || exactIdx < 0 || !(listenIdx < placeIdx && placeIdx < exactIdx) {
+		t.Fatalf("exact-year should be inside place panel after listen: listen=%d place=%d exact=%d", listenIdx, placeIdx, exactIdx)
+	}
 }
 
 func TestTimelineRoomPhoneOwnOnlyWhenPlacing(t *testing.T) {
