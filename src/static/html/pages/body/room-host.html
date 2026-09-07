@@ -1,0 +1,66 @@
+{{define "body"}}
+<link rel="stylesheet" href="/static/css/track-timeline.css" />
+<link rel="stylesheet" href="/static/css/room.css" />
+<script src="https://www.youtube.com/iframe_api"></script>
+<script src="/static/js/room-host.js"></script>
+
+<div id="room-host" class="room-host">
+  <header class="room-host-bar">
+    <div class="room-host-identity">
+      <div class="room-code">{{.Room.Code}}</div>
+      <div class="room-host-name">{{.Room.Name}}</div>
+    </div>
+    <div class="room-host-badges">
+      <span class="badge">First to {{.Game.CardsToWin}}</span>
+      <span class="badge" id="room-phase">{{.Game.RoundPhase}}</span>
+      <span class="badge" id="room-paused" {{if not .Room.IsPaused}}style="display:none"{{end}}>PAUSED</span>
+    </div>
+  </header>
+
+  {{if eq .Game.GameStatus "waiting"}}
+  <div class="room-join-hint">
+    Phones join at <code>/room/{{.Room.Code}}</code>
+  </div>
+  {{end}}
+
+  <div id="tt-youtube-holder" aria-hidden="true">
+    <div id="tt-youtube-player"></div>
+  </div>
+  <button id="tt-audio-unlock" type="button" onclick="roomHostUnlockAudio()" style="display:none">
+    Tap to enable sound on this display
+  </button>
+
+  <div id="tt-current-card"
+       class="room-host-marquee"
+       hx-get="/api/room/{{.Room.Code}}/host/current-card"
+       hx-trigger="load, room-refresh from:body"></div>
+
+  <div id="room-status" class="room-status" aria-live="polite"></div>
+
+  <div class="room-host-main">
+    <div id="tt-board"
+         class="room-host-board"
+         hx-get="/api/room/{{.Room.Code}}/host/timeline"
+         hx-trigger="load, room-refresh from:body"></div>
+
+    <aside id="room-log" class="room-log" aria-live="polite">
+      <h2>Log</h2>
+      <ul id="room-log-list"></ul>
+    </aside>
+  </div>
+
+  <div id="room-popup" class="room-popup" hidden>
+    <div class="room-popup-card">
+      <h2 id="room-popup-title"></h2>
+      <div id="room-popup-body"></div>
+      <button type="button" onclick="roomHostDismissPopup()">OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  {{/* html/template JS-escapes string args; do not wrap with printf %q or the
+       value keeps literal quotes and /ws/room/"CODE" 404s. */}}
+  initRoomHost({{.Room.Code}}, {{.Room.LobbyId.String}});
+</script>
+{{end}}

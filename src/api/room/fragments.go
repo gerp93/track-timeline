@@ -1,0 +1,193 @@
+package apiRoom
+
+import (
+	"html/template"
+	"net/http"
+	"strings"
+
+	gsDatabase "github.com/gerp93/gameshell-framework/database"
+	"github.com/google/uuid"
+
+	"github.com/gerp93/track-timeline/database"
+	"github.com/gerp93/track-timeline/static"
+)
+
+func loadHostRoom(w http.ResponseWriter, r *http.Request) (database.Room, database.Game, bool) {
+	code := strings.ToUpper(strings.TrimSpace(r.PathValue("code")))
+	room, err := database.GetRoomByCode(code)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("Room not found."))
+		return database.Room{}, database.Game{}, false
+	}
+	token, ok := readHostToken(r, room.Code)
+	if !ok || token != room.HostToken {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte("Host token missing or invalid."))
+		return database.Room{}, database.Game{}, false
+	}
+	game, err := database.GetGame(room.LobbyId)
+	if err != nil || game.Id == uuid.Nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to load game."))
+		return database.Room{}, database.Game{}, false
+	}
+	return room, game, true
+}
+
+// HostCurrentCard renders the song-in-play marquee for the TV (no turn controls).
+func HostCurrentCard(w http.ResponseWriter, r *http.Request) {
+	_, game, ok := loadHostRoom(w, r)
+	if !ok {
+		return
+	}
+
+	card, err := database.GetCurrentCard(game.Id)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get the current song."))
+		return
+	}
+
+	var answer database.CurrentCardAnswer
+	revealed := game.RoundPhase == database.PhaseReveal && game.GameStatus != database.StatusFinished
+	if revealed {
+		if fetched, err := database.GetCurrentCardAnswer(game.Id); err == nil {
+			answer = fetched
+		}
+	}
+
+	currentPlayerName := ""
+	if game.CurrentPlayerId.Valid {
+		if p, err := gsDatabase.GetPlayer(game.CurrentPlayerId.UUID); err == nil {
+			currentPlayerName = p.Name
+		}
+	}
+	if game.RoundPhase == database.PhaseStealTurn && game.StealerPlayerId.Valid {
+		if p, err := gsDatabase.GetPlayer(game.StealerPlayerId.UUID); err == nil && p.Name != "" {
+			currentPlayerName = p.Name
+		}
+	}
+
+	winnerName := ""
+	if game.GameStatus == database.StatusFinished && game.WinnerId.Valid {
+		if u, err := gsDatabase.GetUser(game.WinnerId.UUID); err == nil {
+			winnerName = u.Name
+		}
+	}
+
+	tmpl, err := template.ParseFS(static.StaticFiles, "html/components/tracktimeline/host-now-playing.html")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to parse template."))
+		return
+	}
+
+	type data struct {
+		database.CurrentCard
+		Answer            database.CurrentCardAnswer
+		Revealed          bool
+		GameStatus        string
+		RoundPhase        string
+		CurrentPlayerName string
+		WinnerName        string
+	}
+	_ = tmpl.Execute(w, data{
+		CurrentCard:       card,
+		Answer:            answer,
+		Revealed:          revealed,
+		GameStatus:        game.GameStatus,
+		RoundPhase:        game.RoundPhase,
+		CurrentPlayerName: currentPlayerName,
+		WinnerName:        winnerName,
+	})
+	writeRoomPhaseOOB(w, game.RoundPhase)
+}
+
+// HostTimeline renders every seat's timeline for the TV (no placement UI).
+func HostTimeline(w http.ResponseWriter, r *http.Request) {
+	room, game, ok := loadHostRoom(w, r)
+	if !ok {
+		return
+	}
+
+	currentPlayerId := uuid.Nil
+	if game.CurrentPlayerId.Valid {
+		currentPlayerId = game.CurrentPlayerId.UUID
+	}
+	revealPositions := game.RoundPhase == database.PhaseReveal
+
+	timelines, err := database.GetAllPlayerTimelines(game.Id, currentPlayerId, uuid.Nil, revealPositions)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to load timelines."))
+		return
+	}
+
+	currentPlayerName := ""
+	for _, t := range timelines {
+		if t.IsCurrent {
+			currentPlayerName = t.PlayerName
+		}
+	}
+
+	guessedCount := 0
+	if game.GuessMode != database.GuessModeOff {
+		if guesses, guessErr := database.GetGuesses(game.Id); guessErr == nil {
+			guessedCount = len(guesses)
+		}
+	}
+
+	tmpl, err := template.New("timeline.html").Funcs(template.FuncMap{
+		"add": func(a, b int) int { return a + b },
+		"sub": func(a, b int) int { return a - b },
+	}).ParseFS(static.StaticFiles, "html/components/tracktimeline/timeline.html")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to parse template."))
+		return
+	}
+
+	type data struct {
+		Timelines         []database.PlayerTimeline
+		LobbyId           uuid.UUID
+		GameStatus        string
+		RoundPhase        string
+		CanPlace          bool
+		CanSteal          bool
+		TokenCount        int
+		CardsToWin        int
+		InLead            bool
+		BuyCardCost       int
+		CurrentPlayerName string
+		GuessMode         string
+		GuessedCount      int
+		ActivePlayerCount int
+		IsRoom            bool
+		IsHostDisplay     bool
+	}
+	_ = tmpl.Execute(w, data{
+		Timelines:         timelines,
+		LobbyId:           room.LobbyId,
+		GameStatus:        game.GameStatus,
+		RoundPhase:        game.RoundPhase,
+		CardsToWin:        game.CardsToWin,
+		BuyCardCost:       database.BuyCardCost,
+		CurrentPlayerName: currentPlayerName,
+		GuessMode:         game.GuessMode,
+		GuessedCount:      guessedCount,
+		ActivePlayerCount: len(timelines),
+		IsRoom:            true,
+		IsHostDisplay:     true,
+	})
+	writeRoomPhaseOOB(w, game.RoundPhase)
+}
+
+// writeRoomPhaseOOB keeps the host chrome phase badge in sync; the badge lives
+// outside the HTMX fragment targets and would otherwise stay stuck on the
+// value from the initial page render.
+func writeRoomPhaseOOB(w http.ResponseWriter, phase string) {
+	_, _ = w.Write([]byte(`<span id="room-phase" class="badge" hx-swap-oob="true">`))
+	template.HTMLEscape(w, []byte(phase))
+	_, _ = w.Write([]byte(`</span>`))
+}

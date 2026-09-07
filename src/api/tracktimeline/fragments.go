@@ -71,6 +71,8 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		ctx.Game.WinnerId.Valid &&
 		ctx.Game.WinnerId.UUID == ctx.UserId
 
+	isRoom, _ := database.LobbyIsRoom(ctx.LobbyId)
+
 	type data struct {
 		database.CurrentCard
 		Answer          database.CurrentCardAnswer
@@ -85,6 +87,8 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		ReplayUsed      bool
 		TokenCount      int
 		GuessMode       string
+		IsRoom          bool
+		IsHostDisplay   bool
 	}
 
 	_ = tmpl.Execute(w, data{
@@ -101,6 +105,8 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		ReplayUsed:      ctx.Game.ReplayUsed,
 		TokenCount:      tokens,
 		GuessMode:       ctx.Game.GuessMode,
+		IsRoom:          isRoom,
+		IsHostDisplay:   false,
 	})
 }
 
@@ -188,6 +194,8 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isRoom, _ := database.LobbyIsRoom(ctx.LobbyId)
+
 	type data struct {
 		Timelines         []database.PlayerTimeline
 		LobbyId           uuid.UUID
@@ -203,6 +211,8 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 		GuessMode         string
 		GuessedCount      int
 		ActivePlayerCount int
+		IsRoom            bool
+		IsHostDisplay     bool
 	}
 
 	_ = tmpl.Execute(w, data{
@@ -220,6 +230,8 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 		GuessMode:         ctx.Game.GuessMode,
 		GuessedCount:      guessedCount,
 		ActivePlayerCount: len(timelines),
+		IsRoom:            isRoom,
+		IsHostDisplay:     false,
 	})
 }
 

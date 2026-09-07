@@ -1326,6 +1326,9 @@ func SearchLobbies(name string, page int) ([]LobbyDetails, error) {
 			LEFT JOIN TRACK_TIMELINE_GAME AS G ON G.LOBBY_ID = L.ID
 			LEFT JOIN PLAYER AS P ON P.LOBBY_ID = L.ID AND P.IS_ACTIVE = 1
 		WHERE L.NAME LIKE ?
+			AND NOT EXISTS (
+				SELECT 1 FROM TRACK_TIMELINE_ROOM AS R WHERE R.LOBBY_ID = L.ID
+			)
 		GROUP BY L.ID
 		ORDER BY L.CREATED_ON_DATE DESC
 		LIMIT 10 OFFSET ?
@@ -1358,7 +1361,14 @@ func SearchLobbies(name string, page int) ([]LobbyDetails, error) {
 func CountLobbies(name string) (int, error) {
 	name = "%" + name + "%"
 
-	rows, err := query("SELECT COUNT(*) FROM LOBBY WHERE NAME LIKE ?", name)
+	rows, err := query(`
+		SELECT COUNT(*)
+		FROM LOBBY AS L
+		WHERE L.NAME LIKE ?
+			AND NOT EXISTS (
+				SELECT 1 FROM TRACK_TIMELINE_ROOM AS R WHERE R.LOBBY_ID = L.ID
+			)
+	`, name)
 	if err != nil {
 		return 0, err
 	}

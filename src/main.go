@@ -18,6 +18,7 @@ import (
 	apiCard "github.com/gerp93/track-timeline/api/card"
 	apiCategory "github.com/gerp93/track-timeline/api/category"
 	apiPages "github.com/gerp93/track-timeline/api/pages"
+	apiRoom "github.com/gerp93/track-timeline/api/room"
 	apiTrackTimeline "github.com/gerp93/track-timeline/api/tracktimeline"
 	"github.com/gerp93/track-timeline/database"
 	"github.com/gerp93/track-timeline/game"
@@ -40,6 +41,7 @@ func main() {
 		LoginPathPrefixes: []string{
 			"/deck",
 			"/track-timeline",
+			"/room/create",
 			"/stats",
 		},
 		AdminPaths: []string{"/users", "/categories", "/videos", "/guess-test"},
@@ -144,6 +146,19 @@ func main() {
 	http.Handle("GET /track-timeline/lobbies", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.TrackTimelineLobbies)))
 	http.Handle("GET /track-timeline/{lobbyId}", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.TrackTimelineLobby)))
 	http.Handle("GET /track-timeline/{lobbyId}/access", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.TrackTimelineLobbyAccess)))
+
+	// room mode (seatless host TV + phone seats). Join/play are public so
+	// guests can sit without an account; create requires login via policy.
+	http.Handle("GET /room/create", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.CreatePage)))
+	http.Handle("GET /room/{code}", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.JoinPage)))
+	http.Handle("GET /room/{code}/host", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.HostPage)))
+	http.Handle("GET /room/{code}/play", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.PlayPage)))
+	http.Handle("POST /api/room/create", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.Create)))
+	http.Handle("POST /api/room/{code}/join-guest", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.JoinGuest)))
+	http.Handle("POST /api/room/{code}/join-account", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.JoinAccount)))
+	http.Handle("GET /api/room/{code}/host/current-card", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.HostCurrentCard)))
+	http.Handle("GET /api/room/{code}/host/timeline", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.HostTimeline)))
+	http.HandleFunc("GET /ws/room/{code}", apiRoom.ServeWs)
 
 	// stats pages
 	http.Handle("GET /stats", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.Stats)))

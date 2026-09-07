@@ -258,6 +258,9 @@ function refreshGame() {
                 htmx.process(board);
                 ttSyncSelfStatus();
                 syncPlaybackUI();
+                if (typeof roomPhoneSyncBoardVisibility === "function") {
+                    roomPhoneSyncBoardVisibility();
+                }
                 restartTurnTimer();
             })
             .catch((e) => console.error("[TrackTimeline] board refresh failed:", e));
@@ -453,11 +456,16 @@ function syncPlaybackUI() {
     }
 
     syncPlacementButtons();
+    if (typeof roomPhoneSyncGuessYearBtn === "function") {
+        roomPhoneSyncGuessYearBtn();
+    }
 }
 
 // Place (+ drop zones and exact-year lock-in) stays off until Play has been
 // clicked this round — same gate as Skip. Steal-turn drop zones are exempt:
 // the song already played on the original turn, and stopSong clears the flag.
+// Room phones gate the timeline behind "Guess year" (see roomEnterPlaceMode);
+// once that screen is open the same listen-gate rules still apply here.
 function syncPlacementButtons() {
     const exactYearOn = !!(document.getElementById("tt-use-exact-year") &&
         document.getElementById("tt-use-exact-year").checked);
@@ -748,6 +756,9 @@ function ttStartListenGate() {
             ttListenGateInterval = null;
         }
         syncPlacementButtons();
+        if (typeof roomPhoneSyncGuessYearBtn === "function") {
+            roomPhoneSyncGuessYearBtn();
+        }
     }, 500);
 }
 

@@ -1,0 +1,39 @@
+{{/* Host TV now-playing marquee — no turn controls, no vinyl chrome. */}}
+<div class="room-marquee {{if eq .GameStatus "active"}}is-live{{end}} {{if .Revealed}}is-reveal{{end}}" data-phase="{{.RoundPhase}}">
+  {{if eq .GameStatus "waiting"}}
+  <div class="room-marquee-kicker">Room ready</div>
+  <div class="room-marquee-title">Waiting to start</div>
+  <div class="room-marquee-sub">Phones join with the code above</div>
+  {{else if eq .GameStatus "finished"}}
+  <div class="room-marquee-kicker">Game over</div>
+  <div class="room-marquee-title">{{if .WinnerName}}{{.WinnerName}} wins!{{else}}Finished{{end}}</div>
+  {{else if .Revealed}}
+  <div class="room-marquee-kicker">Reveal</div>
+  <div class="room-marquee-year">{{.Answer.ReleaseYear}}</div>
+  <div class="room-marquee-artist">{{.Answer.Artist}}</div>
+  <div class="room-marquee-song">&ldquo;{{.Answer.Title}}&rdquo;</div>
+  {{else}}
+  <div class="room-marquee-eq" aria-hidden="true">
+    <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+  </div>
+  <div class="room-marquee-kicker">
+    {{if eq .RoundPhase "steal_join"}}Steal window
+    {{else if eq .RoundPhase "steal_turn"}}Steal attempt
+    {{else}}Now playing
+    {{end}}
+  </div>
+  <div class="room-marquee-title">
+    {{if .CategoryName.Valid}}{{.CategoryName.String}}{{else}}Mystery track{{end}}
+  </div>
+  <div class="room-marquee-sub">
+    {{if .CurrentPlayerName}}
+      {{if eq .RoundPhase "listening"}}{{.CurrentPlayerName}}'s turn
+      {{else if eq .RoundPhase "steal_turn"}}{{.CurrentPlayerName}} is stealing
+      {{else}}{{.CurrentPlayerName}}
+      {{end}}
+    {{else}}
+      Listen on this display
+    {{end}}
+  </div>
+  {{end}}
+</div>
