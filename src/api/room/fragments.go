@@ -154,6 +154,8 @@ func HostTimeline(w http.ResponseWriter, r *http.Request) {
 		GuessMode         string
 		GuessedCount      int
 		ActivePlayerCount int
+		IsRoom            bool
+		IsHostDisplay     bool
 	}
 	_ = tmpl.Execute(w, data{
 		Timelines:         timelines,
@@ -166,6 +168,8 @@ func HostTimeline(w http.ResponseWriter, r *http.Request) {
 		GuessMode:         game.GuessMode,
 		GuessedCount:      guessedCount,
 		ActivePlayerCount: len(timelines),
+		IsRoom:            true,
+		IsHostDisplay:     true,
 	})
 	writeRoomPhaseOOB(w, game.RoundPhase)
 }

@@ -7,26 +7,27 @@
 
 <div id="room-phone" class="room-phone">
   <header class="room-phone-header">
-    <div class="room-code">Room {{.Room.Code}}</div>
-    <div class="you">{{.DisplayName}}</div>
+    <div class="room-phone-who">
+      <span class="you">{{.DisplayName}}</span>
+      <span class="room-code">{{.Room.Code}}</span>
+    </div>
     <div id="tt-self-status" class="tt-self-status"></div>
     <div id="room-paused-banner" class="room-paused-banner" {{if not .Room.IsPaused}}hidden{{end}}>
       Host display disconnected — paused
     </div>
   </header>
 
-  <div id="room-phone-status" class="hint">Watch the TV for the board and audio.</div>
+  <div id="room-phone-status" class="hint" hidden></div>
   <div id="tt-status" class="tt-status" aria-live="polite"></div>
   <div id="tt-deck-info" hidden></div>
 
   {{if eq .Game.GameStatus "waiting"}}
-  <button type="button" class="btn-primary" onclick="ttStartGame()">
+  <button type="button" class="btn-primary room-phone-cta" onclick="ttStartGame()">
     Start game
   </button>
-  <p class="hint">Any seated player can start. Audio plays on the TV.</p>
   {{else if eq .Game.GameStatus "finished"}}
   <button type="button"
-          class="btn-primary"
+          class="btn-primary room-phone-cta"
           hx-post="/api/track-timeline/{{.LobbyId}}/reset"
           hx-swap="none">
     Play again

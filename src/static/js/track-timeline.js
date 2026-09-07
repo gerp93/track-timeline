@@ -258,6 +258,9 @@ function refreshGame() {
                 htmx.process(board);
                 ttSyncSelfStatus();
                 syncPlaybackUI();
+                if (typeof roomPhoneSyncBoardVisibility === "function") {
+                    roomPhoneSyncBoardVisibility();
+                }
                 restartTurnTimer();
             })
             .catch((e) => console.error("[TrackTimeline] board refresh failed:", e));

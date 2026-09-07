@@ -66,12 +66,43 @@
   text-align: center;
 }
 .room-phone {
-  max-width: 28rem;
-  margin: 0 auto;
-  padding: 12px;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 8px 0 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  box-sizing: border-box;
+}
+.room-phone-header,
+.room-phone-card,
+.room-phone-board,
+.room-phone > .btn-primary,
+.room-phone > .room-phone-cta {
+  padding-left: 12px;
+  padding-right: 12px;
+  box-sizing: border-box;
+}
+.room-phone-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.room-phone-who {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.room-phone-who .you {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+.room-phone-who .room-code {
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  opacity: 0.75;
 }
 .room-paused-banner {
   background: #fff3cd;
@@ -79,7 +110,93 @@
   padding: 8px;
   text-align: center;
 }
-.room-phone .hint { color: #666; font-size: 0.9rem; text-align: center; }
+.room-phone .hint,
+.room-phone .guess-hint,
+.room-phone-wait {
+  color: #666;
+  font-size: 0.95rem;
+  text-align: center;
+  margin: 0;
+}
+.room-phone-wait {
+  font-size: 1.15rem;
+  padding: 2rem 0.5rem;
+}
+.room-phone-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+.room-phone .action-buttons,
+.room-phone .tt-room-voice,
+.room-phone .guess-form,
+.room-phone #tt-exact-year-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+.room-phone .guess-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+.room-phone .guess-fields .guess-by { display: none; }
+.room-phone .action-buttons button,
+.room-phone .guess-form > button,
+.room-phone .tt-room-voice > button,
+.room-phone #tt-lock-year,
+.room-phone .room-phone-cta,
+.room-phone > .btn-primary {
+  width: 100%;
+  min-height: 3.5rem;
+  font-size: 1.25rem;
+  box-sizing: border-box;
+}
+.room-phone .guess-fields input[type="text"],
+.room-phone #tt-exact-year,
+.room-phone #tt-year-wager {
+  width: 100%;
+  min-height: 3.2rem;
+  font-size: 1.2rem;
+  box-sizing: border-box;
+}
+.room-phone .options-group {
+  margin: 0;
+}
+.room-phone .checkbox-label {
+  font-size: 1rem;
+  line-height: 1.35;
+}
+/* Own timeline stays hidden until Play (or steal) — see roomPhoneSyncBoardVisibility. */
+.room-phone-board.is-deferred {
+  display: none;
+}
+.room-phone-board .board-banner {
+  font-size: 1.05rem;
+  text-align: center;
+  margin-bottom: 10px;
+}
+.room-phone-board .player-card {
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+.room-phone-board .player-name {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 650;
+}
+.room-phone-board .timeline-track {
+  gap: 8px;
+}
+.room-phone-board .drop-zone {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  font-size: 1.4rem;
+}
 .tt-room-create {
   max-width: 36rem;
   margin: 1rem auto;
@@ -104,4 +221,3 @@
   align-items: center;
   margin: 6px 0;
 }
-.room-phone .tt-room-voice .btn-small { flex: 1 1 auto; }

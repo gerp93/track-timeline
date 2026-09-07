@@ -7,6 +7,14 @@ let roomPhoneCode = null;
 let roomPhoneConn = null;
 let roomHostPlaying = false;
 
+function roomPhoneSyncBoardVisibility() {
+    const board = document.querySelector(".room-phone-board");
+    if (!board) return;
+    const steal = !!board.querySelector('[hx-post*="attempt-steal"]');
+    // Own timeline only once the clip is playing (placing) or during a steal.
+    board.classList.toggle("is-deferred", !steal && !ttPlaybackStartedThisRound);
+}
+
 function initRoomPhone(code, lobbyId) {
     roomPhoneCode = code;
     ttLobbyId = lobbyId;
@@ -43,13 +51,16 @@ function initRoomPhone(code, lobbyId) {
         if (id === "tt-board") {
             ttSyncSelfStatus();
             syncPlaybackUI();
+            roomPhoneSyncBoardVisibility();
         }
         if (id === "tt-current-card") {
             syncPlaybackUI();
+            roomPhoneSyncBoardVisibility();
         }
     });
 
     connectRoomPhoneSocket();
+    roomPhoneSyncBoardVisibility();
 }
 
 function connectRoomPhoneSocket() {
@@ -106,11 +117,13 @@ function roomPhoneOnMessage(message) {
         ttStartListenGate();
         ttHoldTimerForPlayback();
         syncPlaybackUI();
+        roomPhoneSyncBoardVisibility();
         return;
     }
     if (message === "songStop") {
         roomHostPlaying = false;
         stopSong();
+        roomPhoneSyncBoardVisibility();
         return;
     }
     if (message === "songPause") {

@@ -194,6 +194,8 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isRoom, _ := database.LobbyIsRoom(ctx.LobbyId)
+
 	type data struct {
 		Timelines         []database.PlayerTimeline
 		LobbyId           uuid.UUID
@@ -209,6 +211,8 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 		GuessMode         string
 		GuessedCount      int
 		ActivePlayerCount int
+		IsRoom            bool
+		IsHostDisplay     bool
 	}
 
 	_ = tmpl.Execute(w, data{
@@ -226,6 +230,8 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 		GuessMode:         ctx.Game.GuessMode,
 		GuessedCount:      guessedCount,
 		ActivePlayerCount: len(timelines),
+		IsRoom:            isRoom,
+		IsHostDisplay:     false,
 	})
 }
 

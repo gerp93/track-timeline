@@ -157,6 +157,8 @@ type timelineView struct {
 	GuessMode         string
 	GuessedCount      int
 	ActivePlayerCount int
+	IsRoom            bool
+	IsHostDisplay     bool
 }
 
 func renderTimeline(t *testing.T, data timelineView) string {
@@ -217,6 +219,9 @@ func TestCurrentCardHostDisplayHidesWatchTvHint(t *testing.T) {
 	if !strings.Contains(phone, "Watch the TV") {
 		t.Fatalf("room phone spectator should see Watch the TV hint: %s", phone)
 	}
+	if strings.Contains(phone, "tt-record") || strings.Contains(phone, "platter") {
+		t.Fatalf("room phone should not render the turntable: %s", phone)
+	}
 
 	host := renderCurrentCard(t, currentCardView{
 		CurrentCard:     database.CurrentCard{YouTubeVideoId: "abc123"},
@@ -233,6 +238,76 @@ func TestCurrentCardHostDisplayHidesWatchTvHint(t *testing.T) {
 		t.Fatalf("host TV should not tell viewers to watch the TV: %s", host)
 	}
 }
+
+func TestCurrentCardRoomPhoneTurnOmitsTurntable(t *testing.T) {
+	got := renderCurrentCard(t, currentCardView{
+		CurrentCard:     database.CurrentCard{YouTubeVideoId: "abc123"},
+		GameStatus:      database.StatusActive,
+		RoundPhase:      database.PhaseListening,
+		IsCurrentPlayer: true,
+		HasGuessed:      false,
+		GuessMode:       database.GuessModeBoth,
+		IsRoom:          true,
+		IsHostDisplay:   false,
+		LobbyId:         uuid.New(),
+	})
+	if strings.Contains(got, "tt-record") || strings.Contains(got, "tt-visualizer") {
+		t.Fatalf("room phone turn UI should omit vinyl chrome: %s", got)
+	}
+	if !strings.Contains(got, `id="tt-play-pause-btn"`) {
+		t.Fatalf("room phone turn UI missing Play: %s", got)
+	}
+	if !strings.Contains(got, "Lock guess") {
+		t.Fatalf("room phone turn UI missing Lock guess: %s", got)
+	}
+}
+
+func TestTimelineRoomPhoneOwnOnlyWhenPlacing(t *testing.T) {
+	waiting := renderTimeline(t, timelineView{
+		IsRoom:        true,
+		IsHostDisplay: false,
+		GameStatus:    database.StatusActive,
+		RoundPhase:    database.PhaseListening,
+		CanPlace:      false,
+		Timelines: []database.PlayerTimeline{
+			{PlayerName: "Alice", TokenCount: 2, IsMe: true},
+			{PlayerName: "Bob", TokenCount: 2},
+		},
+	})
+	if strings.Contains(waiting, "Your timeline") || strings.Contains(waiting, "cassette-card") {
+		t.Fatalf("room phone must hide timelines while not placing: %s", waiting)
+	}
+	if strings.Contains(waiting, "Bob") {
+		t.Fatalf("room phone must never list other players: %s", waiting)
+	}
+
+	placing := renderTimeline(t, timelineView{
+		IsRoom:        true,
+		IsHostDisplay: false,
+		GameStatus:    database.StatusActive,
+		RoundPhase:    database.PhaseListening,
+		CanPlace:      true,
+		Timelines: []database.PlayerTimeline{
+			{
+				PlayerName: "Alice",
+				TokenCount: 2,
+				IsMe:       true,
+				Timeline:   []database.TimelineCard{{ReleaseYear: 1990, Artist: "A", Title: "T"}},
+			},
+			{PlayerName: "Bob", TokenCount: 2},
+		},
+	})
+	if !strings.Contains(placing, "Your timeline") {
+		t.Fatalf("room phone placing view missing own timeline: %s", placing)
+	}
+	if !strings.Contains(placing, "drop-zone") {
+		t.Fatalf("room phone placing view missing drop zones: %s", placing)
+	}
+	if strings.Contains(placing, "Bob") {
+		t.Fatalf("room phone placing view leaked other player: %s", placing)
+	}
+}
+
 
 func TestTimelineBoardBannerNamesCurrentPlayerAndGuessCount(t *testing.T) {
 	got := renderTimeline(t, timelineView{
