@@ -392,6 +392,24 @@ func TrackTimelineLobbies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Card counts let the genre picker tell players how much a genre is worth
+	// excluding before they do it.
+	type categoryOption struct {
+		Id        uuid.UUID
+		Name      string
+		CardCount int
+	}
+	categoryOptions := make([]categoryOption, 0, len(categories))
+	for _, category := range categories {
+		count, err := database.CountCardsInCategory(category.Id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to count cards in genre."))
+			return
+		}
+		categoryOptions = append(categoryOptions, categoryOption{Id: category.Id, Name: category.Name, CardCount: count})
+	}
+
 	tmpl, err := parseChrome("html/pages/body/track-timeline-lobbies.html", nil)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -402,14 +420,14 @@ func TrackTimelineLobbies(w http.ResponseWriter, r *http.Request) {
 	type data struct {
 		gsApi.BasePageData
 		Decks       []gsDatabase.Deck
-		Categories  []database.Category
+		Categories  []categoryOption
 		ClaudeReady bool
 	}
 
 	_ = tmpl.ExecuteTemplate(w, "base", data{
 		BasePageData: basePageData,
 		Decks:        decks,
-		Categories:   categories,
+		Categories:   categoryOptions,
 		ClaudeReady:  guess.ClaudeConfigured(),
 	})
 }

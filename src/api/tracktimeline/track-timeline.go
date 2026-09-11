@@ -361,7 +361,7 @@ func Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clipSeconds := 20
+	clipSeconds := 30
 	if raw := strings.TrimSpace(r.FormValue("clipSeconds")); raw != "" {
 		clipSeconds, err = strconv.Atoi(raw)
 		if err != nil {
