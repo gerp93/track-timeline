@@ -195,15 +195,34 @@
 
 .deck-stage {
     display: grid;
-    grid-template-columns: minmax(6.5rem, 9rem) 1fr;
+    grid-template-columns: minmax(9rem, 13rem) 1fr;
     gap: 1rem;
-    align-items: start;
+    /* stretch (not start): the platter fills the row's full height -- as
+       tall as the controls column ends up being -- rather than sitting at a
+       fixed size with slack above/below it. Paired with min-height below:
+       without a floor, a non-turn player's much shorter controls column (no
+       Play/Skip row) starved the platter down to a noticeably smaller
+       record -- and even pushed the tonearm past the card's bottom edge --
+       so every viewer's controls column is at least this tall regardless of
+       how little it actually needs, giving the platter a stable size to fill
+       that only grows from here when there's more content (e.g. the exact-
+       year wager expanded). */
+    min-height: 10rem;
+    align-items: stretch;
 }
 
 @media (max-width: 32rem) {
     .deck-stage {
         grid-template-columns: 1fr;
         justify-items: center;
+    }
+
+    /* The stacked mobile layout has no meaningful row height to stretch
+       against, so fall back to a plain width-capped platter there. */
+    .platter-ring {
+        width: 100%;
+        height: auto;
+        max-width: 9rem;
     }
 }
 
@@ -288,8 +307,18 @@
 
 .platter-ring {
     position: relative;
-    width: 100%;
-    max-width: 6.5rem;
+    /* Sized off the row's height (see .deck-stage's align-items: stretch and
+       min-height) rather than a fixed width, so it grows or shrinks with
+       however tall the controls column ends up -- same size or bigger than
+       the old fixed 9rem cap in the common case. The cap has to live on
+       height, not a separate max-width: with height:100% and a max-width
+       both "definite" at once (e.g. a tall exact-year-wager row pushing
+       height past 13rem while max-width clamped the width side alone),
+       aspect-ratio stopped being enforced and the platter drew as an oval
+       instead of a circle. min() keeps height the single driving dimension
+       so width, derived purely from aspect-ratio, always matches it. */
+    width: auto;
+    height: min(100%, 13rem);
     aspect-ratio: 1;
     border-radius: 50%;
     background: var(--color-bg);
