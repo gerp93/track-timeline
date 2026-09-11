@@ -767,20 +767,31 @@ func submitGuessForPlayer(httpCtx context.Context, ctx gameContext, card databas
 	// naming who was right about the title/artist would leak the answer to
 	// everyone else before the song is actually revealed. The public line is
 	// sent later, at reveal, from the stored guess (see announceAndFinish).
-	private := describeVerdict(verdict, ctx.Game.GuessMode)
+	isTurnPlayer := ctx.Game.CurrentPlayerId.Valid && ctx.Game.CurrentPlayerId.UUID == ctx.Player.Id
+	private := describeVerdict(verdict, ctx.Game.GuessMode, isTurnPlayer)
 	if verdict.Explanation != "" {
 		private += " " + verdict.Explanation
 	}
 	gsWebsocket.PlayerBroadcast(ctx.Player.Id, "alert:"+private)
 }
 
-func describeVerdict(verdict guess.Verdict, guessMode string) string {
+func describeVerdict(verdict guess.Verdict, guessMode string, isTurnPlayer bool) string {
 	line := describeVerdictPublic(verdict, guessMode)
 	if database.GuessQualifies(database.Guess{
 		TitleCorrect:  verdict.TitleCorrect,
 		ArtistCorrect: verdict.ArtistCorrect,
 	}, guessMode) {
-		return line + " If this holds up, you'll get the token at reveal."
+		if isTurnPlayer {
+			// The turn player's own qualifying guess always wins the token
+			// (see database.AwardGuessToken) -- no caveat needed.
+			return line + " If this holds up, you'll get the token at reveal."
+		}
+		// A non-turn player's qualifying guess only wins if the turn player
+		// doesn't also guess right -- being on turn supersedes submit order
+		// entirely, so an unconditional "you'll get the token" here would be
+		// wrong the moment the turn player also nails it, even though this
+		// guess came first.
+		return line + " If this holds up and the current player doesn't also get it right, you'll get the token at reveal."
 	}
 	return line
 }

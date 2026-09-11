@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/gerp93/track-timeline/database"
+	"github.com/gerp93/track-timeline/guess"
 )
 
 // TestTruncateRunesDoesNotSplitMultiByteCharacters guards the playtest fix
@@ -31,5 +34,38 @@ func TestTruncateRunesDoesNotSplitMultiByteCharacters(t *testing.T) {
 	// Shorter than the cap: unchanged.
 	if got := truncateRunes("Björk", 500); got != "Björk" {
 		t.Errorf("expected a short string to pass through unchanged, got %q", got)
+	}
+}
+
+// TestDescribeVerdictTokenPromiseMatchesWhoCanActuallyWinIt guards the
+// private per-guesser message against the guess-token rule it has to stay
+// consistent with: the turn player's own qualifying guess always wins the
+// token (see database.AwardGuessToken / pickGuessTokenWinner), so telling a
+// NON-turn player an unconditional "you'll get the token at reveal" is
+// false the moment the turn player also nails it -- regardless of which of
+// them guessed first.
+func TestDescribeVerdictTokenPromiseMatchesWhoCanActuallyWinIt(t *testing.T) {
+	qualifying := guess.Verdict{TitleCorrect: true, ArtistCorrect: true}
+
+	turnPlayerMsg := describeVerdict(qualifying, database.GuessModeBoth, true)
+	if !strings.Contains(turnPlayerMsg, "you'll get the token at reveal") {
+		t.Fatalf("turn player: expected an unconditional token promise, got %q", turnPlayerMsg)
+	}
+	if strings.Contains(turnPlayerMsg, "doesn't also") {
+		t.Errorf("turn player's own qualifying guess always wins the token -- no caveat needed, got %q", turnPlayerMsg)
+	}
+
+	nonTurnPlayerMsg := describeVerdict(qualifying, database.GuessModeBoth, false)
+	if !strings.Contains(nonTurnPlayerMsg, "you'll get the token at reveal") {
+		t.Fatalf("non-turn player: expected a (conditional) token mention, got %q", nonTurnPlayerMsg)
+	}
+	if !strings.Contains(nonTurnPlayerMsg, "current player") {
+		t.Errorf("non-turn player's promise must be conditioned on the current player not also getting it right, got %q", nonTurnPlayerMsg)
+	}
+
+	// A non-qualifying guess never mentions the token either way.
+	notQualifying := guess.Verdict{TitleCorrect: false, ArtistCorrect: false}
+	if got := describeVerdict(notQualifying, database.GuessModeBoth, false); strings.Contains(got, "token") {
+		t.Errorf("a non-qualifying guess should not mention the token at all, got %q", got)
 	}
 }
