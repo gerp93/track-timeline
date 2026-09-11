@@ -1,4 +1,6 @@
 {{define "body"}}
+<link rel="stylesheet" href="/static/css/track-timeline.css" />
+
 <div style="display: grid; grid-auto-flow: column">
     <h2>Lobbies</h2>
     <div style="text-align: right;">
@@ -98,7 +100,7 @@
                 name="clipSeconds"
                 min="5"
                 max="60"
-                value="20"
+                value="30"
                 autocomplete="off"
             />
 
@@ -170,19 +172,68 @@
         {{end}}
 
         {{if .Categories}}
-        <h4>Exclude genres</h4>
-        <div class="checkbox-list">
-            {{range .Categories}}
-            <label>
-                <input
-                    type="checkbox"
-                    name="excludedCategoryId"
-                    value="{{.Id}}"
-                    onchange="ttRecalcCount()"
-                />
-                {{.Name}}
-            </label>
-            {{end}}
+        <h4>Genres</h4>
+        <p class="hint">
+            Move a genre to Excluded to keep it out of the draw pile. Song counts are shown in parens.
+            Double-click a genre to move it, or select several and use the arrows.
+        </p>
+        <div class="genre-picker">
+            <div class="genre-picker-col">
+                <label for="genreIncluded">Included</label>
+                <select
+                    id="genreIncluded"
+                    multiple="multiple"
+                    size="8"
+                    ondblclick="ttMoveGenreOption(event, 'genreExcluded')"
+                >
+                    {{range .Categories}}
+                    <option value="{{.Id}}">{{.Name}} ({{.CardCount}})</option>
+                    {{end}}
+                </select>
+            </div>
+            <div class="genre-picker-buttons">
+                <button
+                    type="button"
+                    class="btn-small"
+                    title="Exclude selected"
+                    onclick="ttMoveGenres('genreIncluded', 'genreExcluded')"
+                >
+                    &gt;
+                </button>
+                <button
+                    type="button"
+                    class="btn-small"
+                    title="Exclude all"
+                    onclick="ttMoveAllGenres('genreIncluded', 'genreExcluded')"
+                >
+                    &gt;&gt;
+                </button>
+                <button
+                    type="button"
+                    class="btn-small"
+                    title="Include all"
+                    onclick="ttMoveAllGenres('genreExcluded', 'genreIncluded')"
+                >
+                    &lt;&lt;
+                </button>
+                <button
+                    type="button"
+                    class="btn-small"
+                    title="Include selected"
+                    onclick="ttMoveGenres('genreExcluded', 'genreIncluded')"
+                >
+                    &lt;
+                </button>
+            </div>
+            <div class="genre-picker-col">
+                <label for="genreExcluded">Excluded</label>
+                <select
+                    id="genreExcluded"
+                    multiple="multiple"
+                    size="8"
+                    ondblclick="ttMoveGenreOption(event, 'genreIncluded')"
+                ></select>
+            </div>
         </div>
         {{end}}
 
@@ -242,6 +293,55 @@
         ttCountTimer = setTimeout(ttDoRecalcCount, 250);
     }
 
+    // The genre picker's two <select multiple> boxes are a shuttle control:
+    // an option's selected/highlighted state only ever means "chosen to
+    // move next" — which box an option currently sits in is what actually
+    // determines whether its genre is excluded. ttExcludedGenreIds() and the
+    // htmx:configRequest handler below both read that from the DOM directly
+    // rather than from option.selected, so this is the only place the
+    // exclusion list needs to be assembled.
+    function ttExcludedGenreIds() {
+        return Array.from(document.querySelectorAll("#genreExcluded option")).map((opt) => opt.value);
+    }
+
+    function ttMoveGenres(fromId, toId) {
+        const from = document.getElementById(fromId);
+        const to = document.getElementById(toId);
+        Array.from(from.selectedOptions).forEach((opt) => {
+            opt.selected = false;
+            to.appendChild(opt);
+        });
+        ttSortGenreSelect(toId);
+        ttRecalcCount();
+    }
+
+    function ttMoveAllGenres(fromId, toId) {
+        const from = document.getElementById(fromId);
+        const to = document.getElementById(toId);
+        Array.from(from.options).forEach((opt) => {
+            opt.selected = false;
+            to.appendChild(opt);
+        });
+        ttSortGenreSelect(toId);
+        ttRecalcCount();
+    }
+
+    function ttMoveGenreOption(event, toId) {
+        if (event.target.tagName !== "OPTION") return;
+        const opt = event.target;
+        opt.selected = false;
+        document.getElementById(toId).appendChild(opt);
+        ttSortGenreSelect(toId);
+        ttRecalcCount();
+    }
+
+    function ttSortGenreSelect(id) {
+        const select = document.getElementById(id);
+        Array.from(select.options)
+            .sort((a, b) => a.text.localeCompare(b.text))
+            .forEach((opt) => select.appendChild(opt));
+    }
+
     // Clip length is meaningless when the whole song plays, so it hides in
     // that mode rather than sitting there inert.
     function ttTogglePlaybackClip() {
@@ -267,10 +367,13 @@
 
         const data = new FormData(form);
         const params = new URLSearchParams();
-        for (const name of ["deckId", "excludedCategoryId", "fromYear", "toYear"]) {
+        for (const name of ["deckId", "fromYear", "toYear"]) {
             for (const value of data.getAll(name)) {
                 params.append(name, value);
             }
+        }
+        for (const id of ttExcludedGenreIds()) {
+            params.append("excludedCategoryId", id);
         }
 
         if (params.getAll("deckId").length === 0) {
@@ -294,6 +397,17 @@
             .catch(() => {
                 estimate.textContent = "Could not check how many songs match.";
             });
+    }
+
+    // The excluded-genre <select> only carries options that were moved into
+    // it, never the "selected" attribute (that's reserved for shuttling), so
+    // htmx's own form serialization would never see them. Replace whatever
+    // it collected for excludedCategoryId with the picker's real state.
+    const lobbyCreateForm = document.getElementById("lobby-create-form");
+    if (lobbyCreateForm) {
+        lobbyCreateForm.addEventListener("htmx:configRequest", function (event) {
+            event.detail.parameters["excludedCategoryId"] = ttExcludedGenreIds();
+        });
     }
 
     ttToggleGuessJudge();

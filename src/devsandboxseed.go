@@ -102,11 +102,30 @@ func main() {
 		title, artist, videoSuffix string
 		year                       int
 	}{
-		{"Song One", "Artist One", "01", 1990},
-		{"Song Two", "Artist Two", "02", 1995},
-		{"Song Three", "Artist Three", "03", 2000},
-		{"Song Four", "Artist Four", "04", 2005},
-		{"Song Five", "Artist Five", "05", 2010},
+		{"Song One", "Artist One", "01", 1958},
+		{"Song Two", "Artist Two", "02", 1963},
+		{"Song Three", "Artist Three", "03", 1971},
+		{"Song Four", "Artist Four", "04", 1976},
+		{"Song Five", "Artist Five", "05", 1982},
+		{"Song Six", "Artist Six", "07", 1985},
+		{"Song Seven", "Artist Seven", "08", 1988},
+		{"Song Eight", "Artist Eight", "09", 1991},
+		{"Song Nine", "Artist Nine", "10", 1993},
+		{"Song Ten", "Artist Ten", "11", 1994},
+		{"Song Eleven", "Artist Eleven", "12", 1995},
+		{"Song Twelve", "Artist Twelve", "13", 1996},
+		{"Song Thirteen", "Artist Thirteen", "14", 1998},
+		{"Song Fourteen", "Artist Fourteen", "15", 1999},
+		{"Song Fifteen", "Artist Fifteen", "16", 2001},
+		{"Song Sixteen", "Artist Sixteen", "17", 2003},
+		{"Song Seventeen", "Artist Seventeen", "18", 2005},
+		{"Song Eighteen", "Artist Eighteen", "19", 2008},
+		{"Song Nineteen", "Artist Nineteen", "20", 2011},
+		{"Song Twenty", "Artist Twenty", "21", 2013},
+		{"Song Twenty-One", "Artist Twenty-One", "22", 2015},
+		{"Song Twenty-Two", "Artist Twenty-Two", "23", 2017},
+		{"Song Twenty-Three", "Artist Twenty-Three", "24", 2019},
+		{"Song Twenty-Four", "Artist Twenty-Four", "25", 2021},
 		// Multi-byte-character regression card (see truncateRunes in
 		// api/tracktimeline/round.go) -- guess "Hunter" by "Björk" in the
 		// game to re-exercise the mojibake fix by hand.
@@ -138,7 +157,7 @@ func main() {
 	// the moment it notices that (see api/pages/pages.go's TrackTimelineLobby) --
 	// so these two calls aren't optional bookkeeping, they're what makes the
 	// lobby page actually load at all.
-	gameId, err := database.CreateGame(lobbyId, 10, 6, database.GuessModeBoth,
+	gameId, err := database.CreateGame(lobbyId, 5, 8, database.GuessModeBoth,
 		database.DefaultGuessMatchPercent, database.GuessJudgeLocal, database.PlaybackIntro, 20)
 	if err != nil {
 		log.Fatalf("create game: %v", err)

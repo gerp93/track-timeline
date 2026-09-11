@@ -39,7 +39,7 @@ func parseChrome(bodyPattern string, funcMap template.FuncMap) (*template.Templa
 	if err != nil {
 		return nil, err
 	}
-	return t.ParseFS(static.StaticFiles, bodyPattern)
+	return t.ParseFS(static.StaticFiles, bodyPattern, "html/components/tracktimeline/rules.html")
 }
 
 func Home(w http.ResponseWriter, r *http.Request) {
@@ -392,6 +392,24 @@ func TrackTimelineLobbies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Card counts let the genre picker tell players how much a genre is worth
+	// excluding before they do it.
+	type categoryOption struct {
+		Id        uuid.UUID
+		Name      string
+		CardCount int
+	}
+	categoryOptions := make([]categoryOption, 0, len(categories))
+	for _, category := range categories {
+		count, err := database.CountCardsInCategory(category.Id)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to count cards in genre."))
+			return
+		}
+		categoryOptions = append(categoryOptions, categoryOption{Id: category.Id, Name: category.Name, CardCount: count})
+	}
+
 	tmpl, err := parseChrome("html/pages/body/track-timeline-lobbies.html", nil)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -402,14 +420,14 @@ func TrackTimelineLobbies(w http.ResponseWriter, r *http.Request) {
 	type data struct {
 		gsApi.BasePageData
 		Decks       []gsDatabase.Deck
-		Categories  []database.Category
+		Categories  []categoryOption
 		ClaudeReady bool
 	}
 
 	_ = tmpl.ExecuteTemplate(w, "base", data{
 		BasePageData: basePageData,
 		Decks:        decks,
-		Categories:   categories,
+		Categories:   categoryOptions,
 		ClaudeReady:  guess.ClaudeConfigured(),
 	})
 }
@@ -475,6 +493,11 @@ func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
 		drawPileCount = 0
 	}
 
+	decks, err := database.GetGameDecks(game.Id)
+	if err != nil {
+		decks = nil
+	}
+
 	yearRanges, err := database.GetYearRanges(game.Id)
 	if err != nil {
 		yearRanges = nil
@@ -503,6 +526,7 @@ func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
 		gsApi.BasePageData
 		Lobby            database.Lobby
 		Game             database.Game
+		Decks            []database.DeckInfo
 		DrawPileCount    int
 		YearRanges       []database.YearRange
 		TurnTimerSeconds int
@@ -513,6 +537,7 @@ func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
 		BasePageData:     basePageData,
 		Lobby:            lobby,
 		Game:             game,
+		Decks:            decks,
 		DrawPileCount:    drawPileCount,
 		YearRanges:       yearRanges,
 		TurnTimerSeconds: turnTimerSeconds,
