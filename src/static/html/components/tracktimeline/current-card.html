@@ -40,43 +40,11 @@
 
     <div class="controls-panel">
         <div>
-            <!-- Audio dashboard: clip playback progress & in-game volume -->
-            <div class="tt-audio-dashboard">
-                <div class="tt-clip-progress-container" id="tt-clip-progress-container">
-                    <div class="tt-clip-progress-info">
-                        <div class="tt-clip-status-group">
-                            <span class="tt-clip-pulse-dot" aria-hidden="true"></span>
-                            <span class="tt-clip-status-label">Clip Progress</span>
-                        </div>
-                        <div class="tt-clip-time-group">
-                            <span class="tt-clip-elapsed-text">0:00</span>
-                            <span class="tt-clip-sep">/</span>
-                            <span class="tt-clip-duration-text">0:20</span>
-                            <span class="tt-clip-countdown-pill tt-clip-countdown-text">20s left</span>
-                        </div>
-                    </div>
-                    <div class="tt-clip-progress-track">
-                        <div class="tt-clip-progress-fill" style="width: 0%;"></div>
-                    </div>
-                </div>
-
-                <div class="tt-volume-container">
-                    <button type="button" class="tt-volume-btn" onclick="ttToggleMute()" title="Mute / Unmute">
-                        <span class="tt-volume-icon bi bi-volume-up-fill"></span>
-                    </button>
-                    <input
-                        type="range"
-                        class="tt-volume-slider"
-                        min="0"
-                        max="100"
-                        value="100"
-                        oninput="ttSetVolume(this.value)"
-                        title="In-game volume"
-                        aria-label="In-game volume"
-                    />
-                    <span class="tt-volume-val">100%</span>
-                </div>
-            </div>
+            <!-- No separate clip-progress/volume dashboard here: clip
+                 progress is already the countdown ring + badge wrapped
+                 around the turntable above, and volume already lives in the
+                 header (.tt-volume-badge, track-timeline.html) -- a second
+                 copy of each in the exact same view was pure duplication. -->
 
             {{if eq .GameStatus "finished"}}
             <!-- Game over: keep the vinyl, replace the last song's metadata
@@ -201,10 +169,10 @@
                     />
                     {{end}}
                 </div>
-                <button type="submit" class="btn-small">
+                <button type="submit" id="tt-guess-submit" class="btn-small">
                     <span class="bi bi-lightbulb"></span> Guess
                 </button>
-                <p class="guess-hint">Optional — 1 token if correct.</p>
+                <p id="tt-guess-hint" class="guess-hint">Optional — 1 token if correct.</p>
                 <div class="htmx-result"></div>
             </form>
             {{else}}
@@ -223,15 +191,15 @@
                     <input type="text" id="tt-guess-artist-other" name="guessArtist" maxlength="250" placeholder="Artist" autocomplete="off" />
                     {{end}}
                 </div>
-                <button type="submit" class="btn-small">
+                <button type="submit" id="tt-guess-submit-other" class="btn-small">
                     <span class="bi bi-lightbulb"></span> Guess
                 </button>
-                <p class="guess-hint">Optional — 1 token if correct.</p>
+                <p id="tt-guess-hint-other" class="guess-hint">Optional — 1 token if correct.</p>
                 <div class="htmx-result"></div>
             </form>
             {{end}}
             {{else}}
-            <div class="guess-spent">You have already guessed this song.</div>
+            <div class="guess-spent">{{if .GuessResultText}}{{.GuessResultText}}{{else}}You have already guessed this song.{{end}}</div>
             {{end}}
             {{end}}
             {{end}}
@@ -250,37 +218,43 @@
                         onchange="ttToggleExactYear()"
                         {{if lt .TokenCount 1}}disabled{{end}}
                     />
-                    Wager tokens on the exact year (double or nothing).
-                    Wrong digits still win the card if the year is in the right range.
+                    <span>
+                        <span class="checkbox-label-title">Wager on the exact year (double or nothing)</span>
+                        <span class="checkbox-label-hint">Guess right and your wager doubles back to you. Wrong digits still win the card if the year lands in the right range — you just lose the wager.</span>
+                    </span>
                 </label>
             </div>
-            <div id="tt-exact-year-row" style="display:none;">
-                <input
-                    type="number"
-                    id="tt-exact-year"
-                    name="year"
-                    min="1000"
-                    max="9999"
-                    step="1"
-                    placeholder="e.g. 1977"
-                    autocomplete="off"
-                    oninput="ttValidateExactYear()"
-                />
-                <label for="tt-year-wager">Wager</label>
-                <input
-                    type="number"
-                    id="tt-year-wager"
-                    name="yearWager"
-                    min="1"
-                    max="{{.TokenCount}}"
-                    value="1"
-                    autocomplete="off"
-                    oninput="ttValidateExactYear()"
-                />
-                <p id="tt-year-wager-error" class="guess-hint field-error" hidden>not enough tokens</p>
+            <div id="tt-exact-year-row" class="exact-year-row" style="display:none;">
+                <div class="exact-year-field">
+                    <label for="tt-exact-year" class="field-label">Exact year</label>
+                    <input
+                        type="number"
+                        id="tt-exact-year"
+                        name="year"
+                        min="1000"
+                        max="9999"
+                        step="1"
+                        placeholder="e.g. 1977"
+                        autocomplete="off"
+                        oninput="ttValidateExactYear()"
+                    />
+                </div>
+                <div class="exact-year-field exact-year-field-narrow">
+                    <label for="tt-year-wager" class="field-label">Wager (tokens)</label>
+                    <input
+                        type="number"
+                        id="tt-year-wager"
+                        name="yearWager"
+                        min="1"
+                        max="{{.TokenCount}}"
+                        value="1"
+                        autocomplete="off"
+                        oninput="ttValidateExactYear()"
+                    />
+                </div>
                 <button
                     id="tt-lock-year"
-                    class="btn-small"
+                    class="btn-small exact-year-submit"
                     disabled
                     hx-post="/api/track-timeline/{{.LobbyId}}/place-card"
                     hx-include="#tt-exact-year, #tt-year-wager, #tt-guess-title, #tt-guess-artist"
@@ -288,8 +262,9 @@
                     hx-confirm="Lock in this year?"
                     title="Wager must be between 1 and your tokens."
                 >
-                    <span class="bi bi-lock"></span> Lock In Year
+                    <span class="bi bi-lock"></span> Lock In Year &amp; Confirm Guess
                 </button>
+                <p id="tt-year-wager-error" class="guess-hint field-error" hidden>Not enough tokens for that wager.</p>
             </div>
         </div>
         {{end}}

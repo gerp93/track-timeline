@@ -43,29 +43,45 @@ func TestTruncateRunesDoesNotSplitMultiByteCharacters(t *testing.T) {
 // token (see database.AwardGuessToken / pickGuessTokenWinner), so telling a
 // NON-turn player an unconditional "you'll get the token at reveal" is
 // false the moment the turn player also nails it -- regardless of which of
-// them guessed first.
+// them guessed first. It also guards that a non-turn player already beaten
+// to a qualifying guess is told that plainly (not hedged as "if this holds
+// up") since submit order, once recorded, can never be overtaken.
 func TestDescribeVerdictTokenPromiseMatchesWhoCanActuallyWinIt(t *testing.T) {
 	qualifying := guess.Verdict{TitleCorrect: true, ArtistCorrect: true}
 
-	turnPlayerMsg := describeVerdict(qualifying, database.GuessModeBoth, true)
-	if !strings.Contains(turnPlayerMsg, "you'll get the token at reveal") {
+	turnPlayerMsg := describeVerdict(qualifying, database.GuessModeBoth, true, 0)
+	if !strings.Contains(turnPlayerMsg, "You'll get the token at reveal") {
 		t.Fatalf("turn player: expected an unconditional token promise, got %q", turnPlayerMsg)
 	}
-	if strings.Contains(turnPlayerMsg, "doesn't also") {
-		t.Errorf("turn player's own qualifying guess always wins the token -- no caveat needed, got %q", turnPlayerMsg)
+	if strings.Contains(turnPlayerMsg, "doesn't also") || strings.Contains(turnPlayerMsg, "holds up") {
+		t.Errorf("turn player's own qualifying guess always wins the token -- no caveat/hedge needed, got %q", turnPlayerMsg)
 	}
 
-	nonTurnPlayerMsg := describeVerdict(qualifying, database.GuessModeBoth, false)
-	if !strings.Contains(nonTurnPlayerMsg, "you'll get the token at reveal") {
-		t.Fatalf("non-turn player: expected a (conditional) token mention, got %q", nonTurnPlayerMsg)
+	firstInLineMsg := describeVerdict(qualifying, database.GuessModeBoth, false, 0)
+	if !strings.Contains(firstInLineMsg, "you'll get it at reveal") {
+		t.Fatalf("first-in-line non-turn player: expected a (conditional) token mention, got %q", firstInLineMsg)
 	}
-	if !strings.Contains(nonTurnPlayerMsg, "current player") {
-		t.Errorf("non-turn player's promise must be conditioned on the current player not also getting it right, got %q", nonTurnPlayerMsg)
+	if !strings.Contains(firstInLineMsg, "current player") {
+		t.Errorf("first-in-line non-turn player's promise must be conditioned on the current player not also getting it right, got %q", firstInLineMsg)
+	}
+	if strings.Contains(firstInLineMsg, "holds up") {
+		t.Errorf("verdict is already decided at submit time -- must not hedge with \"holds up\", got %q", firstInLineMsg)
+	}
+
+	beatenMsg := describeVerdict(qualifying, database.GuessModeBoth, false, 2)
+	if strings.Contains(beatenMsg, "token at reveal") || strings.Contains(beatenMsg, "you'll get") {
+		t.Errorf("a non-turn player already beaten to it should be told plainly they lost the token, not offered a promise, got %q", beatenMsg)
+	}
+	if !strings.Contains(beatenMsg, "2 other players") {
+		t.Errorf("expected the beaten guesser to be told how many players beat them, got %q", beatenMsg)
+	}
+	if !strings.Contains(beatenMsg, "won't get the token") {
+		t.Errorf("expected a definitive (not hedged) statement that they lost the token, got %q", beatenMsg)
 	}
 
 	// A non-qualifying guess never mentions the token either way.
 	notQualifying := guess.Verdict{TitleCorrect: false, ArtistCorrect: false}
-	if got := describeVerdict(notQualifying, database.GuessModeBoth, false); strings.Contains(got, "token") {
+	if got := describeVerdict(notQualifying, database.GuessModeBoth, false, 0); strings.Contains(got, "token") {
 		t.Errorf("a non-qualifying guess should not mention the token at all, got %q", got)
 	}
 }

@@ -620,6 +620,42 @@ func Search(w http.ResponseWriter, r *http.Request) {
 	_ = tmpl.Execute(w, data{Lobbies: lobbies, Page: page, LastPage: lastPage})
 }
 
+// DeleteLobby removes a lobby nobody's using anymore -- an explicit cleanup
+// action for one that never started or has already finished, rather than
+// waiting on the framework's own delete-when-empty behavior
+// (gameshell-framework/websocket/hub.go), which only fires once every last
+// connected client actually disconnects and can leave a finished lobby
+// sitting in the list indefinitely until that happens. loadContext already
+// requires the caller to have a PLAYER row in this lobby, so only someone
+// who was actually part of it can delete it.
+func DeleteLobby(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := loadContext(w, r)
+	if !ok {
+		return
+	}
+	if ctx.Game.GameStatus == database.StatusActive {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("You can't delete a lobby with a game in progress."))
+		return
+	}
+
+	if err := gsDatabase.DeleteLobby(ctx.LobbyId); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to delete the lobby."))
+		return
+	}
+	// Best-effort: anyone who still has this lobby's own page open elsewhere
+	// gets sent back to the list rather than left looking at a dead page.
+	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "kick")
+
+	// A full refresh (rather than an htmx row swap) re-runs the lobbies
+	// search so the list, its pagination, and the deleted row all stay
+	// consistent with one re-fetch instead of hand-patching the DOM.
+	w.Header().Set("HX-Refresh", "true")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("Deleted."))
+}
+
 // StartGame deals the opening hand and draws the first song.
 func StartGame(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)

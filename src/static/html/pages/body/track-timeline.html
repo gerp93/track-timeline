@@ -65,33 +65,27 @@
             </div>
 
             <div class="stats-badges">
-                <button
-                    type="button"
-                    class="btn-small tt-badge-btn"
-                    onclick="document.getElementById('rules-dialog').showModal()"
-                    title="View game rules and examples"
-                >
-                    <span class="bi bi-book"></span> Rules
-                </button>
-                <button
-                    type="button"
-                    class="btn-small tt-badge-btn"
-                    onclick="document.getElementById('lobby-settings-dialog').showModal()"
-                    title="View current lobby startup settings"
-                >
-                    <span class="bi bi-sliders"></span> Settings
-                </button>
-                <span class="badge">First to <strong>{{.Game.CardsToWin}}</strong></span>
-                <span class="badge">Songs left: <strong id="tt-draw-pile-count">{{.DrawPileCount}}</strong></span>
-                <span class="badge tt-deck-tooltip">
-                    Decks
+                <!-- Read-only facts about the game, not controls -- Rules and
+                     Settings already have their own entry points as icons
+                     next to the lobby name (.title-group) and don't need a
+                     second set of buttons here. Flat/borderless (.stat-text)
+                     so they read as information, not as things to click. -->
+                <span class="stat-text" title="First to {{.Game.CardsToWin}} cards wins">
+                    <span class="bi bi-trophy"></span> First to <strong>{{.Game.CardsToWin}}</strong>
+                </span>
+                <span class="stat-text" title="Songs remaining in the draw pile">
+                    <span class="bi bi-music-note-list"></span> <strong id="tt-draw-pile-count">{{.DrawPileCount}}</strong> songs left
+                </span>
+                <span class="stat-text tt-deck-tooltip" title="Hover for the decks in this game">
+                    <span class="bi bi-collection"></span> Decks
                     <span id="tt-deck-info" class="tt-tooltip-body"></span>
                 </span>
-                <span class="badge" id="tt-turn-timer-stat" {{if eq .TurnTimerSeconds 0}}style="display: none"{{end}}>
-                    Timer: <span id="tt-turn-timer" class="gs-timer"></span>
+                <span class="stat-text" id="tt-turn-timer-stat" {{if eq .TurnTimerSeconds 0}}style="display: none"{{end}}>
+                    <span class="bi bi-stopwatch"></span> <span id="tt-turn-timer" class="gs-timer"></span>
                 </span>
-                <!-- In-game volume control -->
-                <span class="badge tt-volume-badge" title="In-game audio volume">
+                <!-- In-game volume control: a real control, so it keeps a
+                     border unlike the read-only facts above. -->
+                <span class="tt-volume-badge" title="In-game audio volume">
                     <button type="button" class="tt-volume-btn tt-volume-mini-btn" onclick="ttToggleMute()" title="Mute / Unmute">
                         <span class="tt-volume-icon bi bi-volume-up-fill"></span>
                     </button>
