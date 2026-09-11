@@ -62,9 +62,16 @@
     return (this._startSeconds || 0) + this._currentElapsed();
   };
   StubPlayer.prototype.getDuration = function () {
+    // Matches the real IFrame API: 0 until a video has actually been cued,
+    // not some arbitrary always-on value -- track-timeline.js's clip-progress
+    // fallback (duration = getDuration() - clipStart) relies on that to fall
+    // through to its own hardcoded default before any song has been played
+    // this round, rather than showing a bogus non-zero duration.
+    if (!this._videoId) return 0;
     // Arbitrary but plausible full-video length, distinct from any single
     // clip's startSeconds/endSeconds window, so duration-minus-start clip
-    // length fallbacks have a realistic value to compute from.
+    // length fallbacks have a realistic value to compute from once a video
+    // actually is loaded.
     return 200;
   };
   StubPlayer.prototype.seekTo = function () {};
