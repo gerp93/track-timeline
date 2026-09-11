@@ -463,6 +463,8 @@ func capitalize(s string) string {
 
 // parseDeckIds validates the selected decks and confirms the caller may read
 // each one, so a lobby cannot be seeded from a deck its creator cannot open.
+// UserCanReadDeck (not UserHasDeckAccess) is deliberate: this is a read/use
+// check, not an edit check, so a deck flagged public-readonly must pass too.
 func parseDeckIds(values []string, userId uuid.UUID) ([]uuid.UUID, string) {
 	if len(values) == 0 {
 		return nil, "Select at least one deck."
@@ -474,7 +476,7 @@ func parseDeckIds(values []string, userId uuid.UUID) ([]uuid.UUID, string) {
 		if err != nil {
 			return nil, "Invalid deck."
 		}
-		ok, err := gsDatabase.UserHasDeckAccess(userId, deckId)
+		ok, err := gsDatabase.UserCanReadDeck(userId, deckId)
 		if err != nil {
 			return nil, "Failed to check deck access."
 		}
