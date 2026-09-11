@@ -10,6 +10,7 @@ import (
 	gsWebsocket "github.com/gerp93/gameshell-framework/websocket"
 	"github.com/google/uuid"
 
+	apiRoom "github.com/gerp93/track-timeline/api/room"
 	"github.com/gerp93/track-timeline/database"
 )
 
@@ -66,6 +67,7 @@ func sendStealJoin(lobbyId uuid.UUID, deadline time.Time, timeline []database.Ti
 		return
 	}
 	gsWebsocket.LobbyBroadcast(lobbyId, "steal:"+string(encoded))
+	apiRoom.MirrorBroadcast(lobbyId, "steal:"+string(encoded))
 }
 
 // stealTurnPayload is the stealTurn: websocket message, broadcast once the
@@ -88,6 +90,7 @@ func sendStealTurn(lobbyId uuid.UUID, deadline time.Time, stealerId uuid.UUID, s
 		return
 	}
 	gsWebsocket.LobbyBroadcast(lobbyId, "stealTurn:"+string(encoded))
+	apiRoom.MirrorBroadcast(lobbyId, "stealTurn:"+string(encoded))
 }
 
 // phaseStillCurrent reports whether the game is still in exactly the phase a

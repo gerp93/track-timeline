@@ -19,6 +19,7 @@ var SQLFiles = []string{
 	"sql/tables/TRACK_TIMELINE_CARD_DUPLICATE_DISMISS.sql",
 	"sql/tables/TRACK_TIMELINE_YT_QUOTA_DAY.sql",
 	"sql/tables/TRACK_TIMELINE_GAME.sql",
+	"sql/tables/TRACK_TIMELINE_ROOM.sql",
 	"sql/tables/TRACK_TIMELINE_YEAR_RANGE.sql",
 	"sql/tables/TRACK_TIMELINE_DRAW_PILE.sql",
 	"sql/tables/TRACK_TIMELINE_CURRENT_CARD.sql",

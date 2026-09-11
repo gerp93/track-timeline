@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Track Timeline — Room Mode Wireframes</title>
+<style>
+
+:root {
+  --ink:#1a1a1a; --muted:#5c5c5c; --line:#bdbdbd; --fill:#f2f2f2;
+  --accent:#2a5a8c; --ok:#1d6b3a; --bad:#8b2e2e; --warn:#8a6d1d;
+}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 "IBM Plex Sans","Segoe UI",system-ui,sans-serif;color:var(--ink);background:#fff}
+header.page{padding:28px 32px 16px;border-bottom:1px solid var(--line)}
+header.page h1{margin:0 0 6px;font-size:22px;font-weight:650}
+header.page p{margin:0;color:var(--muted);max-width:72ch}
+nav.toc{display:flex;flex-wrap:wrap;gap:8px;padding:12px 32px;border-bottom:1px solid var(--line);background:var(--fill);position:sticky;top:0;z-index:5}
+nav.toc a{color:var(--accent);text-decoration:none;font-size:13px;border:1px solid var(--line);background:#fff;padding:4px 10px}
+section.phase{padding:36px 32px 48px;border-bottom:1px solid var(--line)}
+section.phase h2{margin:0 0 6px;font-size:18px}
+.blurb{margin:0 0 20px;color:var(--muted);max-width:78ch}
+.pair{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
+.device-label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.tag{display:inline-block;font-size:10px;border:1px solid var(--line);padding:1px 6px;color:var(--muted);letter-spacing:0;text-transform:none;vertical-align:middle}
+.note{margin-top:14px;font-size:12px;color:var(--muted);max-width:78ch}
+.tv{width:min(100%,720px);border:2px solid var(--ink);background:#fff;aspect-ratio:16/9;display:flex;flex-direction:column;position:relative;overflow:hidden}
+.tv-bar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--fill);font-size:12px}
+.badges{display:flex;gap:6px;flex-wrap:wrap}
+.badge{border:1px solid var(--line);padding:2px 7px;background:#fff;font-size:11px}
+.tv-body{flex:1;display:grid;grid-template-columns:1fr 200px;min-height:0}
+.tv-main{padding:10px 12px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:8px;min-width:0}
+.tv-log{padding:8px;font-size:11px;background:#fafafa;display:flex;flex-direction:column}
+.tv-log h3{margin:0 0 6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tv-log ul{list-style:none;margin:0;padding:0}
+.tv-log li{padding:4px 0;border-bottom:1px solid #eee}
+.meta{color:var(--muted)}
+.status-banner{border:1px dashed var(--accent);color:var(--accent);padding:6px 10px;font-size:13px;font-weight:650;text-align:center;background:#f3f7fb}
+.status-banner.warn{border-color:var(--warn);color:var(--warn);background:#fbf8ef}
+.status-banner.ok{border-color:var(--ok);color:var(--ok);background:#f1f8f3}
+.now-playing{border:1px solid var(--line);padding:10px;text-align:center;background:var(--fill);font-size:12px}
+.eq{height:26px;display:flex;align-items:flex-end;justify-content:center;gap:3px;margin-bottom:6px}
+.eq span{width:4px;background:var(--ink);display:block}
+.eq span:nth-child(1){height:8px}.eq span:nth-child(2){height:18px}.eq span:nth-child(3){height:12px}.eq span:nth-child(4){height:22px}.eq span:nth-child(5){height:10px}
+.chip{display:inline-block;border:1px solid var(--line);padding:1px 6px;font-size:11px;margin-top:4px;background:#fff}
+.board{display:flex;flex-direction:column;gap:6px}
+.row{display:grid;grid-template-columns:86px 1fr 36px;gap:6px;align-items:center;font-size:12px}
+.row.me .name{font-weight:700}
+.turn-pill{display:inline-block;margin-left:4px;font-size:9px;color:var(--accent);border:1px solid var(--accent);padding:0 4px;font-weight:700}
+.cards{display:flex;gap:4px;flex-wrap:wrap}
+.card-y{border:1px solid var(--ink);padding:3px 6px;font-size:11px;min-width:40px;text-align:center;background:#fff}
+.card-y.slot{border-style:dashed;color:var(--muted);background:var(--fill)}
+.card-y.hi{outline:2px solid var(--accent);outline-offset:1px}
+.tokens{text-align:right;font-variant-numeric:tabular-nums}
+.popup{position:absolute;inset:0;background:rgba(255,255,255,.75);display:flex;align-items:center;justify-content:center;padding:20px}
+.popup-card{width:min(420px,92%);border:2px solid var(--ink);background:#fff;padding:16px 18px;text-align:center}
+.popup-card.warn-border{border-color:var(--warn)}
+.popup-card h4{margin:0 0 8px;font-size:16px}
+.popup-card p{margin:4px 0;font-size:13px}
+.quote{font-style:italic;border:1px solid var(--line);padding:8px;margin:10px 0;background:var(--fill);font-size:13px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+.center-stack{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;flex:1}
+.qr{width:110px;height:110px;border:2px solid var(--ink);display:grid;grid-template-columns:repeat(5,1fr);grid-template-rows:repeat(5,1fr);gap:2px;padding:6px}
+.qr i{background:var(--ink);display:block}.qr i.off{background:transparent}
+.code{font-size:28px;letter-spacing:.22em;font-weight:700}
+.phone{width:280px;border:2px solid var(--ink);border-radius:22px;background:#fff;min-height:540px;display:flex;flex-direction:column;overflow:hidden}
+.phone-notch{height:18px;border-bottom:1px solid var(--line);background:var(--fill);text-align:center;font-size:9px;color:var(--muted);line-height:18px}
+.phone-header{padding:10px 12px 8px;border-bottom:1px solid var(--line)}
+.phone-header .room{font-size:11px;color:var(--muted)}
+.phone-header .you{font-size:15px;font-weight:650}
+.phone-header .meta{display:flex;justify-content:space-between;margin-top:4px;font-size:12px}
+.phone-body{padding:12px;flex:1;display:flex;flex-direction:column;gap:10px}
+.hint{font-size:12px;color:var(--muted);text-align:center}
+.btn{display:block;width:100%;border:1.5px solid var(--ink);background:#fff;padding:11px 12px;font:inherit;font-weight:650;text-align:center}
+.btn.primary{background:var(--ink);color:#fff}
+.btn.accent{border-color:var(--accent);color:var(--accent)}
+.btn.danger{border-color:var(--bad);color:var(--bad)}
+.btn.ghost{border-style:dashed;color:var(--muted);font-weight:500}
+.btn.disabled{opacity:.35}
+.btn-row{display:flex;gap:8px}.btn-row .btn{flex:1}
+.field{border:1px solid var(--line);padding:8px 10px;font-size:13px;background:#fff}
+.field label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px}
+.mic{width:72px;height:72px;border:2px solid var(--ink);border-radius:50%;margin:4px auto;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;text-align:center;line-height:1.2}
+.mini-tl{border:1px solid var(--line);padding:8px;display:flex;flex-direction:column;gap:6px}
+.drop{border:1px dashed var(--accent);color:var(--accent);text-align:center;padding:8px;font-size:12px;font-weight:650}
+.drop.sel{background:#eef4fb}
+.yr{border:1px solid var(--ink);padding:6px 8px;font-size:12px;text-align:center}
+.waiting-big{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--muted);text-align:center;padding:16px 8px}
+.waiting-big strong{color:var(--ink);font-size:15px}
+.seat-list{border:1px solid var(--line);width:100%;text-align:left}
+.seat-list div{padding:8px 10px;border-bottom:1px solid #eee;font-size:13px}
+.seat-list div:last-child{border-bottom:0}
+footer.page{padding:24px 32px 48px;color:var(--muted);font-size:12px}
+
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>Room mode wireframes</h1>
+  <p>Low-fi layouts for the seatless host (TV/laptop) and phone controllers. Behavior matches the locked room-mode spec. Not visual design — structure and content ownership only. Remote/online UI unchanged.</p>
+</header>
+<nav class="toc">
+  <a href="#lobby">1 Lobby</a>
+  <a href="#listening-turn">2 Listening (turn)</a>
+  <a href="#listening-other">3 Listening (other)</a>
+  <a href="#guess-confirm">4 Guess confirm</a>
+  <a href="#place">5 Place</a>
+  <a href="#exact-year">6 Exact year</a>
+  <a href="#steal-join">7 Steal join</a>
+  <a href="#steal-turn">8 Steal turn</a>
+  <a href="#reveal">9 Reveal</a>
+  <a href="#paused">10 Host paused</a>
+  <a href="#gameover">11 Game over</a>
+</nav>
+
+<section class="phase" id="lobby">
+  <h2>1. Lobby / waiting</h2>
+  <p class="blurb">Host shows QR + room code and seated players. Phones join via account or guest name (refresh-safe). Any seated player can Start.</p>
+  <div class="pair">
+    <div>
+      <div class="device-label">Host TV — seatless</div>
+      <div class="tv">
+        <div class="tv-bar">
+          <strong>Living Room Night</strong>
+          <div class="badges">
+            <span class="badge">Room K7M2</span>
+            <span class="badge">First to 10</span>
+            <span class="badge">Start tokens 2</span>
+          </div>
+        </div>
+        <div class="tv-body" style="grid-template-columns: 1fr 1fr;">
+          <div class="tv-main">
+            <div class="center-stack">
+              <div class="qr" aria-hidden="true">
+                <i></i><i class="off"></i><i></i><i></i><i class="off"></i>
+                <i></i><i></i><i class="off"></i><i></i><i></i>
+                <i class="off"></i><i></i><i></i><i class="off"></i><i></i>
+                <i></i><i class="off"></i><i></i><i></i><i class="off"></i>
+                <i></i><i></i><i class="off"></i><i></i><i></i>
+              </div>
+              <div class="code">K7M2</div>
+              <div class="hint">Join on your phone</div>
+              <span class="chip">Audio unlocked on this screen</span>
+            </div>
+          </div>
+          <div class="tv-log">
+            <h3>Seated</h3>
+            <ul>
+              <li>Alex <span class="meta">(account)</span></li>
+              <li>Sam <span class="meta">(guest)</span></li>
+              <li>Jordan <span class="meta">(guest)</span></li>
+              <li>Riley <span class="meta">(account)</span></li>
+            </ul>
+            <div class="hint" style="margin-top:auto; padding-top:12px;">Waiting for Start…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="device-label">Phone — join + ready</div>
+      <div class="phone">
+        <div class="phone-notch">9:41</div>
+        <div class="phone-header">
+          <div class="room">Room K7M2</div>
+          <div class="you">Join game</div>
+        </div>
+        <div class="phone-body">
+          <div class="btn-row">
+            <div class="btn ghost">Log in</div>
+            <div class="btn primary">Guest</div>
+          </div>
+          <div class="field"><label>Display name</label>Sam</div>
+          <div class="btn primary">Sit down</div>
+          <div class="seat-list">
+            <div>✓ Alex</div>
+            <div>✓ Sam ← you</div>
+            <div>✓ Jordan</div>
+            <div>✓ Riley</div>
+          </div>
+          <div class="btn accent">Start game</div>
+          <div class="hint">Any seated player can start</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="phase" id="listening-turn">
+  <h2>2. Listening — your turn</h2>
+  <p class="blurb">TV owns the board, audio, and log. Turn phone: optional mic guess, place, exact-year, replay, skip, buy. No YouTube on the phone.</p>
+  <div class="pair">
+    <div>
+      <div class="device-label">Host TV</div>
+      <div class="tv">
+        <div class="tv-bar">
+          <strong>Living Room Night</strong>
+          <div class="badges">
+            <span class="badge">Songs left 38</span>
+            <span class="badge">First to 10</span>
+          </div>
+        </div>
+        <div class="tv-body">
+          <div class="tv-main">
+            <div class="status-banner">Alex’s turn · listening</div>
+            <div class="now-playing">
+              <div class="eq"><span></span><span></span><span></span><span></span><span></span></div>
+              <div><strong>Now playing</strong> · this screen only</div>
+              <span class="chip">Genre: 80s Pop</span>
+            </div>
+            <div class="board">
+              <div class="row me">
+                <div class="name">Alex <span class="turn-pill">TURN</span></div>
+                <div class="cards"><span class="card-y">1977</span><span class="card-y">1985</span><span class="card-y">1999</span></div>
+                <div class="tokens">●2</div>
+              </div>
+              <div class="row">
+                <div class="name">Sam</div>
+                <div class="cards"><span class="card-y">1969</span><span class="card-y">1991</span></div>
+                <div class="tokens">●2</div>
+              </div>
+              <div class="row">
+                <div class="name">Jordan</div>
+                <div class="cards"><span class="card-y">1982</span><span class="card-y">2005</span><span class="card-y">2014</span></div>
+                <div class="tokens">●1</div>
+              </div>
+              <div class="row">
+                <div class="name">Riley</div>
+                <div class="cards"><span class="card-y">1971</span><span class="card-y">1988</span></div>
+                <div class="tokens">●2</div>
+              </div>
+            </div>
+          </div>
+          <div class="tv-log">
+            <h3>Log</h3>
+            <ul>
+              <li>Game started</li>
+              <li>Alex’s turn</li>
+              <li>Song playing</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="device-label">Phone — Alex (turn)</div>
+      <div class="phone">
+        <div class="phone-notch">9:41</div>
+        <div class="phone-header">
+          <div class="room">Your turn</div>
+          <div class="you">Alex</div>
+          <div class="meta"><span>Tokens ●2</span><span>Listen &amp; act</span></div>
+        </div>
+        <div class="phone-body">
+          <div class="hint">Board is on the TV. Genre chip is there too.</div>
+          <div class="mic">HOLD<br>MIC</div>
+          <div class="hint">Optional: guess title &amp; artist</div>
+          <div class="btn primary">Place on timeline</div>
+          <div class="btn">Exact year wager…</div>
+          <div class="btn-row">
+            <div class="btn ghost">Replay ·1</div>
+            <div class="btn ghost">Skip ·1</div>
+          </div>
+          <div class="btn ghost">Buy a card ·3</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="phase" id="listening-other">
+  <h2>3. Listening — not your turn</h2>
+  <p class="blurb">No guess. Buy still allowed when rules allow. Steal comes after a place.</p>
+  <div class="pair">
+    <div>
+      <div class="device-label">Host TV <span class="tag">same board as #2</span></div>
+      <div class="tv">
+        <div class="tv-bar">
+          <strong>Living Room Night</strong>
+          <div class="badges"><span class="badge">Alex’s turn</span></div>
+        </div>
+        <div class="tv-body">
+          <div class="tv-main">
+            <div class="status-banner">Alex’s turn · listening</div>
+            <div class="now-playing">
+              <div class="eq"><span></span><span></span><span></span><span></span><span></span></div>
+              Now playing
+            </div>
+            <div class="hint" style="padding: 24px 8px;">Full timelines for everyone (see wireframe 2)</div>
+          </div>
+          <div class="tv-log"><h3>Log</h3><ul><li>Alex’s turn</li></ul></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="device-label">Phone — Sam (waiting)</div>
+      <div class="phone">
+        <div class="phone-notch">9:41</div>
+        <div class="phone-header">
+          <div class="room">Alex’s turn</div>
+          <div class="you">Sam</div>
+          <div class="meta"><span>Tokens ●2</span><span>Waiting</span></div>
+        </div>
+        <div class="phone-body">
+          <div class="waiting-big">
+            <strong>Alex is up</strong>
+            <div>Watch the TV. You can buy a free card if you want.</div>
+          </div>
+          <div class="btn ghost">Buy a card ·3</div>
+          <div class="hint">Guessing is only on your turn.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="phase" id="guess-confirm">
+  <h2>4. Guess confirm</h2>
+  <p class="blurb">STT text on phone → edit with keyboard → lock. Skip disabled after lock. Replay still OK. Correctness + token wait until reveal. TV logs that a guess was locked (words optional in log; verdict hidden).</p>
+  <div class="pair">
+    <div>
+      <div class="device-label">Host TV</div>
+      <div class="tv">
+        <div class="tv-bar">
+          <strong>Living Room Night</strong>
+          <div class="badges"><span class="badge">Alex’s turn</span></div>
+        </div>
+        <div class="tv-body">
+          <div class="tv-main">
+            <div class="status-banner">Alex locked in a guess</div>
+            <div class="now-playing">
+              <div class="eq"><span></span><span></span><span></span><span></span><span></span></div>
+              Still playing · place next
+            </div>
+            <div class="board">
+              <div class="row me">
+                <div class="name">Alex <span class="turn-pill">TURN</span></div>
+                <div class="cards"><span class="card-y">1977</span><span class="card-y">1985</span><span class="card-y">1999</span></div>
+                <div class="tokens">●2</div>
+              </div>
+              <div class="row">
+                <div class="name">Sam</div>
+                <div class="cards"><span class="card-y">1969</span><span class="card-y">1991</span></div>
+                <div class="tokens">●2</div>
+              </div>
+            </div>
+          </div>
+          <div class="tv-log">
+            <h3>Log</h3>
+            <ul>
+              <li>Alex locked a guess <span class="meta">· verdict at reveal</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="device-label">Phone — confirm / edit</div>
+      <div class="phone">
+        <div class="phone-notch">9:41</div>
+        <div class="phone-header">
+          <div class="room">Confirm guess</div>
+          <div class="you">Alex</div>
+        </div>
+        <div class="phone-body">
+          <div class="hint">We heard — edit if needed</div>
+          <div class="field"><label>Title</label>Billie Jean</div>
+          <div class="field"><label>Artist</label>Michael Jackson</div>
+          <div class="btn-row">
+            <div class="btn ghost">Re-record</div>
+            <div class="btn primary">Lock guess</div>
+          </div>
+          <div class="btn danger disabled">Skip · locked out</div>
+          <div class="hint">Claude judges after lock (local fallback if API down). Token at reveal if correct.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="phase" id="place">
+  <h2>5. Place — mini timeline on phone</h2>
+  <p class="blurb">When placing, phone shows only your timeline with drop slots. On submit, TV shows the range to everyone.</p>
+  <div class="pair">
+    <div>
+      <div class="device-label">Host TV — after place</div>
+      <div class="tv">
+        <div class="tv-bar">
+          <strong>Living Room Night</strong>
+          <div class="badges"><span class="badge">Placed</span></div>
+        </div>
+        <div class="tv-body">
+          <div class="tv-main">
+            <div class="status-banner">Alex placed between 1985 and 1999</div>
+            <div class="now-playing" style="opacity:0.45">Song stopped</div>
+            <div class="board">
+              <div class="row me">
+                <div class="name">Alex</div>
+                <div class="cards">
+                  <span class="card-y">1977</span>
+                  <span class="card-y">1985</span>
+                  <span class="card-y slot hi">?</span>
+                  <span class="card-y">1999</span>
+                </div>
+                <div class="tokens">●2</div>
+              </div>
+              <div class="row">
+                <div class="name">Sam</div>
+                <div class="cards"><span class="card-y">1969</span><span class="card-y">1991</span></div>
+                <div class="tokens">●2</div>
+              </div>
+            </div>
+          </div>
+          <div class="tv-log">
+            <h3>Log</h3>
+            <ul>
+              <li>Alex placed · 1985–1999</li>
+              <li>Steal window opening…</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="device-label">Phone — place UI</div>
+      <div class="phone">
+        <div class="phone-notch">9:41</div>
+        <div class="phone-header">
+          <div class="room">Place the song</div>
+          <div class="you">Your timeline</div>
+          <div class="meta"><span>Tokens ●2</span><span>Guess locked</span></div>
+        </div>
+        <div class="phone-body">
+          <div class="mini-tl">
+            <div class="drop">↓ Before 1977</div>
+            <div class="yr">1977</div>
+            <div class="drop">↓ Between</div>
+            <div class="yr">1985</div>
+            <div class="drop sel">↓ Between ← tap</div>
+            <div class="yr">1999</div>
+            <div class="drop">↓ After 1999</div>
+          </div>
+          <div class="btn primary">Lock placement</div>
+          <div class="btn ghost">Exact year instead…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="phase" id="exact-year">
+  <h2>6. Exact-year wager</h2>
+  <p class="blurb">Year digits + wager are public on the TV when submitted. Judged at reveal with placement.</p>
+  <div class="pair">
+    <div>
+      <div class="device-label">Host TV</div>
+      <div class="tv">
+        <div class="tv-bar">
+          <strong>Living Room Night</strong>
+          <div class="badges"><span class="badge">Exact year</span></div>
+        </div>
+        <div class="tv-body">
+          <div class="tv-main">
+            <div class="status-banner">Alex wagered ●1 on year 1983</div>
+            <div class="board">
+              <div class="row me">
+                <div class="name">Alex</div>
+                <div class="cards">
+                  <span class="card-y">1977</span>
+                  <span class="card-y slot hi">1983?</span>
+                  <span class="card-y">1985</span>
+                  <span class="card-y">1999</span>
+                </div>
+                <div class="tokens">●1</div>
+              </div>
+            </div>
+          </div>
+          <div class="tv-log">
+            <h3>Log</h3>
+            <ul><li>Alex exact-year 1983 · wager 1</li></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="device-label">Phone — exact year</div>
+      <div class="phone">
+        <div class="phone-notch">9:41</div>
+        <div class="phone-header">
+          <div class="room">Exact year</div>
+          <div class="you">Wager tokens</div>
+        </div>
+        <div class="phone-body">
+          <div class="field"><label>Year</label>1983</div>
+          <div class="field"><label>Wager</label>● 1</div>
+          <div class="hint">Right digits → bonus. Right range can still win the card if digits miss.</div>
+          <div class="btn primary">Lock exact year</div>
+          <div class="btn ghost">Back to range place</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="phase" id="steal-join">
+  <h2>7. Steal join race</h2>
+  <p class="blurb">Keep timers. Phones race to claim. TV popups: claim started / someone wins the race.</p>
+  <div class="pair">
+    <div>
+      <div class="device-label">Host TV + popup</div>
+      <div class="tv">
+        <div class="tv-bar">
+          <strong>Living Room Night</strong>
+          <div class="badges"><span class="badge">Steal · 3.2s</span></div>
+        </div>
+        <div class="tv-body">
+          <div class="tv-main">
+            <div class="status-banner warn">Steal window · between 1985–1999</div>
+            <div class="board">
+              <div class="row">
+                <div class="name">Alex</div>
+                <div class="cards"><span class="card-y">1977</span><span class="card-y">1985</span><span class="card-y slot">?</span><span class="card-y">1999</span></div>
+                <div class="tokens">●2</div>
+              </div>
+              <div class="row">
+                <div class="name">Sam</div>
+                <div class="cards"><span class="card-y">1969</span><span class="card-y">1991</span></div>
+                <div class="tokens">●2</div>
+              </div>
+            </div>
+          </div>
+          <div class="tv-log"><h3>Log</h3><ul><li>Steal opened</li></ul></div>
+        </div>
+        <div class="popup">
+          <div class="popup-card">
+            <h4>Sam claimed the steal!</h4>
+            <p>Spent ●1 · placing next</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="device-label">Phone — eligible stealer</div>
+      <div class="phone">
+        <div class="phone-notch">9:41</div>
+        <div class="phone-header">
+          <div class="room">Steal · 3.2s</div>
+          <div class="you">Sam</div>
+          <div class="meta"><span>Tokens ●2</span><span>Costs ●1</span></div>
+        </div>
+        <div class="phone-body">
+          <div class="waiting-big">
+            <strong>Steal this song?</strong>
+            <div>Alex placed between 1985 and 1999</div>
+          </div>
+          <div class="btn danger" style="font-size:18px; padding:18px;">STEAL</div>
+          <div class="hint">First tap wins the race.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="phase" id="steal-turn">
+  <h2>8. Steal turn — stealer places</h2>
+  <p class="blurb">Stealer’s mini timeline on phone. TV countdown + popup when they lock placement / steal succeeds or fails.</p>
+  <div class="pair">
+    <div>
+      <div class="device-label">Host TV</div>
+      <div class="tv">
+        <div class="tv-bar">
+          <strong>Living Room Night</strong>
+          <div class="badges"><span class="badge">Sam stealing · 12s</span></div>
+        </div>
+        <div class="tv-body">
+          <div class="tv-main">
+            <div class="status-banner warn">Sam is placing a steal</div>
+            <div class="board">
+              <div class="row">
+                <div class="name">Sam <span class="turn-pill">STEAL</span></div>
+                <div class="cards">
+                  <span class="card-y">1969</span>
+                  <span class="card-y slot hi">?</span>
+                  <span class="card-y">1991</span>
+                </div>
+                <div class="tokens">●1</div>
+              </div>
+            </div>
+          </div>
+          <div class="tv-log">
+            <h3>Log</h3>
+            <ul>
+              <li>Sam won steal race</li>
+              <li>Sam placing…</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="device-label">Phone — Sam stealer</div>
+      <div class="phone">
+        <div class="phone-notch">9:41</div>
+        <div class="phone-header">
+          <div class="room">Your steal · 12s</div>
+          <div class="you">Your timeline</div>
+        </div>
+        <div class="phone-body">
+          <div class="mini-tl">
+            <div class="drop">↓ Before 1969</div>
+            <div class="yr">1969</div>
+            <div class="drop sel">↓ Between ←</div>
+            <div class="yr">1991</div>
+            <div class="drop">↓ After 1991</div>
+          </div>
+          <div class="btn primary">Lock steal placement</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="phase" id="reveal">
+  <h2>9. Reveal — guess + placement</h2>
+  <p class="blurb">TV popup shows guessed words, guess right/wrong, year/placement outcome, card + token awards. Phones say “watch the TV.” Log gets the full story.</p>
+  <div class="pair">
+    <div>
+      <div class="device-label">Host TV — reveal popup</div>
+      <div class="tv">
+        <div class="tv-bar">
+          <strong>Living Room Night</strong>
+          <div class="badges"><span class="badge">Reveal</span></div>
+        </div>
+        <div class="tv-body">
+          <div class="tv-main">
+            <div class="board" style="opacity:0.35; padding-top:8px;">
+              <div class="row">
+                <div class="name">Alex</div>
+                <div class="cards"><span class="card-y">1977</span><span class="card-y">1983</span><span class="card-y">1985</span></div>
+                <div class="tokens">●3</div>
+              </div>
+            </div>
+          </div>
+          <div class="tv-log" style="opacity:0.35">
+            <h3>Log</h3>
+            <ul><li>…</li></ul>
+          </div>
+        </div>
+        <div class="popup">
+          <div class="popup-card">
+            <h4>Billie Jean · Michael Jackson · 1983</h4>
+            <div class="quote">Alex guessed: “Billie Jean — Michael Jackson”</div>
+            <p class="ok"><strong>Guess correct</strong> · +1 token</p>
+            <p class="ok"><strong>Placement correct</strong> · Alex keeps the card</p>
+            <p class="hint" style="margin-top:10px;">Steal missed · Sam’s attempt logged</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="device-label">Phone — during reveal</div>
+      <div class="phone">
+        <div class="phone-notch">9:41</div>
+        <div class="phone-header">
+          <div class="room">Reveal</div>
+          <div class="you">Alex</div>
+        </div>
+        <div class="phone-body">
+          <div class="waiting-big">
+            <strong>Watch the TV</strong>
+            <div>Results are on the big screen.</div>
+          </div>
+          <div class="btn accent">Next round</div>
+          <div class="hint">Any player can advance — or auto-advance after a beat.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="note">Steal popups (claim, race won, stealer placed, success/fail) use the same TV popup pattern as earlier phases; final reveal can also summarize steal outcome.</p>
+</section>
+
+<section class="phase" id="paused">
+  <h2>10. Host disconnected — paused</h2>
+  <p class="blurb">Game freezes until the seatless host reconnects. Phones show paused; no actions.</p>
+  <div class="pair">
+    <div>
+      <div class="device-label">Host TV — reconnect screen</div>
+      <div class="tv">
+        <div class="tv-bar">
+          <strong>Living Room Night</strong>
+          <div class="badges"><span class="badge">Paused</span></div>
+        </div>
+        <div class="tv-body">
+          <div class="tv-main"><div class="hint" style="padding:40px;">Board frozen underneath</div></div>
+          <div class="tv-log"><h3>Log</h3><ul><li>Host disconnected</li></ul></div>
+        </div>
+        <div class="popup">
+          <div class="popup-card warn-border">
+            <h4>Host display disconnected</h4>
+            <p>Game paused. Reopen this page on the TV to continue.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="device-label">Phone — paused</div>
+      <div class="phone">
+        <div class="phone-notch">9:41</div>
+        <div class="phone-header">
+          <div class="room">Paused</div>
+          <div class="you">Sam</div>
+        </div>
+        <div class="phone-body">
+          <div class="waiting-big">
+            <strong>Waiting for the TV</strong>
+            <div>Someone needs to bring the host display back.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="phase" id="gameover">
+  <h2>11. Game over</h2>
+  <p class="blurb">Winner on TV. Anyone can restart.</p>
+  <div class="pair">
+    <div>
+      <div class="device-label">Host TV</div>
+      <div class="tv">
+        <div class="tv-bar">
+          <strong>Living Room Night</strong>
+          <div class="badges"><span class="badge">Finished</span></div>
+        </div>
+        <div class="tv-body">
+          <div class="tv-main">
+            <div class="status-banner ok">Jordan wins!</div>
+            <div class="board">
+              <div class="row">
+                <div class="name">Jordan</div>
+                <div class="cards"><span class="card-y">10 cards</span></div>
+                <div class="tokens">●4</div>
+              </div>
+            </div>
+          </div>
+          <div class="tv-log">
+            <h3>Log</h3>
+            <ul>
+              <li>Jordan reached 10</li>
+              <li>Game over</li>
+            </ul>
+          </div>
+        </div>
+        <div class="popup">
+          <div class="popup-card">
+            <h4>Jordan wins!</h4>
+            <p>First to 10 cards</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="device-label">Phone — any player</div>
+      <div class="phone">
+        <div class="phone-notch">9:41</div>
+        <div class="phone-header">
+          <div class="room">Game over</div>
+          <div class="you">Sam</div>
+        </div>
+        <div class="phone-body">
+          <div class="waiting-big">
+            <strong>Jordan wins</strong>
+            <div>See the TV for final timelines.</div>
+          </div>
+          <div class="btn primary">Play again</div>
+          <div class="hint">Anyone can restart</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="page">
+  Track Timeline room mode · wireframes only · remote game unchanged ·
+  Open in a browser; use the sticky nav to jump phases.
+</footer>
+</body>
+</html>
