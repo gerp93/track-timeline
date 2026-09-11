@@ -39,7 +39,7 @@ func parseChrome(bodyPattern string, funcMap template.FuncMap) (*template.Templa
 	if err != nil {
 		return nil, err
 	}
-	return t.ParseFS(static.StaticFiles, bodyPattern)
+	return t.ParseFS(static.StaticFiles, bodyPattern, "html/components/tracktimeline/rules.html")
 }
 
 func Home(w http.ResponseWriter, r *http.Request) {
@@ -493,6 +493,11 @@ func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
 		drawPileCount = 0
 	}
 
+	decks, err := database.GetGameDecks(game.Id)
+	if err != nil {
+		decks = nil
+	}
+
 	yearRanges, err := database.GetYearRanges(game.Id)
 	if err != nil {
 		yearRanges = nil
@@ -521,6 +526,7 @@ func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
 		gsApi.BasePageData
 		Lobby            database.Lobby
 		Game             database.Game
+		Decks            []database.DeckInfo
 		DrawPileCount    int
 		YearRanges       []database.YearRange
 		TurnTimerSeconds int
@@ -531,6 +537,7 @@ func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
 		BasePageData:     basePageData,
 		Lobby:            lobby,
 		Game:             game,
+		Decks:            decks,
 		DrawPileCount:    drawPileCount,
 		YearRanges:       yearRanges,
 		TurnTimerSeconds: turnTimerSeconds,

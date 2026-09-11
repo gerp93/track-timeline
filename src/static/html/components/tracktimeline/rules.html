@@ -1,0 +1,213 @@
+{{define "rules-content"}}
+<div class="tt-rules-wrapper">
+    <div class="tt-rules-hero">
+        <h2><span class="bi bi-music-note-beamed"></span> Track Timeline Rules</h2>
+        <p class="tt-rules-lead">
+            Build a chronological timeline of songs by the year they were released.
+            The first player to collect the target number of cards wins!
+        </p>
+    </div>
+
+    <!-- Section 1: Core Flow -->
+    <div class="tt-rules-card">
+        <h3><span class="bi bi-arrow-repeat"></span> Round Flow: How Each Turn Works</h3>
+        <ol class="tt-rules-steps">
+            <li>
+                <strong>Song Plays for Everyone:</strong>
+                When a turn begins, the turntable plays a clip of a mystery song for all players in the lobby simultaneously.
+            </li>
+            <li>
+                <strong>Anyone Can Guess for Tokens:</strong>
+                While the clip is playing, <em>every player</em> has an opportunity to guess the song title and/or artist in the guess box. A correct guess earns you a valuable token!
+            </li>
+            <li>
+                <strong>Active Player Places the Song:</strong>
+                The player whose turn it is decides where the song belongs in their personal timeline (earlier than their oldest card, in between two cards, or later than their newest card) and clicks <em>Lock In</em>.
+            </li>
+            <li>
+                <strong>The 5-Second Steal Window:</strong>
+                As soon as the turn player locks in, a 5-second countdown begins. Any rival player with at least 1 token can click <strong>STEAL</strong> to challenge the placement!
+            </li>
+            <li>
+                <strong>The Reveal:</strong>
+                The turntable flips to reveal the song title, artist, and official release year. Cards and tokens are awarded based on who placed correctly.
+            </li>
+        </ol>
+    </div>
+
+    <!-- Section 2: Placement Rules -->
+    <div class="tt-rules-card">
+        <h3><span class="bi bi-clock-history"></span> Timeline Placement Rules</h3>
+        <p>
+            Your timeline starts with 1 seed card dealt at the start of the game. On your turn, you slot the new song into your timeline:
+        </p>
+        <ul class="tt-rules-list">
+            <li>
+                <strong>Before Your Earliest Card:</strong> If you believe the song came out before your oldest song.
+            </li>
+            <li>
+                <strong>Between Two Cards:</strong> If you believe the song was released between two years in your timeline.
+            </li>
+            <li>
+                <strong>After Your Latest Card:</strong> If you believe the song came out after your most recent song.
+            </li>
+            <li>
+                <strong>Same Year / Equal Year Rule:</strong> If the song was released in the exact same year as a card in your timeline, placing it immediately <em>before</em> or immediately <em>after</em> that card is valid!
+            </li>
+        </ul>
+    </div>
+
+    <!-- Section 3: Tokens & Economy -->
+    <div class="tt-rules-card">
+        <h3><span class="bi bi-coin"></span> Tokens &amp; The Economy</h3>
+        <p>
+            Tokens are the currency of Track Timeline. Earning and spending tokens wisely is often the difference between winning and losing.
+        </p>
+        <div class="tt-rules-economy-grid">
+            <div class="tt-econ-column">
+                <h4><span class="bi bi-plus-circle-fill" style="color: #22c55e;"></span> Earning Tokens</h4>
+                <div class="tt-econ-item">
+                    <span class="tt-econ-badge plus">+1</span>
+                    <div>
+                        <strong>Name the Song:</strong> Guess the title and/or artist during playback before the reveal.
+                    </div>
+                </div>
+                <div class="tt-econ-item">
+                    <span class="tt-econ-badge plus">+1 to +3</span>
+                    <div>
+                        <strong>Exact Year Wager:</strong> Wager tokens when placing a card. Guess the exact year correctly to win back your wager plus bonus tokens!
+                    </div>
+                </div>
+            </div>
+            <div class="tt-econ-column">
+                <h4><span class="bi bi-dash-circle-fill" style="color: #ef4444;"></span> Spending Tokens</h4>
+                <div class="tt-econ-item">
+                    <span class="tt-econ-badge minus">-1</span>
+                    <div>
+                        <strong>Replay Clip:</strong> On your turn, spend 1 token to listen to the song clip a second time.
+                    </div>
+                </div>
+                <div class="tt-econ-item">
+                    <span class="tt-econ-badge minus">-1</span>
+                    <div>
+                        <strong>Skip Song:</strong> On your turn, pass a difficult song without risking a missed placement.
+                    </div>
+                </div>
+                <div class="tt-econ-item">
+                    <span class="tt-econ-badge minus">-1</span>
+                    <div>
+                        <strong>Steal / Challenge:</strong> Challenge a rival's placement during the 5-second steal window.
+                    </div>
+                </div>
+                <div class="tt-econ-item">
+                    <span class="tt-econ-badge minus">-3</span>
+                    <div>
+                        <strong>Buy a Card:</strong> Spend 3 tokens at any time to draw and place a song card directly into your timeline!
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 4: Stealing & Challenging -->
+    <div class="tt-rules-card">
+        <h3><span class="bi bi-lightning-charge"></span> Challenging &amp; Stealing</h3>
+        <p>
+            You don't have to wait for your turn to collect cards. When another player locks in their placement:
+        </p>
+        <ul class="tt-rules-list">
+            <li>
+                A <strong>5-second Steal Window</strong> opens for everyone else in the game.
+            </li>
+            <li>
+                The first player to click <strong>STEAL</strong> spends 1 token and claims the sole challenge attempt for that round.
+            </li>
+            <li>
+                The challenger gets <strong>15 seconds</strong> to choose where that same song belongs in <em>their own</em> timeline.
+            </li>
+            <li>
+                <strong>Outcome:</strong>
+                If the turn player was wrong and the challenger placed it correctly in their timeline, the <strong>challenger steals and keeps the card!</strong>
+                If the turn player was right, they keep the card (even if a challenger also guessed correctly).
+            </li>
+        </ul>
+    </div>
+
+    <!-- Section 5: Illustrated Examples -->
+    <div class="tt-rules-card">
+        <h3><span class="bi bi-journal-text"></span> Illustrated Examples</h3>
+
+        <!-- Example 1 -->
+        <div class="tt-example-box">
+            <div class="tt-example-title">
+                <span class="badge">Example 1</span> Basic Timeline Placement
+            </div>
+            <p>Your timeline currently contains two songs:</p>
+            <div class="tt-timeline-demo">
+                <span class="tt-demo-card"><strong>1975</strong> Bohemian Rhapsody</span>
+                <span class="tt-demo-slot valid">&larr; Correct Slot &rarr;</span>
+                <span class="tt-demo-card"><strong>1991</strong> Smells Like Teen Spirit</span>
+            </div>
+            <p class="tt-example-explanation">
+                The current song in play is <em>"Billie Jean" by Michael Jackson (released in 1982)</em>.<br />
+                Placing the card <strong>between 1975 and 1991</strong> is correct (1975 &lt; 1982 &lt; 1991). Placing it before 1975 or after 1991 would fail.
+            </p>
+        </div>
+
+        <!-- Example 2 -->
+        <div class="tt-example-box">
+            <div class="tt-example-title">
+                <span class="badge">Example 2</span> Same-Year / Equal Release Years
+            </div>
+            <p>Your timeline contains a card from 1982:</p>
+            <div class="tt-timeline-demo">
+                <span class="tt-demo-slot valid">&larr; Valid Slot &rarr;</span>
+                <span class="tt-demo-card"><strong>1982</strong> Thriller</span>
+                <span class="tt-demo-slot valid">&larr; Also Valid Slot &rarr;</span>
+            </div>
+            <p class="tt-example-explanation">
+                The new song is <em>"Eye of the Tiger" by Survivor (also 1982)</em>.<br />
+                Because both tracks came out in 1982, placing it immediately <strong>before</strong> or immediately <strong>after</strong> <em>Thriller</em> is valid!
+            </p>
+        </div>
+
+        <!-- Example 3 -->
+        <div class="tt-example-box">
+            <div class="tt-example-title">
+                <span class="badge">Example 3</span> The Steal Maneuver
+            </div>
+            <div class="tt-example-story">
+                <p>
+                    <strong>Turn Player (Alice):</strong> Her timeline starts with <em>Stayin' Alive (1977)</em>. She hears <em>"Hey Jude"</em> and mistakenly places it <strong>after 1977</strong>.
+                </p>
+                <p>
+                    <strong>Challenger (Bob):</strong> Bob knows The Beatles released <em>Hey Jude</em> in the 1960s. As soon as the 5-second window starts, Bob clicks <strong>STEAL</strong> (spending 1 token) and places it <strong>before 1977</strong> in his own timeline.
+                </p>
+                <p class="tt-example-result">
+                    <span class="bi bi-trophy-fill"></span> <strong>Result:</strong>
+                    The turntable reveals <em>Hey Jude (1968)</em>. Alice's placement after 1977 is incorrect. Bob's placement before 1977 is correct. <strong>Bob steals the card and adds it to his timeline!</strong>
+                </p>
+            </div>
+        </div>
+
+        <!-- Example 4 -->
+        <div class="tt-example-box">
+            <div class="tt-example-title">
+                <span class="badge">Example 4</span> Buying a Card with Tokens
+            </div>
+            <p class="tt-example-explanation">
+                During rounds where other players are placing, you correctly guess several song titles and accumulate <strong>3 tokens</strong>.
+                On your turn or between rounds, you click <strong>Buy Card (3 Tokens)</strong>. 3 tokens are deducted, and a mystery song from the draw pile is automatically drawn and placed into your timeline in its correct spot, advancing you 1 card closer to victory!
+            </p>
+        </div>
+    </div>
+
+    <!-- Section 6: Spirit of the Game -->
+    <div class="tt-rules-card tt-rules-note">
+        <h4><span class="bi bi-shield-check"></span> A Note on Fair Play</h4>
+        <p>
+            Because the song clip streams to your browser to play audio, tech-savvy players with browser developer tools could theoretically inspect network requests. Like traditional tabletop trivia games, Track Timeline relies on the honor system &mdash; it assumes everyone is here to test their musical knowledge and have fun!
+        </p>
+    </div>
+</div>
+{{end}}

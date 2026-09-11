@@ -12,6 +12,13 @@ let ttTurnTimerSeconds = 0;
 let ttDeferTimerStart = false;
 let ttStatusTimeout = null;
 
+let ttClipStartSeconds = 0;
+let ttClipEndSeconds = 0;
+let ttClipDurationSeconds = 0;
+let ttClipProgressInterval = null;
+let ttVolume = 100;
+let ttMuted = false;
+
 const TT_STATUS_MESSAGE_MS = 8000;
 
 // ---------------------------------------------------------------- websocket
@@ -20,6 +27,7 @@ function initTrackTimeline(lobbyId, turnTimerSeconds) {
     ttLobbyId = lobbyId;
     setTurnTimerSeconds(turnTimerSeconds || 0);
 
+    ttInitVolume();
     loadYouTubeApi();
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -320,6 +328,7 @@ window.onYouTubeIframeAPIReady = function () {
         events: {
             onReady: () => {
                 ttPlayerReady = true;
+                ttApplyVolumeToPlayer();
                 if (ttPendingSong) {
                     const pending = ttPendingSong;
                     ttPendingSong = null;
@@ -363,12 +372,19 @@ window.onYouTubeIframeAPIReady = function () {
                     // real PLAYING arms the end/pause release so the turn
                     // clock cannot start on those pre-play transitions.
                     ttClipReachedPlaying = true;
+                    ttStartClipProgressTimer();
+                }
+                if (event.data === YT.PlayerState.PAUSED) {
+                    ttStopClipProgressTimer();
+                    ttUpdateClipProgress();
                 }
                 if (event.data === YT.PlayerState.ENDED) {
                     // The clip ran its full length. Play must not silently
                     // restart it from the top after this — hearing it again
                     // is what the paid restart is for.
                     ttClipFinished = true;
+                    ttStopClipProgressTimer();
+                    ttFinishClipProgress();
                 }
                 if (ttClipReachedPlaying &&
                     (event.data === YT.PlayerState.ENDED || event.data === YT.PlayerState.PAUSED)) {
@@ -405,6 +421,9 @@ function syncPlaybackUI() {
     document.querySelectorAll(".tt-tonearm").forEach((el) => {
         el.classList.toggle("is-active", playing);
     });
+
+    ttUpdateClipProgress();
+    ttApplyVolumeUI();
 
     const btn = document.getElementById("tt-play-pause-btn");
     if (btn) {
@@ -590,6 +609,11 @@ function ttReportDeadVideo() {
 function playSong(videoId, startSeconds, endSeconds) {
     if (!videoId) return;
 
+    ttClipStartSeconds = startSeconds || 0;
+    ttClipEndSeconds = endSeconds || 0;
+    ttClipDurationSeconds = (endSeconds > startSeconds) ? (endSeconds - startSeconds) : 0;
+    ttResetClipProgress();
+
     // The API may not have finished loading when the first song arrives; hold
     // it and play once the player reports ready.
     if (!ttPlayerReady || !ttPlayer) {
@@ -651,6 +675,9 @@ function stopSong() {
     // otherwise linger on screen, frozen, into the next player's turn.
     ttCloseTurnTimerBanner();
     ttTurnTimerDeadlineMs = 0;
+
+    ttStopClipProgressTimer();
+    ttResetClipProgress();
 
     if (ttPlayer && ttPlayerReady) {
         try {
@@ -898,9 +925,8 @@ function ttShowTurnTimerBanner(deadlineMs) {
         popup.appendChild(hint);
     }
 
-    const countdown = document.createElement("div");
-    countdown.className = "tt-popup-year tt-steal-countdown";
-    popup.appendChild(countdown);
+    const ringObj = ttCreateCountdownRing();
+    popup.appendChild(ringObj.element);
 
     wrap.appendChild(popup);
     document.body.appendChild(wrap);
@@ -908,10 +934,11 @@ function ttShowTurnTimerBanner(deadlineMs) {
     const badgeEl = document.getElementById("tt-turn-timer");
     let expired = false;
 
+    const totalTurnMs = (ttTurnTimerSeconds || 30) * 1000;
     const tick = () => {
         const remainingMs = ttTurnTimerDeadlineMs - Date.now();
+        ringObj.update(remainingMs, totalTurnMs);
         const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
-        countdown.textContent = seconds.toString();
         if (badgeEl) badgeEl.textContent = seconds + "s";
 
         if (remainingMs <= 0) {
@@ -1274,9 +1301,8 @@ function ttShowStealModal(opts) {
         popup.appendChild(hint);
     }
 
-    const countdown = document.createElement("div");
-    countdown.className = "tt-popup-year tt-steal-countdown";
-    popup.appendChild(countdown);
+    const ringObj = ttCreateCountdownRing();
+    popup.appendChild(ringObj.element);
 
     let joinButton = null;
     if (opts.showJoinButton) {
@@ -1315,18 +1341,23 @@ function ttShowStealModal(opts) {
         });
     }
 
+    const totalStealMs = Math.max(1000, opts.deadlineMs - Date.now());
     const tick = () => {
         const remainingMs = opts.deadlineMs - Date.now();
         if (remainingMs <= 0) {
-            countdown.textContent = "0";
+            ringObj.update(0, totalStealMs);
+            if (joinButton) {
+                joinButton.disabled = true;
+                joinButton.textContent = "Time's up";
+            }
             clearInterval(ttStealInterval);
             ttStealInterval = null;
             return;
         }
-        countdown.textContent = Math.ceil(remainingMs / 1000).toString();
+        ringObj.update(remainingMs, totalStealMs);
     };
     tick();
-    ttStealInterval = setInterval(tick, 200);
+    ttStealInterval = setInterval(tick, 100);
 }
 
 // handleStealJoin shows the join-window modal. The turn player cannot steal
@@ -1431,3 +1462,273 @@ function ttValidateExactYear() {
         lock.title = "Lock in this year and spend the wager.";
     }
 }
+
+// -------------------------------------------------- in-game volume & audio progress
+
+function ttInitVolume() {
+    try {
+        const savedVol = localStorage.getItem("tt_volume");
+        if (savedVol !== null) {
+            const parsed = parseInt(savedVol, 10);
+            if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) {
+                ttVolume = parsed;
+            }
+        }
+        const savedMute = localStorage.getItem("tt_muted");
+        if (savedMute === "true") {
+            ttMuted = true;
+        }
+    } catch (e) {
+        // localStorage not available or blocked
+    }
+    ttApplyVolumeUI();
+}
+
+function ttSetVolume(val) {
+    const vol = parseInt(val, 10);
+    if (isNaN(vol) || vol < 0 || vol > 100) return;
+    ttVolume = vol;
+    try {
+        localStorage.setItem("tt_volume", vol.toString());
+    } catch (e) {}
+
+    if (vol > 0 && ttMuted) {
+        ttMuted = false;
+        try {
+            localStorage.setItem("tt_muted", "false");
+        } catch (e) {}
+    }
+    if (vol === 0) {
+        ttMuted = true;
+        try {
+            localStorage.setItem("tt_muted", "true");
+        } catch (e) {}
+    }
+    ttApplyVolumeToPlayer();
+    ttApplyVolumeUI();
+}
+
+function ttToggleMute() {
+    ttMuted = !ttMuted;
+    try {
+        localStorage.setItem("tt_muted", ttMuted ? "true" : "false");
+    } catch (e) {}
+    if (!ttMuted && ttVolume === 0) {
+        ttVolume = 50;
+        try {
+            localStorage.setItem("tt_volume", "50");
+        } catch (e) {}
+    }
+    ttApplyVolumeToPlayer();
+    ttApplyVolumeUI();
+}
+
+function ttApplyVolumeToPlayer() {
+    if (!ttPlayer || !ttPlayerReady) return;
+    try {
+        if (ttMuted) {
+            ttPlayer.mute();
+        } else {
+            ttPlayer.unMute();
+            ttPlayer.setVolume(ttVolume);
+        }
+    } catch (e) {}
+}
+
+function ttApplyVolumeUI() {
+    const displayVol = ttMuted ? 0 : ttVolume;
+    const iconClass = ttMuted || displayVol === 0
+        ? "bi bi-volume-mute-fill"
+        : displayVol < 50
+            ? "bi bi-volume-down-fill"
+            : "bi bi-volume-up-fill";
+
+    document.querySelectorAll(".tt-volume-slider").forEach((el) => {
+        el.value = displayVol;
+    });
+    document.querySelectorAll(".tt-volume-val").forEach((el) => {
+        el.textContent = displayVol + "%";
+    });
+    document.querySelectorAll(".tt-volume-icon").forEach((el) => {
+        el.className = "tt-volume-icon " + iconClass;
+    });
+    document.querySelectorAll(".tt-volume-btn").forEach((el) => {
+        el.title = ttMuted ? "Unmute" : "Mute";
+        el.classList.toggle("is-muted", ttMuted);
+    });
+}
+
+function ttFormatTime(sec) {
+    const s = Math.floor(sec || 0);
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return m + ":" + (rem < 10 ? "0" : "") + rem;
+}
+
+function ttStartClipProgressTimer() {
+    ttStopClipProgressTimer();
+    ttUpdateClipProgress();
+    ttClipProgressInterval = setInterval(ttUpdateClipProgress, 100);
+}
+
+function ttStopClipProgressTimer() {
+    if (ttClipProgressInterval) {
+        clearInterval(ttClipProgressInterval);
+        ttClipProgressInterval = null;
+    }
+}
+
+function ttResetClipProgress() {
+    const dur = ttClipDurationSeconds > 0 ? ttClipDurationSeconds : 20;
+    document.querySelectorAll(".tt-clip-progress-fill").forEach((el) => {
+        el.style.width = "0%";
+    });
+    document.querySelectorAll(".tt-clip-elapsed-text").forEach((el) => {
+        el.textContent = "0:00";
+    });
+    document.querySelectorAll(".tt-clip-duration-text").forEach((el) => {
+        el.textContent = ttFormatTime(dur);
+    });
+    document.querySelectorAll(".tt-clip-countdown-text").forEach((el) => {
+        el.textContent = Math.ceil(dur) + "s left";
+    });
+    document.querySelectorAll(".tt-clip-pulse-dot").forEach((el) => {
+        el.classList.remove("is-active");
+    });
+    document.querySelectorAll(".tt-platter-ring-fill").forEach((el) => {
+        el.style.strokeDashoffset = "0";
+    });
+    document.querySelectorAll(".tt-platter-countdown-val").forEach((el) => {
+        el.textContent = Math.ceil(dur) + "s";
+    });
+}
+
+function ttFinishClipProgress() {
+    const dur = ttClipDurationSeconds > 0 ? ttClipDurationSeconds : 20;
+    document.querySelectorAll(".tt-clip-progress-fill").forEach((el) => {
+        el.style.width = "100%";
+    });
+    document.querySelectorAll(".tt-clip-elapsed-text").forEach((el) => {
+        el.textContent = ttFormatTime(dur);
+    });
+    document.querySelectorAll(".tt-clip-countdown-text").forEach((el) => {
+        el.textContent = "Ended";
+    });
+    document.querySelectorAll(".tt-clip-pulse-dot").forEach((el) => {
+        el.classList.remove("is-active");
+    });
+    document.querySelectorAll(".tt-platter-ring-fill").forEach((el) => {
+        el.style.strokeDashoffset = "295.31";
+    });
+    document.querySelectorAll(".tt-platter-countdown-val").forEach((el) => {
+        el.textContent = "0s";
+    });
+}
+
+function ttUpdateClipProgress() {
+    let isPlaying = false;
+    let currentTime = 0;
+    if (ttPlayer && ttPlayerReady) {
+        try {
+            isPlaying = ttPlayer.getPlayerState() === YT.PlayerState.PLAYING;
+            currentTime = ttPlayer.getCurrentTime();
+        } catch (e) {}
+    }
+
+    document.querySelectorAll(".tt-clip-pulse-dot").forEach((el) => {
+        el.classList.toggle("is-active", isPlaying);
+    });
+
+    let duration = ttClipDurationSeconds;
+    if (duration <= 0 && ttPlayer && ttPlayerReady) {
+        try {
+            duration = (ttPlayer.getDuration() || 0) - ttClipStartSeconds;
+        } catch (e) {}
+    }
+    if (duration <= 0) duration = 20;
+
+    let elapsed = Math.max(0, currentTime - ttClipStartSeconds);
+    if (ttClipFinished) elapsed = duration;
+    elapsed = Math.min(elapsed, duration);
+
+    const remaining = Math.max(0, duration - elapsed);
+    const fraction = duration > 0 ? (elapsed / duration) : 0;
+    const percent = Math.min(100, Math.max(0, fraction * 100));
+
+    document.querySelectorAll(".tt-clip-progress-fill").forEach((el) => {
+        el.style.width = percent + "%";
+    });
+    document.querySelectorAll(".tt-clip-elapsed-text").forEach((el) => {
+        el.textContent = ttFormatTime(elapsed);
+    });
+    document.querySelectorAll(".tt-clip-duration-text").forEach((el) => {
+        el.textContent = ttFormatTime(duration);
+    });
+    document.querySelectorAll(".tt-clip-countdown-text").forEach((el) => {
+        if (ttClipFinished) {
+            el.textContent = "Ended";
+        } else {
+            el.textContent = Math.ceil(remaining) + "s left";
+        }
+    });
+
+    // Circular Platter Countdown Ring (radius 47, circumference 295.31)
+    const ringPerimeter = 295.31;
+    const offset = ringPerimeter * fraction;
+    document.querySelectorAll(".tt-platter-ring-fill").forEach((el) => {
+        el.style.strokeDashoffset = offset.toFixed(2);
+    });
+    document.querySelectorAll(".tt-platter-countdown-val").forEach((el) => {
+        el.textContent = (ttClipFinished ? 0 : Math.ceil(remaining)) + "s";
+    });
+}
+
+function ttCreateCountdownRing() {
+    const wrap = document.createElement("div");
+    wrap.className = "tt-countdown-ring-wrap";
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "tt-modal-countdown-svg");
+    svg.setAttribute("viewBox", "0 0 100 100");
+
+    const track = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    track.setAttribute("class", "tt-modal-ring-track");
+    track.setAttribute("cx", "50");
+    track.setAttribute("cy", "50");
+    track.setAttribute("r", "44");
+    svg.appendChild(track);
+
+    const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    ring.setAttribute("class", "tt-modal-ring-fill");
+    ring.setAttribute("cx", "50");
+    ring.setAttribute("cy", "50");
+    ring.setAttribute("r", "44");
+    svg.appendChild(ring);
+
+    wrap.appendChild(svg);
+
+    const countdown = document.createElement("div");
+    countdown.className = "tt-popup-year tt-steal-countdown";
+    wrap.appendChild(countdown);
+
+    return {
+        element: wrap,
+        textEl: countdown,
+        update: (remainingMs, totalMs) => {
+            const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
+            countdown.textContent = seconds.toString();
+            const fraction = totalMs > 0 ? Math.max(0, Math.min(1, remainingMs / totalMs)) : 0;
+            const perimeter = 276.46; // 2 * PI * 44
+            const offset = perimeter * (1 - fraction);
+            ring.style.strokeDashoffset = offset.toFixed(2);
+            ring.classList.toggle("is-warning", seconds <= 5);
+        },
+    };
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", ttInitVolume);
+} else {
+    ttInitVolume();
+}
+

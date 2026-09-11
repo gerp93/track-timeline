@@ -7,6 +7,10 @@
 <div class="deck-stage">
     <div class="platter-container">
         <div class="platter-ring">
+            <svg class="tt-platter-countdown-svg" viewBox="0 0 100 100" aria-hidden="true">
+                <circle class="tt-platter-ring-track" cx="50" cy="50" r="47"></circle>
+                <circle class="tt-platter-ring-fill" cx="50" cy="50" r="47"></circle>
+            </svg>
             <!-- Hangs from a fixed pivot mounted above the platter, swinging
                  sideways onto the record while playing (JS toggles
                  .is-active alongside the record's own .is-spinning, both
@@ -27,11 +31,53 @@
                     <span class="tt-record-label-word">TIMELINE</span>
                 </div>
             </div>
+            <div class="tt-platter-countdown-badge" title="Seconds remaining in clip">
+                <span class="bi bi-stopwatch-fill"></span>
+                <span class="tt-platter-countdown-val">--</span>
+            </div>
         </div>
     </div>
 
     <div class="controls-panel">
         <div>
+            <!-- Audio dashboard: clip playback progress & in-game volume -->
+            <div class="tt-audio-dashboard">
+                <div class="tt-clip-progress-container" id="tt-clip-progress-container">
+                    <div class="tt-clip-progress-info">
+                        <div class="tt-clip-status-group">
+                            <span class="tt-clip-pulse-dot" aria-hidden="true"></span>
+                            <span class="tt-clip-status-label">Clip Progress</span>
+                        </div>
+                        <div class="tt-clip-time-group">
+                            <span class="tt-clip-elapsed-text">0:00</span>
+                            <span class="tt-clip-sep">/</span>
+                            <span class="tt-clip-duration-text">0:20</span>
+                            <span class="tt-clip-countdown-pill tt-clip-countdown-text">20s left</span>
+                        </div>
+                    </div>
+                    <div class="tt-clip-progress-track">
+                        <div class="tt-clip-progress-fill" style="width: 0%;"></div>
+                    </div>
+                </div>
+
+                <div class="tt-volume-container">
+                    <button type="button" class="tt-volume-btn" onclick="ttToggleMute()" title="Mute / Unmute">
+                        <span class="tt-volume-icon bi bi-volume-up-fill"></span>
+                    </button>
+                    <input
+                        type="range"
+                        class="tt-volume-slider"
+                        min="0"
+                        max="100"
+                        value="100"
+                        oninput="ttSetVolume(this.value)"
+                        title="In-game volume"
+                        aria-label="In-game volume"
+                    />
+                    <span class="tt-volume-val">100%</span>
+                </div>
+            </div>
+
             {{if eq .GameStatus "finished"}}
             <!-- Game over: keep the vinyl, replace the last song's metadata
                  with a per-viewer win/lose banner so the final answer is not
