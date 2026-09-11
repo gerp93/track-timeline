@@ -637,8 +637,20 @@ function playSong(videoId, startSeconds, endSeconds) {
 function stopSong() {
     // Clear the hold gate BEFORE stopVideo so a lagged ENDED/PAUSED from the
     // forced stop cannot release and flash the turn timer as the round ends.
+    // ttTimerReleasedThisRound must clear too, not just the hold flag: a
+    // round that ends without a reveal (timeout discard, skip) never runs
+    // afterReveal's reset, so a released flag from a clip heard earlier in
+    // this same turn would otherwise survive into the next song/turn and let
+    // restartTurnTimer start the clock again before anyone has pressed Play.
     ttTimerHeldForPlayback = false;
+    ttTimerReleasedThisRound = false;
     ttClipReachedPlaying = false;
+    // A round that ends here without a reveal never reaches the "result:"
+    // handler's own ttCloseTurnTimerBanner() call, so a banner already shown
+    // for the round that just got discarded (e.g. "ran out of time") would
+    // otherwise linger on screen, frozen, into the next player's turn.
+    ttCloseTurnTimerBanner();
+    ttTurnTimerDeadlineMs = 0;
 
     if (ttPlayer && ttPlayerReady) {
         try {
