@@ -43,11 +43,15 @@ type resultPayload struct {
 	WinVideoId           string `json:"winVideoId,omitempty"`
 	WinVideoStartSeconds int    `json:"winVideoStartSeconds,omitempty"`
 
-	// Guess-token outcome, independent of the card outcome above.
-	GuessTokenWinnerName         string `json:"guessTokenWinnerName,omitempty"`
-	GuessTokenGuessText          string `json:"guessTokenGuessText,omitempty"`
-	GuessTokenTitleMatchPercent  int    `json:"guessTokenTitleMatchPercent,omitempty"`
-	GuessTokenArtistMatchPercent int    `json:"guessTokenArtistMatchPercent,omitempty"`
+	// Guess-token outcome, independent of the card outcome above. Every
+	// qualifying guess earns its own token -- no single-token race -- so this
+	// is a list, one entry per player who named the song this round.
+	GuessTokenWinners []guessTokenWinnerPayload `json:"guessTokenWinners,omitempty"`
+}
+
+type guessTokenWinnerPayload struct {
+	Name      string `json:"name"`
+	GuessText string `json:"guessText,omitempty"`
 }
 
 // songPayload tells every client which song to cue and which slice of it to
@@ -89,6 +93,19 @@ func tokensWonLost(delta int) string {
 // rendered as chat.
 func announce(lobbyId uuid.UUID, message string) {
 	gsWebsocket.LobbyBroadcast(lobbyId, message)
+}
+
+// chatDivider is a plain line of dashes marking the end of one turn's chat
+// lines (guesses, tokens earned, the placement/steal verdict) before the
+// next turn's start their own cluster — the shared chat renderer
+// (gameshell-framework's chat.js) only understands plain text plus the
+// <red>/<green>/<blue> color tokens, so this is deliberately just
+// characters, not a real HTML rule.
+const chatDivider = "──────────────────────────"
+
+// announceDivider posts the turn-boundary divider to the lobby.
+func announceDivider(lobbyId uuid.UUID) {
+	announce(lobbyId, chatDivider)
 }
 
 // sendStatus updates the bottom status line for everyone, with no popup.

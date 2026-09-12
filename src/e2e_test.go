@@ -799,7 +799,7 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 		t.Errorf("expected a private alert confirming a full match, got %v", alerts)
 	}
 
-	// The token is deferred to reveal (database.AwardGuessToken), not awarded
+	// The token is deferred to reveal (database.AwardGuessTokens), not awarded
 	// on submit — the balance should not have moved yet.
 	postGuessTokens, err := database.GetPlayerTokens(gameId, guesserForTitle.playerId)
 	if err != nil || postGuessTokens != preTokens {
@@ -820,8 +820,8 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	// window opens at all here and the round resolves immediately, cleanly
 	// isolating the guess-token award (what this section is actually
 	// testing) from the steal mechanic exercised elsewhere. The current
-	// player never guessed this round, so guesserForTitle (the only correct
-	// guess) should win the guess token regardless of who wins the card.
+	// player never guessed this round, so guesserForTitle (the only qualifying
+	// guess) earns a token regardless of who wins the card.
 	resolver := currentPlayer()
 	for _, p := range otherPlayers(resolver) {
 		if err := database.SetPlayerTokens(gameId, p.playerId, 0); err != nil {
