@@ -48,6 +48,16 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		hasGuessed = true
 	}
 
+	// Once guessed, show the player their own verdict and token odds in
+	// place of a generic "you have already guessed" line -- otherwise that
+	// only ever appeared once, transiently, via the private "alert:"
+	// broadcast (submitGuessForPlayer), and was gone the moment it scrolled
+	// off or another status message replaced it.
+	guessResultText := ""
+	if hasGuessed {
+		guessResultText, _ = describeStoredGuessForPlayer(ctx.Game.Id, ctx.Player.Id, ctx.Game.CurrentPlayerId, ctx.Game.GuessMode)
+	}
+
 	tmpl, err := template.ParseFS(static.StaticFiles, "html/components/tracktimeline/current-card.html")
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -82,6 +92,7 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		IsWinner        bool
 		HasPlaced       bool
 		HasGuessed      bool
+		GuessResultText string
 		ReplayUsed      bool
 		TokenCount      int
 		GuessMode       string
@@ -98,6 +109,7 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		IsWinner:        isWinner,
 		HasPlaced:       hasPlaced,
 		HasGuessed:      hasGuessed,
+		GuessResultText: guessResultText,
 		ReplayUsed:      ctx.Game.ReplayUsed,
 		TokenCount:      tokens,
 		GuessMode:       ctx.Game.GuessMode,

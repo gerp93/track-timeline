@@ -25,6 +25,7 @@ type currentCardView struct {
 	IsWinner        bool
 	HasPlaced       bool
 	HasGuessed      bool
+	GuessResultText string
 	ReplayUsed      bool
 	TokenCount      int
 	GuessMode       string
@@ -110,7 +111,7 @@ func TestCurrentCardTurnPlayerHasGuessButton(t *testing.T) {
 	if !strings.Contains(got, "/guess\"") {
 		t.Errorf("turn player guess form does not post to /guess: %s", got)
 	}
-	if !strings.Contains(got, `<button type="submit" class="btn-small">`) {
+	if !strings.Contains(got, `<button type="submit" id="tt-guess-submit" class="btn-small">`) {
 		t.Errorf("turn player guess form missing a submit button: %s", got)
 	}
 	if !strings.Contains(got, `id="tt-guess-fields" class="guess-fields" hx-preserve="true"`) {
@@ -129,11 +130,42 @@ func TestCurrentCardWagerNotEnoughTokensCopy(t *testing.T) {
 		GuessMode:       database.GuessModeOff,
 		LobbyId:         uuid.New(),
 	})
-	if !strings.Contains(got, "not enough tokens") {
+	if !strings.Contains(got, "Not enough tokens") {
 		t.Errorf("exact-year wager form missing 'not enough tokens' decorator: %s", got)
 	}
 	if !strings.Contains(got, `id="tt-year-wager-error"`) {
 		t.Errorf("exact-year wager form missing tt-year-wager-error element")
+	}
+}
+
+// TestCurrentCardAlreadyGuessedShowsResult guards the playtest fix where a
+// player who already guessed only ever saw a generic "You have already
+// guessed this song." line, with their actual verdict and token odds
+// (describeStoredGuessForPlayer, round.go) gone the moment the one-time
+// "alert:" broadcast that carried it scrolled away.
+func TestCurrentCardAlreadyGuessedShowsResult(t *testing.T) {
+	withResult := currentCardView{
+		CurrentCard:     database.CurrentCard{YouTubeVideoId: "abc123"},
+		GameStatus:      database.StatusActive,
+		RoundPhase:      database.PhaseListening,
+		HasGuessed:      true,
+		GuessResultText: "title right (100% match), artist right (100% match) You're first in line for the guess token — you'll get it at reveal unless the current player also gets it right.",
+		GuessMode:       database.GuessModeBoth,
+		LobbyId:         uuid.New(),
+	}
+	got := renderCurrentCard(t, withResult)
+	if !strings.Contains(got, "You&#39;re first in line for the guess token") {
+		t.Errorf("expected the stored guess result to render in place of the generic message: %s", got)
+	}
+	if strings.Contains(got, "You have already guessed this song.") {
+		t.Errorf("generic message should not render once a real result is available: %s", got)
+	}
+
+	withoutResult := withResult
+	withoutResult.GuessResultText = ""
+	got = renderCurrentCard(t, withoutResult)
+	if !strings.Contains(got, "You have already guessed this song.") {
+		t.Errorf("expected the generic fallback when no guess result is available: %s", got)
 	}
 }
 

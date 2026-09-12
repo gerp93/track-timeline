@@ -7,16 +7,16 @@
    a raised deck sitting on the page, in every theme. */
 .turntable-card {
     position: relative;
-    margin: 1rem 0;
-    padding: 1.1rem 1.25rem 2.75rem;
+    margin: 0.25rem 0;
+    padding: 0.7rem 1rem 1.85rem;
     border: 1px solid currentColor;
     border-radius: 12px;
     background: var(--color-bg-hover);
 }
 
 .header-bar {
-    padding-bottom: 0.85rem;
-    margin-bottom: 0.85rem;
+    padding-bottom: 0.45rem;
+    margin-bottom: 0.45rem;
     border-bottom: 1px solid currentColor;
 }
 
@@ -39,18 +39,32 @@
     font-size: 1.3rem;
 }
 
+/* These are the only entry points to Edit/Timer/Settings/Rules -- the
+   duplicate buttons that used to sit in .stats-badges are gone -- so they
+   get a real (if understated) button affordance: a bit of size, a round
+   hover/focus background, instead of just a bare glyph. */
 .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    font-size: 1.05rem;
+    border-radius: 50%;
     opacity: 0.75;
 }
 
-.icon-btn:hover {
+.icon-btn:hover,
+.icon-btn:focus-visible {
     opacity: 1;
+    background: var(--color-bg-hover);
 }
 
 .stats-badges {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
+    align-items: center;
+    gap: 0.9rem;
     font-size: 0.8rem;
 }
 
@@ -64,6 +78,22 @@
 
 .badge strong {
     opacity: 1;
+}
+
+/* A plain fact about the game (First to N, songs left, decks, turn timer) --
+   flat and borderless, unlike .badge/.currency-badge/.btn-buy, so at a
+   glance it reads as information rather than something to click. */
+.stat-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    opacity: 0.75;
+}
+
+.stat-text strong,
+.stat-text .gs-timer {
+    opacity: 1;
+    font-weight: 600;
 }
 
 .tt-deck-tooltip {
@@ -160,20 +190,39 @@
     position: relative;
     /* Keep body copy out of the absolute equalizer in the bottom-right. */
     padding-right: 3.25rem;
-    padding-bottom: 2.5rem;
+    padding-bottom: 1.6rem;
 }
 
 .deck-stage {
     display: grid;
-    grid-template-columns: minmax(8rem, 11rem) 1fr;
-    gap: 1.25rem;
-    align-items: start;
+    grid-template-columns: minmax(9rem, 13rem) 1fr;
+    gap: 1rem;
+    /* stretch (not start): the platter fills the row's full height -- as
+       tall as the controls column ends up being -- rather than sitting at a
+       fixed size with slack above/below it. Paired with min-height below:
+       without a floor, a non-turn player's much shorter controls column (no
+       Play/Skip row) starved the platter down to a noticeably smaller
+       record -- and even pushed the tonearm past the card's bottom edge --
+       so every viewer's controls column is at least this tall regardless of
+       how little it actually needs, giving the platter a stable size to fill
+       that only grows from here when there's more content (e.g. the exact-
+       year wager expanded). */
+    min-height: 10rem;
+    align-items: stretch;
 }
 
 @media (max-width: 32rem) {
     .deck-stage {
         grid-template-columns: 1fr;
         justify-items: center;
+    }
+
+    /* The stacked mobile layout has no meaningful row height to stretch
+       against, so fall back to a plain width-capped platter there. */
+    .platter-ring {
+        width: 100%;
+        height: auto;
+        max-width: 9rem;
     }
 }
 
@@ -258,8 +307,18 @@
 
 .platter-ring {
     position: relative;
-    width: 100%;
-    max-width: 9rem;
+    /* Sized off the row's height (see .deck-stage's align-items: stretch and
+       min-height) rather than a fixed width, so it grows or shrinks with
+       however tall the controls column ends up -- same size or bigger than
+       the old fixed 9rem cap in the common case. The cap has to live on
+       height, not a separate max-width: with height:100% and a max-width
+       both "definite" at once (e.g. a tall exact-year-wager row pushing
+       height past 13rem while max-width clamped the width side alone),
+       aspect-ratio stopped being enforced and the platter drew as an oval
+       instead of a circle. min() keeps height the single driving dimension
+       so width, derived purely from aspect-ratio, always matches it. */
+    width: auto;
+    height: min(100%, 13rem);
     aspect-ratio: 1;
     border-radius: 50%;
     background: var(--color-bg);
@@ -344,7 +403,7 @@
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    gap: 0.75rem;
+    gap: 0.55rem;
     min-width: 0;
 }
 
@@ -413,6 +472,65 @@
 .checkbox-label.is-disabled {
     opacity: 0.45;
     cursor: not-allowed;
+}
+
+.checkbox-label-title {
+    display: block;
+    font-weight: 600;
+    opacity: 1;
+}
+
+/* Collapsed until the wager is actually turned on: the full explanation
+   only matters once the player has opted in, and staying hidden the rest
+   of the time buys back two lines of vertical space in the common case
+   (unchecked) -- real budget with 4 player rows on-screen without a
+   vertical scroll. */
+.checkbox-label-hint {
+    display: none;
+    font-size: 0.75rem;
+    opacity: 0.75;
+    margin-top: 0.1rem;
+}
+
+.checkbox-label:has(#tt-use-exact-year:checked) .checkbox-label-hint {
+    display: block;
+}
+
+/* The exact-year wager row: revealed under its checkbox once checked. Reads
+   as one small form (labels above their inputs, same visual language as
+   .tt-settings-label) rather than bare inputs relying on a placeholder as
+   their only label. */
+.exact-year-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.6rem;
+    margin-top: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid currentColor;
+    border-radius: 8px;
+    background: var(--color-bg);
+}
+
+.exact-year-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.exact-year-field-narrow input {
+    width: 5rem;
+}
+
+.field-label {
+    font-size: 0.72rem;
+    opacity: 0.7;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.exact-year-submit {
+    white-space: nowrap;
 }
 
 /* A purely decorative equalizer in the turntable card's otherwise-empty
@@ -535,7 +653,7 @@
     border: 1px solid transparent;
     border-radius: 0;
     border-bottom: 1px solid color-mix(in srgb, currentColor 25%, transparent);
-    padding: 0.2rem 0.35rem;
+    padding: 0.3rem 0.4rem;
     min-height: 0;
 }
 
@@ -553,9 +671,9 @@
 }
 
 .player-name {
-    flex: 0 0 4.5rem;
-    max-width: 4.5rem;
-    font-size: 0.75rem;
+    flex: 0 0 4.25rem;
+    max-width: 4.25rem;
+    font-size: 0.82rem;
     line-height: 1.15;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -569,30 +687,38 @@
     gap: 0.35rem;
 }
 
+/* Your token count: a value, not a control -- pill-shaped and neutral
+   (border, no accent fill) so it reads as a readout, clearly distinct from
+   the accent-colored Buy button right next to it. */
 .currency-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
     background: var(--color-bg);
     border: 1px solid currentColor;
     border-radius: 999px;
-    padding: 0.1rem 0.55rem;
+    padding: 0.1rem 0.6rem;
     font-size: 0.8rem;
     font-weight: 600;
 }
 
 .btn-buy {
-    /* The global `button` rule (global.css) puts a 5px margin and its own
-       padding on every button by default; plain <span class="badge">
-       siblings here have neither, so without resetting both, Buy renders
-       visibly taller/misaligned next to the other header badges. Padding
-       is matched to .badge exactly (not just close) for the same reason. */
+    /* The global `button` rule (global.css) puts a 5px margin on every
+       button by default, which would misalign Buy against its neighbors in
+       the compact header row -- reset that, but otherwise keep the theme's
+       real button coloring (colors.css' `button` rule) rather than
+       flattening it to match the neutral badges: Buy is a genuine action
+       and should look like one, the same as Play/Guess/Send elsewhere. */
     margin: 0;
-    background: transparent;
-    border: 1px solid currentColor;
-    color: currentColor;
+    border: none;
     border-radius: 6px;
     padding: 0.25rem 0.6rem;
     font-size: 0.8rem;
     font-weight: 600;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
 }
 
 .btn-buy:disabled {
@@ -600,27 +726,36 @@
     cursor: not-allowed;
 }
 
-.tt-self-status .btn-buy.badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
+/* A destructive action (permanently removes the lobby), so it gets the
+   theme's danger color rather than the ordinary button accent -- outlined
+   rather than filled at rest so it doesn't visually compete with Join, the
+   actual primary action in this row. */
+.btn-delete-lobby {
+    background: transparent;
+    border: 1px solid var(--color-danger, #c0392b);
+    color: var(--color-danger, #c0392b);
+}
+
+.btn-delete-lobby:hover {
+    background: var(--color-danger, #c0392b);
+    color: var(--color-bg);
 }
 
 .player-placed {
     opacity: 0.8;
-    font-size: 0.7rem;
+    font-size: 0.76rem;
 }
 
 .player-tokens {
     flex: 0 0 auto;
-    font-size: 0.7rem;
+    font-size: 0.76rem;
     opacity: 0.8;
     white-space: nowrap;
 }
 
 .song-count {
     flex: 0 0 auto;
-    font-size: 0.7rem;
+    font-size: 0.76rem;
     opacity: 0.75;
     white-space: nowrap;
 }
@@ -644,17 +779,21 @@
     flex: 1 1 auto;
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.2rem;
     overflow-x: auto;
     min-width: 0;
     padding: 0;
 }
 
-/* An insertion point between two cassettes on the shelf. */
+/* An insertion point between two cassettes on the shelf. Narrower than the
+   cassettes themselves on purpose: on the player's own turn there is one of
+   these on *every* side of *every* card (up to cardCount+1 of them), so
+   width here is the difference between a full timeline fitting on screen
+   without a horizontal scroll and not. */
 .drop-zone {
     flex: 0 0 auto;
-    width: 1.5rem;
-    height: 2.6rem;
+    width: 1.1rem;
+    height: 2.9rem;
     border: 1px dashed currentColor;
     border-radius: 4px;
     opacity: 0.5;
@@ -683,11 +822,11 @@
     background: linear-gradient(135deg, #2a2b32, #18191e);
     border: 1px solid currentColor;
     border-radius: 4px;
-    padding: 0.2rem 0.25rem;
+    padding: 0.28rem 0.32rem;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 0.2rem;
     box-shadow: none;
 }
 
@@ -702,8 +841,8 @@
     background: var(--color-text);
     color: var(--color-bg);
     border-radius: 2px;
-    padding: 0;
-    font-size: 0.95rem;
+    padding: 0.05rem 0;
+    font-size: 1.1rem;
     font-weight: 800;
     letter-spacing: 0.02em;
     line-height: 1.25;
@@ -719,7 +858,7 @@
 
 .cassette-artist {
     display: block;
-    font-size: 0.58rem;
+    font-size: 0.66rem;
     font-weight: 700;
     color: #222;
     white-space: nowrap;
@@ -732,7 +871,7 @@
     -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
     overflow: hidden;
-    font-size: 0.58rem;
+    font-size: 0.66rem;
     font-weight: 800;
     color: #000;
     line-height: 1.15;
@@ -998,7 +1137,7 @@
     grid-template-areas:
         "main"
         "chat";
-    gap: 0.5rem;
+    gap: 0.35rem;
 }
 
 #tt-main {
@@ -1377,92 +1516,11 @@
 }
 
 /* -------------------------------------------------- Playback clip progress & volume */
-
-.tt-audio-dashboard {
-    margin-bottom: 0.6rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.45rem;
-}
-
-.tt-clip-progress-container {
-    background: var(--color-bg-hover);
-    border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-    border-radius: 6px;
-    padding: 0.4rem 0.6rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-}
-
-.tt-clip-progress-info {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    font-size: 0.78rem;
-}
-
-.tt-clip-status-group {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-}
-
-.tt-clip-pulse-dot {
-    width: 0.5rem;
-    height: 0.5rem;
-    border-radius: 50%;
-    background: currentColor;
-    opacity: 0.35;
-    transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.tt-clip-pulse-dot.is-active {
-    opacity: 1;
-    background: #22c55e;
-    animation: tt-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes tt-pulse {
-    0%, 100% { transform: scale(1); opacity: 0.8; }
-    50% { transform: scale(1.3); opacity: 1; }
-}
-
-.tt-clip-time-group {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-variant-numeric: tabular-nums;
-    font-size: 0.76rem;
-}
-
-.tt-clip-countdown-pill {
-    background: color-mix(in srgb, currentColor 12%, transparent);
-    border-radius: 999px;
-    padding: 0.05rem 0.4rem;
-    font-size: 0.72rem;
-    font-weight: 600;
-}
-
-.tt-clip-progress-track {
-    width: 100%;
-    height: 6px;
-    background: color-mix(in srgb, currentColor 15%, transparent);
-    border-radius: 999px;
-    overflow: hidden;
-    position: relative;
-}
-
-.tt-clip-progress-fill {
-    height: 100%;
-    background: currentColor;
-    border-radius: 999px;
-    width: 0%;
-    transition: width 0.15s linear;
-}
+/* No .tt-clip-progress-* rules here: that dashboard (elapsed/duration text,
+   a progress bar, a pulse dot) was removed as a duplicate of the platter
+   countdown ring + badge just below, which show the same information. The
+   JS that drives both (ttUpdateClipProgress) still queries these selectors
+   too, harmlessly matching nothing now that the elements are gone. */
 
 /* Platter Countdown Ring */
 .tt-platter-countdown-svg {
@@ -1512,14 +1570,9 @@
     white-space: nowrap;
 }
 
-/* In-game volume controls */
-.tt-volume-container,
-.tt-volume-panel {
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-}
-
+/* In-game volume controls (the header's .tt-volume-badge is the only user
+   now -- the main-body copy that used to sit alongside .tt-clip-progress-*
+   above is gone). */
 .tt-volume-btn {
     background: none;
     border: none;

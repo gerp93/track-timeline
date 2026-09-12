@@ -4,11 +4,11 @@
 <template id="tt-self-status-template">
     {{range .Timelines}}
     {{if .IsMe}}
-    <span class="badge" title="Your tokens">{{.TokenCount}} <span class="bi bi-coin"></span></span>
+    <span class="currency-badge" title="Your tokens">{{.TokenCount}} <span class="bi bi-coin"></span></span>
     {{if eq $root.GameStatus "active"}}
     {{$oneFromWin := ge (len .Timeline) (sub $root.CardsToWin 1)}}
     <button
-        class="badge btn-buy"
+        class="btn-buy"
         hx-post="/api/track-timeline/{{$root.LobbyId}}/buy-card"
         hx-swap="none"
         hx-confirm="Spend {{$root.BuyCardCost}} tokens to draw a fresh song and place it on your timeline automatically, with no listen and no guess?"

@@ -157,6 +157,7 @@ func main() {
 	http.Handle("POST /api/track-timeline/create", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.Create)))
 	http.Handle("POST /api/track-timeline/search", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.Search)))
 	http.Handle("POST /api/track-timeline/card-count", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.CardCount)))
+	http.Handle("POST /api/track-timeline/{lobbyId}/delete", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.DeleteLobby)))
 
 	// gameplay
 	http.Handle("POST /api/track-timeline/{lobbyId}/start", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.StartGame)))
