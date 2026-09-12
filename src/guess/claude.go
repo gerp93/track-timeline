@@ -114,7 +114,9 @@ func claudePrompt(in Input, titleSaid, artistSaid string) string {
 		"nicknames, abbreviations, partial titles, and phonetic / sound-alike spellings " +
 		"(for example \"deaf leopard\" for Def Leppard, \"led zepplin\" for Led Zeppelin) " +
 		"if a quizmaster would know what they meant. " +
-		"Do not accept a different song or a different performer.\n" +
+		"If the correct artist credit includes a featured artist (\"feat.\", \"featuring\", \"ft.\", " +
+		"\"with\", or similar), naming only the main artist is still correct -- do not require the " +
+		"featured artist too. Do not accept a different song or a different main performer.\n" +
 		"You must call it. Never maybe, never a percentage, never anything but yes or no."
 
 	if in.TitleOnly {

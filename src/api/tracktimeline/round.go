@@ -593,6 +593,12 @@ func attachLoseCelebration(payload *resultPayload, gameId uuid.UUID, playerId uu
 // bought card (BuyCard) share once they have an outcome: check for a game
 // winner and either end the game or advance the turn, then send the result.
 func finishRound(ctx gameContext, payload resultPayload) {
+	// Marks the end of this turn's chat cluster (guesses, tokens earned, the
+	// placement/steal verdict, and whichever of this function's own
+	// announcements below) regardless of which of the three exit paths below
+	// is taken -- a defer runs once no matter which return fires.
+	defer announceDivider(ctx.LobbyId)
+
 	winnerUserId, err := database.CheckWinner(ctx.Game.Id)
 	if err != nil {
 		log.Println(err)

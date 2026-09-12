@@ -524,7 +524,7 @@ func cardAlreadyOnAnyTimeline(gameId uuid.UUID, cardId uuid.UUID) (bool, error) 
 }
 
 // BuyCardCost is how many tokens the buy-a-free-card action spends.
-const BuyCardCost = 3
+const BuyCardCost = 5
 
 // CanBuyCard reports whether buying a free card is allowed for this seat:
 // enough tokens, the purchase would not be the winning song (wins must come

@@ -226,15 +226,15 @@ func TestGuessAnnouncementDeferredUntilReveal(t *testing.T) {
 }
 
 // TestBuyCardCostAndStrictLeaderRestriction guards two related fixes: the
-// buy cost raised from 2 to 3 tokens, and the new rule that a player
-// strictly ahead of every other active player cannot buy at all (ties for
-// the lead still can).
+// buy cost (currently 5 tokens), and the rule that a player strictly ahead
+// of every other active player cannot buy at all (ties for the lead still
+// can).
 func TestBuyCardCostAndStrictLeaderRestriction(t *testing.T) {
 	gameId, lobbyId, _, players, srv := newPlaytestFixesGame(t, "buylead", 20, 10, 10)
 	defer closePlaytestFixesGame(players, srv)
 
-	if database.BuyCardCost != 3 {
-		t.Fatalf("expected BuyCardCost to be 3, got %d", database.BuyCardCost)
+	if database.BuyCardCost != 5 {
+		t.Fatalf("expected BuyCardCost to be 5, got %d", database.BuyCardCost)
 	}
 
 	leader, rest := players[0], players[1:]
@@ -246,8 +246,8 @@ func TestBuyCardCostAndStrictLeaderRestriction(t *testing.T) {
 		t.Fatalf("first buy (nobody in the lead yet) should succeed: %d %s", rec.Code, rec.Body.String())
 	}
 	tokensAfterFirstBuy, err := database.GetPlayerTokens(gameId, leader.playerId)
-	if err != nil || tokensAfterFirstBuy != 7 {
-		t.Errorf("expected the buy to cost 3 tokens (10 -> 7), got %d (%v)", tokensAfterFirstBuy, err)
+	if err != nil || tokensAfterFirstBuy != 5 {
+		t.Errorf("expected the buy to cost 5 tokens (10 -> 5), got %d (%v)", tokensAfterFirstBuy, err)
 	}
 
 	// The leader (now strictly ahead) is refused a second buy.
@@ -279,8 +279,8 @@ func TestBuyCardCostAndStrictLeaderRestriction(t *testing.T) {
 		t.Fatalf("non-leader buy should succeed: %d %s", rec.Code, rec.Body.String())
 	}
 	postTokens, err := database.GetPlayerTokens(gameId, nonLeader.playerId)
-	if err != nil || postTokens != preTokens-3 {
-		t.Errorf("expected the buy to cost 3 tokens, got %d -> %d (%v)", preTokens, postTokens, err)
+	if err != nil || postTokens != preTokens-5 {
+		t.Errorf("expected the buy to cost 5 tokens, got %d -> %d (%v)", preTokens, postTokens, err)
 	}
 	postLen, err := database.GetPlayerTimeline(gameId, nonLeader.playerId)
 	if err != nil || len(postLen) != len(preLen)+1 {
