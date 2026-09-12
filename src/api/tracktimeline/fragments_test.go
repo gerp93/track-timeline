@@ -111,7 +111,7 @@ func TestCurrentCardTurnPlayerHasGuessButton(t *testing.T) {
 	if !strings.Contains(got, "/guess\"") {
 		t.Errorf("turn player guess form does not post to /guess: %s", got)
 	}
-	if !strings.Contains(got, `<button type="submit" id="tt-guess-submit" class="btn-small">`) {
+	if !strings.Contains(got, `<button type="submit" class="btn-small">`) {
 		t.Errorf("turn player guess form missing a submit button: %s", got)
 	}
 	if !strings.Contains(got, `id="tt-guess-fields" class="guess-fields" hx-preserve="true"`) {
@@ -149,12 +149,12 @@ func TestCurrentCardAlreadyGuessedShowsResult(t *testing.T) {
 		GameStatus:      database.StatusActive,
 		RoundPhase:      database.PhaseListening,
 		HasGuessed:      true,
-		GuessResultText: "title right (100% match), artist right (100% match) You're first in line for the guess token — you'll get it at reveal unless the current player also gets it right.",
+		GuessResultText: "title right (100% match), artist right (100% match) You'll get a token at reveal.",
 		GuessMode:       database.GuessModeBoth,
 		LobbyId:         uuid.New(),
 	}
 	got := renderCurrentCard(t, withResult)
-	if !strings.Contains(got, "You&#39;re first in line for the guess token") {
+	if !strings.Contains(got, "You&#39;ll get a token at reveal") {
 		t.Errorf("expected the stored guess result to render in place of the generic message: %s", got)
 	}
 	if strings.Contains(got, "You have already guessed this song.") {

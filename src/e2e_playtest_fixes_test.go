@@ -349,13 +349,12 @@ func TestSkipResetsReplayUsed(t *testing.T) {
 	}
 }
 
-// TestGuessTokenTurnPlayerSupersedes guards the corrected guess-token rule:
-// among the players who aren't on turn, it's a pure first-to-submit-and-qualify
-// race, but the turn player's own qualifying guess always wins the token
-// outright — even though (per PlaceCard) it's necessarily submitted after
-// every non-turn guess, since the turn player only guesses as part of placing.
-func TestGuessTokenTurnPlayerSupersedes(t *testing.T) {
-	gameId, lobbyId, _, players, srv := newPlaytestFixesGame(t, "guesssupersede", 20, 10, 6)
+// TestGuessTokenEveryoneWhoQualifiesGetsOne guards the current guess-token
+// rule: there is no race for a single token among the players who guess
+// correctly (turn player included) — every one of them earns their own
+// token at reveal, regardless of submit order.
+func TestGuessTokenEveryoneWhoQualifiesGetsOne(t *testing.T) {
+	gameId, lobbyId, _, players, srv := newPlaytestFixesGame(t, "guesseveryone", 20, 10, 6)
 	defer closePlaytestFixesGame(players, srv)
 
 	current := gamePlayerByUserId(players, mustCurrentPlayerUserId(t, gameId))
@@ -371,8 +370,7 @@ func TestGuessTokenTurnPlayerSupersedes(t *testing.T) {
 		t.Fatalf("current card: %v", err)
 	}
 
-	// A non-turn player guesses fully correctly first -- under a pure race,
-	// this would win. It must not, once the turn player also guesses right.
+	// A non-turn player guesses fully correctly first.
 	rec := serve(apiTrackTimeline.SubmitGuess, authedRequest(t, "POST",
 		"/api/track-timeline/"+lobbyId.String()+"/guess",
 		url.Values{"guessTitle": {card.Title}, "guessArtist": {card.Artist}}, others[0].userId))
@@ -413,10 +411,10 @@ func TestGuessTokenTurnPlayerSupersedes(t *testing.T) {
 
 	postTokens, err := database.GetPlayerTokens(gameId, current.playerId)
 	if err != nil || postTokens != preTokens+1 {
-		t.Errorf("expected the turn player to win the guess token despite guessing later, got %d -> %d (%v)", preTokens, postTokens, err)
+		t.Errorf("expected the turn player to earn a guess token for their own qualifying guess, got %d -> %d (%v)", preTokens, postTokens, err)
 	}
-	if otherTokens, err := database.GetPlayerTokens(gameId, others[0].playerId); err != nil || otherTokens != 0 {
-		t.Errorf("expected the earlier non-turn guess to NOT be awarded the token, got %d (%v)", otherTokens, err)
+	if otherTokens, err := database.GetPlayerTokens(gameId, others[0].playerId); err != nil || otherTokens != 1 {
+		t.Errorf("expected the earlier non-turn guess to ALSO be awarded a token (no race), got %d (%v)", otherTokens, err)
 	}
 }
 

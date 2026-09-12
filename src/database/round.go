@@ -210,16 +210,19 @@ type Guess struct {
 	ArtistCorrect      bool
 	TitleMatchPercent  int
 	ArtistMatchPercent int
+	// JudgedByAI is guess.Verdict.ByAI, persisted so it survives past the
+	// moment of judging — the live "alert:" message has the real Verdict to
+	// read it from, but the reveal chat line and a re-rendered "already
+	// guessed" fragment only have this stored row.
+	JudgedByAI bool
 }
 
-// GetGuesses returns this round's guesses oldest first — the order used to
-// decide who earns the guess token among non-turn players (first qualifying
-// submit wins there); the turn player's guess is checked separately and
-// supersedes submit order entirely. See AwardGuessToken.
+// GetGuesses returns this round's guesses oldest first, for reveal-chat
+// announcement order.
 func GetGuesses(gameId uuid.UUID) ([]Guess, error) {
 	sqlString := `
 		SELECT G.PLAYER_ID, U.NAME, G.GUESS_TEXT, G.TITLE_CORRECT, G.ARTIST_CORRECT,
-			G.TITLE_MATCH_PERCENT, G.ARTIST_MATCH_PERCENT
+			G.TITLE_MATCH_PERCENT, G.ARTIST_MATCH_PERCENT, G.JUDGED_BY_AI
 		FROM TRACK_TIMELINE_TITLE_GUESS G
 			INNER JOIN PLAYER P ON P.ID = G.PLAYER_ID
 			INNER JOIN USER U ON U.ID = P.USER_ID
@@ -237,7 +240,7 @@ func GetGuesses(gameId uuid.UUID) ([]Guess, error) {
 		var g Guess
 		if err := rows.Scan(
 			&g.PlayerId, &g.PlayerName, &g.GuessText, &g.TitleCorrect, &g.ArtistCorrect,
-			&g.TitleMatchPercent, &g.ArtistMatchPercent,
+			&g.TitleMatchPercent, &g.ArtistMatchPercent, &g.JudgedByAI,
 		); err != nil {
 			log.Println(err)
 			return nil, errors.New("failed to scan row in query results")
@@ -248,62 +251,37 @@ func GetGuesses(gameId uuid.UUID) ([]Guess, error) {
 	return result, nil
 }
 
-// AwardGuessToken resolves this round's guess-token economy under the lobby's
-// GuessMode. Being on turn supersedes submit order entirely: if the turn
-// player's own guess qualifies, they win the token no matter when the other
-// guesses came in. Only when the turn player didn't guess, or their guess
-// doesn't qualify, does it become a pure race among everyone else — the
-// earliest-submitted qualifying guess among the non-turn players wins.
-// hasWinner is false if none qualify, or if GuessMode is off.
+// AwardGuessTokens resolves this round's guess-token economy under the
+// lobby's GuessMode: every guess that qualifies earns its own player a
+// token, independent of turn order or submit time — there is no race for a
+// single token. winners is empty if none qualify, or if GuessMode is off.
 //
 // This is deliberately separate from ResolveRound's placement/card judging:
 // the guess-token economy and the card economy are independent, and this runs
 // regardless of whether the turn player's placement was correct.
-func AwardGuessToken(gameId uuid.UUID, currentPlayerId uuid.NullUUID, guessMode string) (winningGuess Guess, hasWinner bool, err error) {
+func AwardGuessTokens(gameId uuid.UUID, guessMode string) (winners []Guess, err error) {
 	if guessMode == GuessModeOff || guessMode == "" {
-		return winningGuess, false, nil
+		return nil, nil
 	}
 
 	guesses, err := GetGuesses(gameId)
 	if err != nil {
-		return winningGuess, false, err
+		return nil, err
 	}
 
-	winningGuess, hasWinner = pickGuessTokenWinner(guesses, guessMode, currentPlayerId)
-	if !hasWinner {
-		return winningGuess, false, nil
-	}
-
-	if _, err := AddPlayerTokens(gameId, winningGuess.PlayerId, 1); err != nil {
-		return winningGuess, true, err
-	}
-	return winningGuess, true, nil
-}
-
-// pickGuessTokenWinner returns the turn player's guess if one exists and
-// qualifies — that supersedes every other guess regardless of submit time.
-// Otherwise it returns the first non-turn guess in submit order that
-// qualifies. guesses must already be oldest-first.
-func pickGuessTokenWinner(guesses []Guess, guessMode string, currentPlayerId uuid.NullUUID) (Guess, bool) {
-	if currentPlayerId.Valid {
-		for _, g := range guesses {
-			if g.PlayerId == currentPlayerId.UUID && GuessQualifies(g, guessMode) {
-				return g, true
-			}
-		}
-	}
 	for _, g := range guesses {
-		if currentPlayerId.Valid && g.PlayerId == currentPlayerId.UUID {
+		if !GuessQualifies(g, guessMode) {
 			continue
 		}
-		if GuessQualifies(g, guessMode) {
-			return g, true
+		if _, err := AddPlayerTokens(gameId, g.PlayerId, 1); err != nil {
+			return winners, err
 		}
+		winners = append(winners, g)
 	}
-	return Guess{}, false
+	return winners, nil
 }
 
-// GuessQualifies reports whether a judged guess earns the token under mode.
+// GuessQualifies reports whether a judged guess earns a token under mode.
 func GuessQualifies(g Guess, mode string) bool {
 	switch mode {
 	case GuessModeTitle:
@@ -319,7 +297,9 @@ func GuessQualifies(g Guess, mode string) bool {
 
 // RecordGuess stores a judged guess. tokensAwarded is always recorded as 0 at
 // submit time -- the token itself is granted later, at reveal, by
-// AwardGuessToken.
+// AwardGuessTokens. judgedByAI is guess.Verdict.ByAI, persisted so later
+// renderings of this guess (reveal chat, a re-fetched "already guessed"
+// fragment) can still skip match-percent phrasing for an AI verdict.
 func RecordGuess(
 	gameId uuid.UUID,
 	playerId uuid.UUID,
@@ -328,6 +308,7 @@ func RecordGuess(
 	artistCorrect bool,
 	titleMatchPercent int,
 	artistMatchPercent int,
+	judgedByAI bool,
 	tokensAwarded int,
 ) error {
 	id, err := uuid.NewUUID()
@@ -339,11 +320,11 @@ func RecordGuess(
 	sqlString := `
 		INSERT INTO TRACK_TIMELINE_TITLE_GUESS
 			(ID, TRACK_TIMELINE_GAME_ID, PLAYER_ID, GUESS_TEXT, TITLE_CORRECT, ARTIST_CORRECT,
-			TITLE_MATCH_PERCENT, ARTIST_MATCH_PERCENT, TOKENS_AWARDED)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			TITLE_MATCH_PERCENT, ARTIST_MATCH_PERCENT, JUDGED_BY_AI, TOKENS_AWARDED)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	return execute(sqlString, id, gameId, playerId, guessText, titleCorrect, artistCorrect,
-		titleMatchPercent, artistMatchPercent, tokensAwarded)
+		titleMatchPercent, artistMatchPercent, judgedByAI, tokensAwarded)
 }
 
 // ClearGuesses empties the round's guesses.
@@ -729,14 +710,11 @@ type RoundOutcome struct {
 	WinnerName     string
 	WonByChallenge bool
 
-	// GuessTokenWinnerPlayerId is who earned the title/artist guess token this
-	// round, independent of who (if anyone) won the card. Invalid when nobody
-	// qualified under the lobby's guess mode.
-	GuessTokenWinnerPlayerId     uuid.NullUUID
-	GuessTokenWinnerName         string
-	GuessTokenGuessText          string
-	GuessTokenTitleMatchPercent  int
-	GuessTokenArtistMatchPercent int
+	// GuessTokenWinners is every guess that earned its player a title/artist
+	// guess token this round, independent of who (if anyone) won the card.
+	// Every qualifying guess is its own winner -- there is no single-token
+	// race. Empty when nobody qualified under the lobby's guess mode.
+	GuessTokenWinners []Guess
 
 	// Guesses is every guess submitted this round, oldest first. Announcing
 	// these to chat is deferred until reveal (unlike the exact-year wager,
@@ -868,17 +846,11 @@ func resolveRound(gameId uuid.UUID, winnerPlayerId uuid.UUID, winnerName string,
 
 	// The guess-token economy is independent of the card economy above: it
 	// runs whether or not anyone correctly placed the card.
-	guessWinner, hasGuessWinner, err := AwardGuessToken(gameId, game.CurrentPlayerId, game.GuessMode)
+	guessWinners, err := AwardGuessTokens(gameId, game.GuessMode)
 	if err != nil {
 		return outcome, err
 	}
-	if hasGuessWinner {
-		outcome.GuessTokenWinnerPlayerId = uuid.NullUUID{UUID: guessWinner.PlayerId, Valid: true}
-		outcome.GuessTokenWinnerName = guessWinner.PlayerName
-		outcome.GuessTokenGuessText = guessWinner.GuessText
-		outcome.GuessTokenTitleMatchPercent = guessWinner.TitleMatchPercent
-		outcome.GuessTokenArtistMatchPercent = guessWinner.ArtistMatchPercent
-	}
+	outcome.GuessTokenWinners = guessWinners
 
 	if err := ClearPlacements(gameId); err != nil {
 		return outcome, err

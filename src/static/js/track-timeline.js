@@ -171,7 +171,6 @@ function handleMessage(message) {
             ttClipFinished = false;
             ttPlaybackStartedThisRound = false;
             ttClearListenGate();
-            ttClearGuessGate();
             refreshGame();
             if (payload.gameOver) {
                 refreshControls();
@@ -473,7 +472,6 @@ function syncPlaybackUI() {
     }
 
     syncPlacementButtons();
-    syncGuessForm();
 }
 
 // Place (+ drop zones and exact-year lock-in) stays off until Play has been
@@ -644,12 +642,6 @@ function playSong(videoId, startSeconds, endSeconds) {
     if (ttListenGateDeadlineMs === 0) {
         ttStartListenGate();
     }
-    // Same once-per-round arming as the listen gate immediately above, and
-    // for the same reason: a paid Restart re-plays the clip but must not
-    // reopen a guessing window that already closed this round.
-    if (ttGuessGateDeadlineMs === 0) {
-        ttStartGuessGate();
-    }
 
     try {
         // endSeconds is the IFrame API's own clip support: it stops there and
@@ -720,7 +712,6 @@ function stopSong() {
     ttClipListenedThisRound = false;
     ttClipFinished = false;
     ttClearListenGate();
-    ttClearGuessGate();
 
     // stopVideo's own onStateChange event can lag by a beat; update the UI
     // immediately rather than waiting on it.
@@ -828,78 +819,6 @@ function ttListenGateSatisfied() {
 
 function ttListenGateRemainingSeconds() {
     return Math.max(0, Math.ceil((ttListenGateDeadlineMs - Date.now()) / 1000));
-}
-
-// The guess gate is the mirror image of the listen gate above and closes
-// (rather than opens) at its deadline: everyone gets a flat TT_GUESS_WINDOW_MS
-// to type a name/artist guess, after which the guess form locks. It is
-// deliberately shorter than TT_MIN_LISTEN_MS and independent of it -- the
-// remaining gap between the two is dead time where nobody can guess OR place
-// yet, giving the turn player a few extra seconds to think about placement
-// once the naming race is over, without a fast placement cutting the naming
-// race short. Same client-side-only trust model as the listen gate.
-const TT_GUESS_WINDOW_MS = 20000;
-let ttGuessGateDeadlineMs = 0;
-let ttGuessGateInterval = null;
-
-function ttStartGuessGate() {
-    ttGuessGateDeadlineMs = Date.now() + TT_GUESS_WINDOW_MS;
-    if (ttGuessGateInterval) clearInterval(ttGuessGateInterval);
-    ttGuessGateInterval = setInterval(() => {
-        if (Date.now() >= ttGuessGateDeadlineMs && ttGuessGateInterval) {
-            clearInterval(ttGuessGateInterval);
-            ttGuessGateInterval = null;
-        }
-        syncGuessForm();
-    }, 500);
-}
-
-function ttClearGuessGate() {
-    ttGuessGateDeadlineMs = 0;
-    if (ttGuessGateInterval) {
-        clearInterval(ttGuessGateInterval);
-        ttGuessGateInterval = null;
-    }
-}
-
-function ttGuessGateExpired() {
-    return ttGuessGateDeadlineMs !== 0 && Date.now() >= ttGuessGateDeadlineMs;
-}
-
-function ttGuessGateRemainingSeconds() {
-    return Math.max(0, Math.ceil((ttGuessGateDeadlineMs - Date.now()) / 1000));
-}
-
-// Locks the guess form (both the turn player's and everyone else's variant,
-// whichever is present in the current fragment) once the guess window has
-// closed, and shows a live countdown while it's still open. A player who has
-// already guessed has no form left to lock (the template drops it), so this
-// is a no-op for them.
-function syncGuessForm() {
-    const expired = ttGuessGateExpired();
-    [
-        { input1: "tt-guess-title", input2: "tt-guess-artist", button: "tt-guess-submit", hint: "tt-guess-hint" },
-        { input1: "tt-guess-title-other", input2: "tt-guess-artist-other", button: "tt-guess-submit-other", hint: "tt-guess-hint-other" },
-    ].forEach((ids) => {
-        const button = document.getElementById(ids.button);
-        const hint = document.getElementById(ids.hint);
-        if (!button && !hint) return;
-
-        const title = document.getElementById(ids.input1);
-        const artist = document.getElementById(ids.input2);
-        if (title) title.disabled = expired;
-        if (artist) artist.disabled = expired;
-        if (button) button.disabled = expired;
-
-        if (!hint) return;
-        if (expired) {
-            hint.textContent = "Guessing window closed for this round.";
-        } else if (ttGuessGateDeadlineMs !== 0) {
-            hint.textContent = ttGuessGateRemainingSeconds() + "s left to guess — 1 token if correct.";
-        } else {
-            hint.textContent = "Optional — 1 token if correct.";
-        }
-    });
 }
 
 // setTurnTimerSeconds keeps the tracked duration and the header badge's
@@ -1121,15 +1040,15 @@ function showResultPopup(payload, onDone) {
     }
     popup.appendChild(verdict);
 
-    if (payload.guessTokenWinnerName) {
+    // Every qualifying guess earns its own token -- no single-token race --
+    // so there can be more than one of these, one line per player.
+    (payload.guessTokenWinners || []).forEach((winner) => {
         const guessLine = document.createElement("div");
         guessLine.className = "tt-popup-guess";
-        var quoted = payload.guessTokenGuessText
-            ? " — “" + payload.guessTokenGuessText + "”"
-            : "";
-        guessLine.textContent = payload.guessTokenWinnerName + " named it" + quoted + " — won 1 token";
+        const quoted = winner.guessText ? " — “" + winner.guessText + "”" : "";
+        guessLine.textContent = winner.name + " named it" + quoted + " — won 1 token";
         popup.appendChild(guessLine);
-    }
+    });
 
     // "won" carries a win-celebration; "discarded" carries the turn player's
     // lose-celebration — same split as timeline-trivia's correct/incorrect.
