@@ -69,6 +69,21 @@ func TestClaudePromptAcceptsPhoneticSpellings(t *testing.T) {
 	}
 }
 
+// TestClaudePromptAllowsMissingFeaturedArtist guards the leniency rule that
+// naming only the main artist is correct even when the authored credit
+// includes a featured artist -- matching the local judge's stripFeaturing
+// behavior (see normalized.go).
+func TestClaudePromptAllowsMissingFeaturedArtist(t *testing.T) {
+	prompt := claudePrompt(Input{
+		Title:  "Runaway",
+		Artist: "Kanye West feat. Pusha T",
+	}, "Runaway", "Kanye West")
+	lower := strings.ToLower(prompt)
+	if !strings.Contains(lower, "featured artist") {
+		t.Fatal("prompt should call out leniency for a missing featured artist")
+	}
+}
+
 func TestClaudeModelMatchesConfig(t *testing.T) {
 	if ClaudeModel() == "" {
 		t.Fatal("ClaudeModel should expose the configured model id")

@@ -62,6 +62,7 @@ var SQLFiles = []string{
 	"sql/migrations/MIG_AUDIT_CARD_DROP_START_OFFSET_SECONDS.sql",
 	"sql/migrations/MIG_CARD_YOUTUBE_VIDEO_ID_NULLABLE.sql",
 	"sql/migrations/MIG_AUDIT_CARD_YOUTUBE_VIDEO_ID_NULLABLE.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_TITLE_GUESS_ADD_JUDGED_BY_AI.sql",
 
 	// triggers
 	"sql/triggers/TR_AUDIT_CARD_DELETE.sql",

@@ -503,14 +503,16 @@ func announceAndFinish(ctx gameContext, outcome database.RoundOutcome) {
 		))
 	}
 
-	if outcome.GuessTokenWinnerPlayerId.Valid {
-		payload.GuessTokenWinnerName = outcome.GuessTokenWinnerName
-		payload.GuessTokenGuessText = outcome.GuessTokenGuessText
-		payload.GuessTokenTitleMatchPercent = outcome.GuessTokenTitleMatchPercent
-		payload.GuessTokenArtistMatchPercent = outcome.GuessTokenArtistMatchPercent
+	// Every qualifying guess earns its own token -- there is no single-token
+	// race, so each winner gets their own announcement and popup line.
+	for _, winner := range outcome.GuessTokenWinners {
+		payload.GuessTokenWinners = append(payload.GuessTokenWinners, guessTokenWinnerPayload{
+			Name:      winner.PlayerName,
+			GuessText: winner.GuessText,
+		})
 		announce(ctx.LobbyId, fmt.Sprintf(
 			"<green>%s</> earned 1 token for naming the song",
-			esc(outcome.GuessTokenWinnerName),
+			esc(winner.PlayerName),
 		))
 	}
 
@@ -591,6 +593,12 @@ func attachLoseCelebration(payload *resultPayload, gameId uuid.UUID, playerId uu
 // bought card (BuyCard) share once they have an outcome: check for a game
 // winner and either end the game or advance the turn, then send the result.
 func finishRound(ctx gameContext, payload resultPayload) {
+	// Marks the end of this turn's chat cluster (guesses, tokens earned, the
+	// placement/steal verdict, and whichever of this function's own
+	// announcements below) regardless of which of the three exit paths below
+	// is taken -- a defer runs once no matter which return fires.
+	defer announceDivider(ctx.LobbyId)
+
 	winnerUserId, err := database.CheckWinner(ctx.Game.Id)
 	if err != nil {
 		log.Println(err)
@@ -634,7 +642,7 @@ func finishRound(ctx gameContext, payload resultPayload) {
 // SubmitGuess judges a free-form artist/title guess and records it — for
 // every player except the turn player, whose guess is bundled into PlaceCard
 // instead. Guesses are judged as they arrive, but the token itself is awarded
-// at reveal (see database.AwardGuessToken). A guess costs nothing to attempt
+// at reveal (see database.AwardGuessTokens). A guess costs nothing to attempt
 // regardless of outcome. Disabled entirely when the lobby's guess mode is off.
 func SubmitGuess(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)
@@ -748,13 +756,13 @@ func submitGuessForPlayer(httpCtx context.Context, ctx gameContext, card databas
 		TitleOnly:       ctx.Game.GuessMode == database.GuessModeTitle,
 	}, ctx.Game.GuessJudge)
 
-	// The token itself is awarded at reveal (database.AwardGuessToken), not
+	// The token itself is awarded at reveal (database.AwardGuessTokens), not
 	// here — recorded as 0 for now regardless of the verdict.
 	if err := database.RecordGuess(
 		ctx.Game.Id, ctx.Player.Id, guessText,
 		verdict.TitleCorrect, verdict.ArtistCorrect,
 		int(verdict.TitleMatchPercent), int(verdict.ArtistMatchPercent),
-		0,
+		verdict.ByAI, 0,
 	); err != nil {
 		log.Println(err)
 		return
@@ -767,65 +775,19 @@ func submitGuessForPlayer(httpCtx context.Context, ctx gameContext, card databas
 	// naming who was right about the title/artist would leak the answer to
 	// everyone else before the song is actually revealed. The public line is
 	// sent later, at reveal, from the stored guess (see announceAndFinish).
-	isTurnPlayer := ctx.Game.CurrentPlayerId.Valid && ctx.Game.CurrentPlayerId.UUID == ctx.Player.Id
-	aheadCount := 0
-	if !isTurnPlayer && database.GuessQualifies(database.Guess{
-		TitleCorrect:  verdict.TitleCorrect,
-		ArtistCorrect: verdict.ArtistCorrect,
-	}, ctx.Game.GuessMode) {
-		aheadCount = countQualifyingNonTurnGuessesAhead(ctx.Game.Id, ctx.Player.Id, ctx.Game.CurrentPlayerId, ctx.Game.GuessMode)
-	}
-	private := describeVerdict(verdict, ctx.Game.GuessMode, isTurnPlayer, aheadCount)
+	private := describeVerdict(verdict, ctx.Game.GuessMode)
 	if verdict.Explanation != "" {
 		private += " " + verdict.Explanation
 	}
 	gsWebsocket.PlayerBroadcast(ctx.Player.Id, "alert:"+private)
 }
 
-// countQualifyingNonTurnGuessesAhead counts qualifying non-turn-player
-// guesses recorded strictly before playerId's own (just-recorded) guess —
-// i.e. how many other players are already ahead of them in the race for the
-// guess token, per pickGuessTokenWinner's "first qualifying non-turn guess in
-// submit order" rule. Submit order is fixed the moment a guess is recorded,
-// so this count can only grow from guesses that already happened, never
-// shrink or be overtaken by one submitted later — making it safe to report
-// as settled fact rather than something that still might change.
-func countQualifyingNonTurnGuessesAhead(gameId uuid.UUID, playerId uuid.UUID, currentPlayerId uuid.NullUUID, guessMode string) int {
-	guesses, err := database.GetGuesses(gameId)
-	if err != nil {
-		log.Println(err)
-		return 0
-	}
-	return countQualifyingNonTurnGuessesAheadOf(guesses, playerId, currentPlayerId, guessMode)
-}
-
-// countQualifyingNonTurnGuessesAheadOf is the pure half of
-// countQualifyingNonTurnGuessesAhead, split out so describeStoredGuessForPlayer
-// (fragments.go) can reuse it against a guess list it already fetched, rather
-// than querying the same round's guesses twice.
-func countQualifyingNonTurnGuessesAheadOf(guesses []database.Guess, playerId uuid.UUID, currentPlayerId uuid.NullUUID, guessMode string) int {
-	ahead := 0
-	for _, g := range guesses {
-		if g.PlayerId == playerId {
-			break
-		}
-		if currentPlayerId.Valid && g.PlayerId == currentPlayerId.UUID {
-			continue
-		}
-		if database.GuessQualifies(g, guessMode) {
-			ahead++
-		}
-	}
-	return ahead
-}
-
 // describeVerdict builds the message private to the guesser: describeVerdictPublic's
-// unconditional right/wrong statement, plus — for a qualifying guess — what it
-// actually means for the guess token. Verdicts are decided the moment a guess
-// is judged (RecordGuess above stores it as final), so nothing here is
-// phrased as provisional; only isTurnPlayer/aheadCount decide the outcome and
-// both are already settled by the time this is called.
-func describeVerdict(verdict guess.Verdict, guessMode string, isTurnPlayer bool, aheadCount int) string {
+// unconditional right/wrong statement, plus — for a qualifying guess — the
+// unconditional token promise. Every qualifying guess earns its own token at
+// reveal (database.AwardGuessTokens) regardless of turn order or who else
+// guessed, so there is no caveat left to state.
+func describeVerdict(verdict guess.Verdict, guessMode string) string {
 	line := describeVerdictPublic(verdict, guessMode)
 	if !database.GuessQualifies(database.Guess{
 		TitleCorrect:  verdict.TitleCorrect,
@@ -833,28 +795,7 @@ func describeVerdict(verdict guess.Verdict, guessMode string, isTurnPlayer bool,
 	}, guessMode) {
 		return line
 	}
-	if isTurnPlayer {
-		// The turn player's own qualifying guess always wins the token
-		// (see database.AwardGuessToken) -- no caveat needed.
-		return line + " You'll get the token at reveal."
-	}
-	if aheadCount == 0 {
-		// Nobody else has beaten them to a qualifying guess (yet). The one
-		// thing that can still cost them the token is the turn player also
-		// getting it right themselves — that supersedes regardless of
-		// submit order (see pickGuessTokenWinner) — so that's the only
-		// caveat left to state.
-		return line + " You're first in line for the guess token — you'll get it at reveal unless the current player also gets it right."
-	}
-	// pickGuessTokenWinner takes the first qualifying non-turn guess in
-	// submit order, and submit order can't be undone, so a later guesser can
-	// never leapfrog an earlier one: this is a settled loss, not "unless
-	// something changes."
-	noun := "player"
-	if aheadCount != 1 {
-		noun = "players"
-	}
-	return line + fmt.Sprintf(" You're right, but %d other %s guessed it correctly before you — you won't get the token this round.", aheadCount, noun)
+	return line + " You'll get a token at reveal."
 }
 
 func describeVerdictPublic(verdict guess.Verdict, guessMode string) string {
@@ -887,12 +828,7 @@ func describeVerdictPublic(verdict guess.Verdict, guessMode string) string {
 // fragment re-renders (fragments.go's GetCurrentCard), rather than only
 // catching it in the moment via the status bar before it clears. Returns
 // ok=false if this player has no recorded guess this round (nothing to show).
-//
-// ByAI is not persisted on the guess row, so this always renders
-// describeVerdictPublic's match-percent phrasing, even for a guess an AI
-// judge actually decided — a minor loss of attribution, not of the
-// right/wrong information itself.
-func describeStoredGuessForPlayer(gameId uuid.UUID, playerId uuid.UUID, currentPlayerId uuid.NullUUID, guessMode string) (string, bool) {
+func describeStoredGuessForPlayer(gameId uuid.UUID, playerId uuid.UUID, guessMode string) (string, bool) {
 	guesses, err := database.GetGuesses(gameId)
 	if err != nil {
 		log.Println(err)
@@ -916,13 +852,9 @@ func describeStoredGuessForPlayer(gameId uuid.UUID, playerId uuid.UUID, currentP
 		ArtistCorrect:      mine.ArtistCorrect,
 		TitleMatchPercent:  float64(mine.TitleMatchPercent),
 		ArtistMatchPercent: float64(mine.ArtistMatchPercent),
+		ByAI:               mine.JudgedByAI,
 	}
-	isTurnPlayer := currentPlayerId.Valid && currentPlayerId.UUID == playerId
-	aheadCount := 0
-	if !isTurnPlayer && database.GuessQualifies(mine, guessMode) {
-		aheadCount = countQualifyingNonTurnGuessesAheadOf(guesses, playerId, currentPlayerId, guessMode)
-	}
-	return describeVerdict(verdict, guessMode, isTurnPlayer, aheadCount), true
+	return describeVerdict(verdict, guessMode), true
 }
 
 // truncateRunes caps s at maxRunes runes, not bytes: s[:maxRunes] on the raw
@@ -944,12 +876,18 @@ func correctWord(correct bool) string {
 }
 
 // describeGuessPublic is describeVerdictPublic's counterpart for a guess
-// that was already recorded and is only now, at reveal, being told to chat —
-// there is no live guess.Verdict at that point (ByAI is not persisted), so
-// this always shows match percents rather than the AI-Quizmaster phrasing.
+// that was already recorded and is only now, at reveal, being told to chat.
+// g.JudgedByAI is the persisted guess.Verdict.ByAI, so an AI-judged guess
+// still gets the AI-Quizmaster phrasing here instead of a match percent.
 func describeGuessPublic(g database.Guess, guessMode string) string {
 	titleWord := correctWord(g.TitleCorrect)
 	artistWord := correctWord(g.ArtistCorrect)
+	if g.JudgedByAI {
+		if guessMode == database.GuessModeTitle {
+			return fmt.Sprintf("title %s — judged by the AI Quizmaster", titleWord)
+		}
+		return fmt.Sprintf("title %s, artist %s — judged by the AI Quizmaster", titleWord, artistWord)
+	}
 	if guessMode == database.GuessModeTitle {
 		return fmt.Sprintf("title %s (%d%% match)", titleWord, g.TitleMatchPercent)
 	}

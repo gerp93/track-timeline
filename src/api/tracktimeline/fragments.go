@@ -55,7 +55,7 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 	// off or another status message replaced it.
 	guessResultText := ""
 	if hasGuessed {
-		guessResultText, _ = describeStoredGuessForPlayer(ctx.Game.Id, ctx.Player.Id, ctx.Game.CurrentPlayerId, ctx.Game.GuessMode)
+		guessResultText, _ = describeStoredGuessForPlayer(ctx.Game.Id, ctx.Player.Id, ctx.Game.GuessMode)
 	}
 
 	tmpl, err := template.ParseFS(static.StaticFiles, "html/components/tracktimeline/current-card.html")
