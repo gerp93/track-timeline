@@ -3,9 +3,10 @@
 -- enforces "one guess per card" — a player cannot keep guessing until something
 -- sticks. Cleared when the round resolves.
 --
--- Every qualifying guess earns its own token at reveal (database.
--- AwardGuessTokens) — there is no race for a single token, so CREATED_ON_DATE
--- here is just submit-order recency for chat, not an economic tiebreaker.
+-- Every qualifying guess earns its own token the moment it is judged (database.
+-- AwardGuessToken, right after the insert) — there is no race for a single
+-- token, so CREATED_ON_DATE here is just submit-order recency for chat, not an
+-- economic tiebreaker. TOKENS_AWARDED records what that guess paid out.
 --
 -- JUDGED_BY_AI records whether the configured AI judge (as opposed to the
 -- local word matcher, including a Claude call that errored and fell back)

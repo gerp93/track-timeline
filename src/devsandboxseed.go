@@ -157,8 +157,8 @@ func main() {
 	// the moment it notices that (see api/pages/pages.go's TrackTimelineLobby) --
 	// so these two calls aren't optional bookkeeping, they're what makes the
 	// lobby page actually load at all.
-	gameId, err := database.CreateGame(lobbyId, 5, 8, database.GuessModeBoth,
-		database.DefaultGuessMatchPercent, database.GuessJudgeLocal, database.PlaybackIntro, 20)
+	gameId, err := database.CreateGame(lobbyId, 5, 8,
+		false, database.PlaybackIntro, 20)
 	if err != nil {
 		log.Fatalf("create game: %v", err)
 	}

@@ -6,7 +6,7 @@ import (
 )
 
 func TestParseClaudeVerdict(t *testing.T) {
-	parsed, err := parseClaudeVerdict("TITLE=yes ARTIST=no", false)
+	parsed, err := parseClaudeVerdict("TITLE=yes ARTIST=no")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -18,43 +18,42 @@ func TestParseClaudeVerdict(t *testing.T) {
 		t.Fatalf("percents %+v", verdict)
 	}
 
-	titleOnly, err := parseClaudeVerdict("TITLE=yes", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	titleOnly = finalizeClaudeVerdict(titleOnly, 60)
-	if !titleOnly.TitleCorrect || titleOnly.ArtistCorrect || titleOnly.ArtistMatchPercent != 0 {
-		t.Fatalf("title-only got %+v", titleOnly)
-	}
-
-	if _, err := parseClaudeVerdict("TITLE=yes", false); err == nil {
+	if _, err := parseClaudeVerdict("TITLE=yes"); err == nil {
 		t.Fatal("expected an error when artist is missing")
 	}
-	if _, err := parseClaudeVerdict("nope", false); err == nil {
+	if _, err := parseClaudeVerdict("nope"); err == nil {
 		t.Fatal("expected an error for an unreadable reply")
 	}
-	if _, err := parseClaudeVerdict("TITLE=maybe ARTIST=yes", false); err == nil {
+	if _, err := parseClaudeVerdict("TITLE=maybe ARTIST=yes"); err == nil {
 		t.Fatal("expected an error for a maybe")
 	}
-	if _, err := parseClaudeVerdict("TITLE=80 ARTIST=no", false); err == nil {
+	if _, err := parseClaudeVerdict("TITLE=80 ARTIST=no"); err == nil {
 		t.Fatal("expected an error for a percentage")
 	}
 }
 
-func TestClaudePromptTitleOnlyOmitsArtistScore(t *testing.T) {
-	prompt := claudePrompt(Input{
-		Title:     "Heroes",
-		Artist:    "David Bowie",
-		TitleOnly: true,
-	}, "heros", "")
-	if strings.Contains(prompt, "ARTIST=yes|no") {
-		t.Fatal("title-only prompt should not ask for an artist verdict")
+// The prompt asks for a reason before each verdict (see replyFormat). A reason
+// that happens to mention a verdict-shaped token must not be read as the verdict.
+func TestParseClaudeVerdictWithReasons(t *testing.T) {
+	reply := "TITLE_REASON=Numeral for thousand, clear intent\n" +
+		"TITLE=yes\n" +
+		"ARTIST_REASON=Says ARTIST=yes but wrong performer\n" +
+		"ARTIST=no"
+	parsed, err := parseClaudeVerdict(reply)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(prompt, "TITLE=yes|no") {
-		t.Fatal("title-only prompt should ask for a title verdict")
+	if !parsed.TitleCorrect || parsed.ArtistCorrect {
+		t.Fatalf("got %+v", parsed)
 	}
-	if !strings.Contains(prompt, "context only") {
-		t.Fatal("title-only prompt should mark the artist as context")
+
+	reply = "TITLE_REASON=Wrong song\nTITLE=no\nARTIST_REASON=Missing apostrophe is fine\nARTIST=yes"
+	parsed, err = parseClaudeVerdict(reply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.TitleCorrect || !parsed.ArtistCorrect {
+		t.Fatalf("got %+v", parsed)
 	}
 }
 

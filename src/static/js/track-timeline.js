@@ -204,6 +204,11 @@ function handleMessage(message) {
         return;
     }
 
+    if (message.startsWith("settings:")) {
+        ttApplyLiveSettings(JSON.parse(message.substring("settings:".length)));
+        return;
+    }
+
     if (message.startsWith("turnTimer:")) {
         setTurnTimerSeconds(message.substring("turnTimer:".length));
         showStatus(ttTurnTimerSeconds > 0
@@ -232,6 +237,28 @@ function handleMessage(message) {
 }
 
 // ------------------------------------------------------------ fragment refresh
+
+// The lobby settings form is server-rendered once, so when anyone changes
+// playback or song order the server sends the new values in a "settings:"
+// message and every open page updates its own form to match.
+function ttSyncLiveClipRow() {
+    const mode = document.getElementById("tt-set-playback");
+    const showClip = !mode || mode.value !== "full";
+    const clip = document.getElementById("tt-set-clip");
+    const label = document.getElementById("tt-set-clip-label");
+    if (clip) clip.style.display = showClip ? "" : "none";
+    if (label) label.style.display = showClip ? "" : "none";
+}
+
+function ttApplyLiveSettings(settings) {
+    const mode = document.getElementById("tt-set-playback");
+    const clip = document.getElementById("tt-set-clip");
+    const fresh = document.getElementById("tt-set-fresh");
+    if (mode) mode.value = settings.playbackMode;
+    if (clip) clip.value = settings.clipSeconds;
+    if (fresh) fresh.value = settings.freshSongsFirst ? "1" : "0";
+    ttSyncLiveClipRow();
+}
 
 // ttSyncSelfStatus copies the board template's tokens/Buy into the header
 // badge strip so those controls do not consume a row on every timeline.
@@ -436,7 +463,7 @@ function syncPlaybackUI() {
         // stops being a free second listen.
         btn.disabled = ttClipFinished && !playing;
         btn.title = btn.disabled
-            ? "The clip has finished — restart it for a token to hear it again"
+            ? "The clip has finished — use Restart to hear it again"
             : "Play or pause the song for everyone";
     }
 
@@ -450,11 +477,11 @@ function syncPlaybackUI() {
         replayBtn.style.display = ttClipListenedThisRound ? "" : "none";
         replayBtn.disabled = noTokens || !ttClipListenedThisRound;
         if (noTokens) {
-            replayBtn.title = "You need a token to restart.";
+            replayBtn.title = "You need " + replayBtn.getAttribute("data-cost") + " tokens to restart.";
         } else if (!ttClipListenedThisRound) {
             replayBtn.title = "Hear the clip through (or pause it) before restarting.";
         } else {
-            replayBtn.title = "Restart this clip from the beginning, once, for a token";
+            replayBtn.title = "Restart this clip from the beginning, once, for " + replayBtn.getAttribute("data-cost") + " tokens";
         }
     }
 
@@ -463,11 +490,11 @@ function syncPlaybackUI() {
         const noTokens = skipBtn.getAttribute("data-no-tokens") === "1";
         skipBtn.disabled = noTokens || !ttPlaybackStartedThisRound;
         if (noTokens) {
-            skipBtn.title = "You need a token to skip.";
+            skipBtn.title = "You need " + skipBtn.getAttribute("data-cost") + " tokens to skip.";
         } else if (!ttPlaybackStartedThisRound) {
             skipBtn.title = "Play the song first";
         } else {
-            skipBtn.title = "Skip this song for a token and draw another";
+            skipBtn.title = "Skip this song for " + skipBtn.getAttribute("data-cost") + " tokens and draw another";
         }
     }
 
@@ -1040,13 +1067,13 @@ function showResultPopup(payload, onDone) {
     }
     popup.appendChild(verdict);
 
-    // Every qualifying guess earns its own token -- no single-token race --
-    // so there can be more than one of these, one line per player.
+    // Every right part of a guess earns its own tokens -- no single-token
+    // race -- so there can be more than one of these, one line per player.
     (payload.guessTokenWinners || []).forEach((winner) => {
         const guessLine = document.createElement("div");
         guessLine.className = "tt-popup-guess";
         const quoted = winner.guessText ? " — “" + winner.guessText + "”" : "";
-        guessLine.textContent = winner.name + " named it" + quoted + " — won 1 token";
+        guessLine.textContent = winner.name + " named it" + quoted + " — won " + winner.tokens + (winner.tokens === 1 ? " token" : " tokens");
         popup.appendChild(guessLine);
     });
 

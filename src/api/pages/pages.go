@@ -82,9 +82,10 @@ func About(w http.ResponseWriter, r *http.Request) {
 
 	type data struct {
 		gsApi.BasePageData
+		Economy database.Economy
 	}
 
-	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData})
+	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Economy: database.CurrentEconomy()})
 }
 
 // Categories is the admin page for the genre list.
@@ -421,14 +422,22 @@ func TrackTimelineLobbies(w http.ResponseWriter, r *http.Request) {
 		gsApi.BasePageData
 		Decks       []gsDatabase.Deck
 		Categories  []categoryOption
-		ClaudeReady bool
+		Economy     database.Economy
+
+		PlaybackOptions []database.PlaybackOption
+		MinClipSeconds  int
+		MaxClipSeconds  int
 	}
 
 	_ = tmpl.ExecuteTemplate(w, "base", data{
 		BasePageData: basePageData,
 		Decks:        decks,
 		Categories:   categoryOptions,
-		ClaudeReady:  guess.ClaudeConfigured(),
+		Economy:      database.CurrentEconomy(),
+
+		PlaybackOptions: database.PlaybackOptions(),
+		MinClipSeconds:  database.MinClipSeconds,
+		MaxClipSeconds:  database.MaxClipSeconds,
 	})
 }
 
@@ -531,6 +540,11 @@ func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
 		YearRanges       []database.YearRange
 		TurnTimerSeconds int
 		WinnerName       string
+		Economy          database.Economy
+
+		PlaybackOptions []database.PlaybackOption
+		MinClipSeconds  int
+		MaxClipSeconds  int
 	}
 
 	_ = tmpl.ExecuteTemplate(w, "base", data{
@@ -542,6 +556,11 @@ func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
 		YearRanges:       yearRanges,
 		TurnTimerSeconds: turnTimerSeconds,
 		WinnerName:       winnerName,
+		Economy:          database.CurrentEconomy(),
+
+		PlaybackOptions: database.PlaybackOptions(),
+		MinClipSeconds:  database.MinClipSeconds,
+		MaxClipSeconds:  database.MaxClipSeconds,
 	})
 }
 
@@ -1115,15 +1134,11 @@ func GuessTest(w http.ResponseWriter, r *http.Request) {
 		Results         []database.Card
 		ClaudeReady     bool
 		ClaudeModel     string
-		PromptBothJSON  template.JS
-		PromptTitleJSON template.JS
+		PromptJSON      template.JS
 	}
 
-	promptBoth, _ := json.Marshal(guess.ClaudePromptPreview(
-		false, card.Title, card.Artist, "@@TITLE_SAID@@", "@@ARTIST_SAID@@", "@@COMBINED@@",
-	))
-	promptTitle, _ := json.Marshal(guess.ClaudePromptPreview(
-		true, card.Title, card.Artist, "@@TITLE_SAID@@", "", "",
+	prompt, _ := json.Marshal(guess.ClaudePromptPreview(
+		card.Title, card.Artist, "@@TITLE_SAID@@", "@@ARTIST_SAID@@", "@@COMBINED@@",
 	))
 
 	_ = tmpl.ExecuteTemplate(w, "base", data{
@@ -1134,7 +1149,6 @@ func GuessTest(w http.ResponseWriter, r *http.Request) {
 		Results:         results,
 		ClaudeReady:     guess.ClaudeConfigured(),
 		ClaudeModel:     guess.ClaudeModel(),
-		PromptBothJSON:  template.JS(promptBoth),
-		PromptTitleJSON: template.JS(promptTitle),
+		PromptJSON:      template.JS(prompt),
 	})
 }

@@ -1,6 +1,8 @@
 package apiTrackTimeline
 
 import (
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -37,24 +39,65 @@ func TestTruncateRunesDoesNotSplitMultiByteCharacters(t *testing.T) {
 	}
 }
 
-// TestDescribeVerdictTokenPromiseIsUnconditional guards the current
-// guess-token rule: every qualifying guess earns its own token at reveal
-// (see database.AwardGuessTokens), regardless of turn order or who else
-// guessed, so the private message never hedges or mentions other players.
-func TestDescribeVerdictTokenPromiseIsUnconditional(t *testing.T) {
-	qualifying := guess.Verdict{TitleCorrect: true, ArtistCorrect: true}
+// TestDescribeVerdictReportsWhatWasEarned guards the guess-token rule: each
+// right part earns its own tokens the moment it is judged (see
+// database.AwardGuessToken), regardless of turn order or who else guessed, so
+// the private message states the amount and never hedges or mentions others.
+func TestDescribeVerdictReportsWhatWasEarned(t *testing.T) {
+	eco := database.CurrentEconomy()
 
-	msg := describeVerdict(qualifying, database.GuessModeBoth)
-	if !strings.Contains(msg, "You'll get a token at reveal") {
-		t.Fatalf("expected an unconditional token promise, got %q", msg)
+	both := describeVerdict(guess.Verdict{TitleCorrect: true, ArtistCorrect: true})
+	if !strings.Contains(both, "You earned "+eco.Tokens(eco.MaxGuessTokens)+"!") {
+		t.Fatalf("a perfect guess should report %s, got %q", eco.Tokens(eco.MaxGuessTokens), both)
 	}
-	if strings.Contains(msg, "holds up") || strings.Contains(msg, "other player") || strings.Contains(msg, "first in line") {
-		t.Errorf("a qualifying guess always earns its own token -- no caveat/hedge/race language needed, got %q", msg)
+	if strings.Contains(both, "holds up") || strings.Contains(both, "other player") || strings.Contains(both, "first in line") {
+		t.Errorf("no caveat/hedge/race language is needed, got %q", both)
 	}
 
-	// A non-qualifying guess never mentions the token either way.
-	notQualifying := guess.Verdict{TitleCorrect: false, ArtistCorrect: false}
-	if got := describeVerdict(notQualifying, database.GuessModeBoth); strings.Contains(got, "token") {
-		t.Errorf("a non-qualifying guess should not mention the token at all, got %q", got)
+	for name, verdict := range map[string]guess.Verdict{
+		"title only":  {TitleCorrect: true},
+		"artist only": {ArtistCorrect: true},
+	} {
+		if got := describeVerdict(verdict); !strings.Contains(got, "You earned "+eco.Tokens(eco.GuessTokensPerPart)+"!") {
+			t.Errorf("%s should report %s, got %q", name, eco.Tokens(eco.GuessTokensPerPart), got)
+		}
+	}
+
+	// A wrong guess never mentions tokens.
+	if got := describeVerdict(guess.Verdict{}); strings.Contains(got, "token") {
+		t.Errorf("a wrong guess should not mention tokens at all, got %q", got)
+	}
+}
+
+// A hand-built POST skips the form's maxlength, and both boxes are sent on to
+// the AI judge, so the server has to cap them itself.
+func TestGuessFieldsCapsEachBox(t *testing.T) {
+	form := url.Values{
+		"guessTitle":  {strings.Repeat("t", 5000)},
+		"guessArtist": {strings.Repeat("a", 5000)},
+	}
+	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	title, artist, _ := guessFields(req)
+	if n := utf8.RuneCountInString(title); n != 250 {
+		t.Errorf("title is %d runes, want 250", n)
+	}
+	if n := utf8.RuneCountInString(artist); n != 250 {
+		t.Errorf("artist is %d runes, want 250", n)
+	}
+}
+
+// Buying, stealing, skipping and replaying are choices to pay, so chat says
+// "spent"; only a lost wager reads as "lost".
+func TestTokensSpentReadsAsAPurchase(t *testing.T) {
+	if got := tokensSpent(5); got != "spent 5 tokens" {
+		t.Errorf("tokensSpent(5) = %q", got)
+	}
+	if got := tokensSpent(1); got != "spent 1 token" {
+		t.Errorf("tokensSpent(1) = %q", got)
+	}
+	if got := tokensWonLost(-3); got != "lost 3 tokens" {
+		t.Errorf("a lost wager should still read as lost, got %q", got)
 	}
 }

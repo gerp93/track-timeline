@@ -28,7 +28,7 @@ type currentCardView struct {
 	GuessResultText string
 	ReplayUsed      bool
 	TokenCount      int
-	GuessMode       string
+	Economy         database.Economy
 }
 
 func renderCurrentCard(t *testing.T, data currentCardView) string {
@@ -55,7 +55,6 @@ func TestCurrentCardGameOverBanner(t *testing.T) {
 		Revealed:   true,
 		GameStatus: database.StatusFinished,
 		RoundPhase: database.PhaseReveal,
-		GuessMode:  database.GuessModeOff,
 		LobbyId:    uuid.New(),
 	}
 
@@ -102,7 +101,6 @@ func TestCurrentCardTurnPlayerHasGuessButton(t *testing.T) {
 		RoundPhase:      database.PhaseListening,
 		IsCurrentPlayer: true,
 		HasGuessed:      false,
-		GuessMode:       database.GuessModeBoth,
 		LobbyId:         uuid.New(),
 	})
 	if !strings.Contains(got, `class="guess-form turn-player-guess"`) {
@@ -127,7 +125,6 @@ func TestCurrentCardWagerNotEnoughTokensCopy(t *testing.T) {
 		IsCurrentPlayer: true,
 		HasPlaced:       false,
 		TokenCount:      2,
-		GuessMode:       database.GuessModeOff,
 		LobbyId:         uuid.New(),
 	})
 	if !strings.Contains(got, "Not enough tokens") {
@@ -149,12 +146,11 @@ func TestCurrentCardAlreadyGuessedShowsResult(t *testing.T) {
 		GameStatus:      database.StatusActive,
 		RoundPhase:      database.PhaseListening,
 		HasGuessed:      true,
-		GuessResultText: "title right (100% match), artist right (100% match) You'll get a token at reveal.",
-		GuessMode:       database.GuessModeBoth,
+		GuessResultText: "title right (100% match), artist right (100% match) You earned 2 tokens!",
 		LobbyId:         uuid.New(),
 	}
 	got := renderCurrentCard(t, withResult)
-	if !strings.Contains(got, "You&#39;ll get a token at reveal") {
+	if !strings.Contains(got, "You earned 2 tokens!") {
 		t.Errorf("expected the stored guess result to render in place of the generic message: %s", got)
 	}
 	if strings.Contains(got, "You have already guessed this song.") {
@@ -182,9 +178,8 @@ type timelineView struct {
 	TokenCount        int
 	CardsToWin        int
 	InLead            bool
-	BuyCardCost       int
+	Economy           database.Economy
 	CurrentPlayerName string
-	GuessMode         string
 	GuessedCount      int
 	ActivePlayerCount int
 }
@@ -212,7 +207,6 @@ func TestTimelineShowsTokenCountPerPlayer(t *testing.T) {
 	got := renderTimeline(t, timelineView{
 		GameStatus: database.StatusActive,
 		RoundPhase: database.PhaseListening,
-		GuessMode:  database.GuessModeBoth,
 		Timelines: []database.PlayerTimeline{
 			{PlayerName: "Alice", TokenCount: 5, IsMe: true},
 			{PlayerName: "Bob", TokenCount: 2},
@@ -229,15 +223,13 @@ func TestTimelineShowsTokenCountPerPlayer(t *testing.T) {
 // TestTimelineBoardBannerNamesCurrentPlayerAndGuessCount guards the
 // persistent "what's going on" status line: it must name the actual player
 // on turn (not a generic placeholder) and show a live guessed-so-far count,
-// both while a guess mode is on, and it must not show the guess count once
-// the mode is off or the round has reached reveal.
+// and it must not show the guess count once the round has reached reveal.
 func TestTimelineBoardBannerNamesCurrentPlayerAndGuessCount(t *testing.T) {
 	got := renderTimeline(t, timelineView{
 		GameStatus:        database.StatusActive,
 		RoundPhase:        database.PhaseListening,
 		CanPlace:          false,
 		CurrentPlayerName: "Priya",
-		GuessMode:         database.GuessModeBoth,
 		GuessedCount:      2,
 		ActivePlayerCount: 4,
 	})
@@ -248,21 +240,10 @@ func TestTimelineBoardBannerNamesCurrentPlayerAndGuessCount(t *testing.T) {
 		t.Errorf("banner missing live guessed-so-far count: %s", got)
 	}
 
-	off := renderTimeline(t, timelineView{
-		GameStatus:        database.StatusActive,
-		RoundPhase:        database.PhaseListening,
-		CurrentPlayerName: "Priya",
-		GuessMode:         database.GuessModeOff,
-	})
-	if strings.Contains(off, "guessed so far") {
-		t.Errorf("guessed-so-far count should not render when guessing is off: %s", off)
-	}
-
 	revealed := renderTimeline(t, timelineView{
 		GameStatus:        database.StatusActive,
 		RoundPhase:        database.PhaseReveal,
 		CurrentPlayerName: "Priya",
-		GuessMode:         database.GuessModeBoth,
 	})
 	if strings.Contains(revealed, "guessed so far") {
 		t.Errorf("guessed-so-far count should not render at reveal: %s", revealed)
@@ -277,7 +258,7 @@ func TestTimelineBuyButtonCostAndLeadRestriction(t *testing.T) {
 	notLeader := renderTimeline(t, timelineView{
 		GameStatus:  database.StatusActive,
 		RoundPhase:  database.PhaseListening,
-		BuyCardCost: 3,
+		Economy:     database.Economy{BuyCardCost: 3},
 		InLead:      false,
 		CardsToWin:  10,
 		Timelines:   []database.PlayerTimeline{{PlayerName: "Alice", TokenCount: 6, IsMe: true}},
@@ -295,7 +276,7 @@ func TestTimelineBuyButtonCostAndLeadRestriction(t *testing.T) {
 	leader := renderTimeline(t, timelineView{
 		GameStatus:  database.StatusActive,
 		RoundPhase:  database.PhaseListening,
-		BuyCardCost: 3,
+		Economy:     database.Economy{BuyCardCost: 3},
 		InLead:      true,
 		CardsToWin:  10,
 		Timelines:   []database.PlayerTimeline{{PlayerName: "Alice", TokenCount: 6, IsMe: true}},
@@ -305,5 +286,50 @@ func TestTimelineBuyButtonCostAndLeadRestriction(t *testing.T) {
 	}
 	if !strings.Contains(leader, "disabled") {
 		t.Errorf("Buy button should be disabled for the strict leader: %s", leader)
+	}
+}
+
+// TestCurrentCardShowsEconomyPrices guards against costs being typed into the
+// template: the Restart/Skip labels, their confirm text and their disabled
+// state must all follow the economy handed to the fragment. The prices here are
+// deliberately unlike the real ones.
+func TestCurrentCardShowsEconomyPrices(t *testing.T) {
+	eco := database.Economy{GuessTokensPerPart: 3, ReplayCost: 7, SkipCost: 9}
+	got := renderCurrentCard(t, currentCardView{
+		CurrentCard:     database.CurrentCard{YouTubeVideoId: "abc123"},
+		GameStatus:      database.StatusActive,
+		RoundPhase:      database.PhaseListening,
+		IsCurrentPlayer: true,
+		TokenCount:      8, // enough to restart (7), not to skip (9)
+		Economy:         eco,
+		LobbyId:         uuid.New(),
+	})
+	for _, want := range []string{"Restart (7)", "Skip (9)", `data-cost="7"`, `data-cost="9"`, "Spend 7 tokens", "Spend 9 tokens"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("fragment missing %q: %s", want, got)
+		}
+	}
+	if strings.Count(got, `data-no-tokens="1"`) != 1 {
+		t.Errorf("only Skip (9 > 8 tokens) should be disabled for cost, got %d disabled: %s", strings.Count(got, `data-no-tokens="1"`), got)
+	}
+	if !strings.Contains(got, "3 tokens for the song name, 3 tokens for the artist") {
+		t.Errorf("guess hint should state the per-part reward: %s", got)
+	}
+}
+
+// Guessing is one rule now: both boxes are always offered, to the turn player
+// and to everyone else.
+func TestCurrentCardAlwaysOffersBothGuessBoxes(t *testing.T) {
+	for name, isTurn := range map[string]bool{"turn player": true, "other player": false} {
+		got := renderCurrentCard(t, currentCardView{
+			CurrentCard:     database.CurrentCard{YouTubeVideoId: "abc123"},
+			GameStatus:      database.StatusActive,
+			RoundPhase:      database.PhaseListening,
+			IsCurrentPlayer: isTurn,
+			LobbyId:         uuid.New(),
+		})
+		if !strings.Contains(got, `name="guessTitle"`) || !strings.Contains(got, `name="guessArtist"`) {
+			t.Errorf("%s should be offered both the song name and artist boxes: %s", name, got)
+		}
 	}
 }
