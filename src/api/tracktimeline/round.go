@@ -157,10 +157,8 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if ctx.Game.GuessMode != database.GuessModeOff {
-		title, artist, combined := guessFields(r, ctx.Game.GuessMode)
-		submitGuessForPlayer(r.Context(), ctx, card, title, artist, combined)
-	}
+	title, artist, combined := guessFields(r)
+	submitGuessForPlayer(r.Context(), ctx, card, title, artist, combined)
 
 	// The song stops the moment a placement is locked in: leaving it playing
 	// through a steal window would hand stealers more listening time than the
@@ -261,7 +259,7 @@ func BuyCard(w http.ResponseWriter, r *http.Request) {
 
 	announce(ctx.LobbyId, fmt.Sprintf(
 		"<blue>%s</> %s to buy “%s” by %s (%d)",
-		esc(ctx.Player.Name), tokensWonLost(-database.BuyCardCost), esc(bought.Title), esc(bought.Artist), bought.ReleaseYear,
+		esc(ctx.Player.Name), tokensSpent(database.BuyCardCost), esc(bought.Title), esc(bought.Artist), bought.ReleaseYear,
 	))
 	refresh(ctx.LobbyId)
 
@@ -298,9 +296,9 @@ func ClaimSteal(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("Failed to check your tokens."))
 		return
 	}
-	if tokens < 1 {
+	if tokens < database.StealCost {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("You have no tokens to spend."))
+		_, _ = w.Write([]byte("You need " + tokenCount(database.StealCost) + " to steal."))
 		return
 	}
 
@@ -316,7 +314,7 @@ func ClaimSteal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> %s to steal", esc(ctx.Player.Name), tokensWonLost(-1)))
+	announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> %s to steal", esc(ctx.Player.Name), tokensSpent(database.StealCost)))
 	beginStealTurnBroadcast(ctx.LobbyId, ctx.Game.Id, ctx.Player.Id, ctx.Player.Name)
 
 	w.WriteHeader(http.StatusOK)
@@ -499,20 +497,23 @@ func announceAndFinish(ctx gameContext, outcome database.RoundOutcome) {
 	for _, g := range outcome.Guesses {
 		announce(ctx.LobbyId, fmt.Sprintf(
 			"<blue>%s</> guessed “%s” — %s",
-			esc(g.PlayerName), esc(g.GuessText), describeGuessPublic(g, ctx.Game.GuessMode),
+			esc(g.PlayerName), esc(g.GuessText), describeGuessPublic(g),
 		))
 	}
 
-	// Every qualifying guess earns its own token -- there is no single-token
-	// race, so each winner gets their own announcement and popup line.
+	// Every right part of a guess earns its own tokens -- there is no
+	// single-token race, so each winner gets their own announcement and popup
+	// line, with what they earned.
 	for _, winner := range outcome.GuessTokenWinners {
+		earned := database.GuessTokensEarned(winner)
 		payload.GuessTokenWinners = append(payload.GuessTokenWinners, guessTokenWinnerPayload{
 			Name:      winner.PlayerName,
 			GuessText: winner.GuessText,
+			Tokens:    earned,
 		})
 		announce(ctx.LobbyId, fmt.Sprintf(
-			"<green>%s</> earned 1 token for naming the song",
-			esc(winner.PlayerName),
+			"<green>%s</> earned %s for their guess",
+			esc(winner.PlayerName), tokenCount(earned),
 		))
 	}
 
@@ -641,8 +642,9 @@ func finishRound(ctx gameContext, payload resultPayload) {
 
 // SubmitGuess judges a free-form artist/title guess and records it — for
 // every player except the turn player, whose guess is bundled into PlaceCard
-// instead. Guesses are judged as they arrive, but the token itself is awarded
-// at reveal (see database.AwardGuessTokens). A guess costs nothing to attempt
+// instead. Guesses are judged as they arrive and a qualifying one pays its
+// token immediately (see database.AwardGuessToken); only the chat announcement
+// waits for the reveal. A guess costs nothing to attempt
 // regardless of outcome. Disabled entirely when the lobby's guess mode is off.
 func SubmitGuess(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)
@@ -652,12 +654,6 @@ func SubmitGuess(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("Failed to parse form."))
-		return
-	}
-
-	if ctx.Game.GuessMode == database.GuessModeOff {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("Free-form guessing is disabled in this lobby."))
 		return
 	}
 
@@ -672,7 +668,7 @@ func SubmitGuess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	title, artist, guessText := guessFields(r, ctx.Game.GuessMode)
+	title, artist, guessText := guessFields(r)
 	if guessText == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("Type a guess first."))
@@ -708,15 +704,13 @@ func SubmitGuess(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("Guess recorded."))
 }
 
-// guessFields reads the split song-name and artist boxes. Title-only mode
-// ignores an artist field even if a client posts one. Combined is kept for
-// storage and chat quoting ("Title by Artist").
-func guessFields(r *http.Request, guessMode string) (title, artist, combined string) {
-	title = strings.TrimSpace(r.FormValue("guessTitle"))
-	artist = strings.TrimSpace(r.FormValue("guessArtist"))
-	if guessMode == database.GuessModeTitle {
-		artist = ""
-	}
+// guessFields reads the split song-name and artist boxes. Combined is kept for
+// storage and chat quoting ("Title by Artist"). Each box is capped at the same
+// 250 characters the form enforces, since a hand-built request skips the form
+// and everything typed here is sent on to the AI judge.
+func guessFields(r *http.Request) (title, artist, combined string) {
+	title = truncateRunes(strings.TrimSpace(r.FormValue("guessTitle")), 250)
+	artist = truncateRunes(strings.TrimSpace(r.FormValue("guessArtist")), 250)
 	switch {
 	case title != "" && artist != "":
 		combined = title + " by " + artist
@@ -746,26 +740,34 @@ func submitGuessForPlayer(httpCtx context.Context, ctx gameContext, card databas
 		return
 	}
 
-	verdict := guess.AdjudicateKind(httpCtx, guess.Input{
-		Guess:           guessText,
-		TitleGuess:      strings.TrimSpace(titleGuess),
-		ArtistGuess:     strings.TrimSpace(artistGuess),
-		Title:           card.Title,
-		Artist:          card.Artist,
-		MinMatchPercent: ctx.Game.GuessMatchPercent,
-		TitleOnly:       ctx.Game.GuessMode == database.GuessModeTitle,
-	}, ctx.Game.GuessJudge)
+	verdict := guess.AdjudicateGuess(httpCtx, guess.Input{
+		Guess:       guessText,
+		TitleGuess:  strings.TrimSpace(titleGuess),
+		ArtistGuess: strings.TrimSpace(artistGuess),
+		Title:       card.Title,
+		Artist:      card.Artist,
+	})
 
-	// The token itself is awarded at reveal (database.AwardGuessTokens), not
-	// here — recorded as 0 for now regardless of the verdict.
+	judged := database.Guess{TitleCorrect: verdict.TitleCorrect, ArtistCorrect: verdict.ArtistCorrect}
+	tokensAwarded := database.GuessTokensEarned(judged)
+	// Recording first is what makes the tokens safe to pay: the row is unique
+	// per player per round, so a duplicate submission fails here and never
+	// reaches the award below.
 	if err := database.RecordGuess(
 		ctx.Game.Id, ctx.Player.Id, guessText,
 		verdict.TitleCorrect, verdict.ArtistCorrect,
 		int(verdict.TitleMatchPercent), int(verdict.ArtistMatchPercent),
-		verdict.ByAI, 0,
+		verdict.ByAI, tokensAwarded,
 	); err != nil {
 		log.Println(err)
 		return
+	}
+	// The tokens are paid the moment the guess is judged, so they can fund a
+	// steal or a skip on this very round. If the payout fails the guess still
+	// stands (and the player is told below they earned it), so that is logged
+	// loudly.
+	if _, err := database.AwardGuessToken(ctx.Game.Id, ctx.Player.Id, judged); err != nil {
+		log.Println("failed to award guess tokens:", err)
 	}
 	if logErr := database.LogTitleGuess(ctx.UserId, card.CardId, guessText, verdict.TitleCorrect, verdict.ArtistCorrect); logErr != nil {
 		log.Println(logErr)
@@ -775,7 +777,7 @@ func submitGuessForPlayer(httpCtx context.Context, ctx gameContext, card databas
 	// naming who was right about the title/artist would leak the answer to
 	// everyone else before the song is actually revealed. The public line is
 	// sent later, at reveal, from the stored guess (see announceAndFinish).
-	private := describeVerdict(verdict, ctx.Game.GuessMode)
+	private := describeVerdict(verdict)
 	if verdict.Explanation != "" {
 		private += " " + verdict.Explanation
 	}
@@ -783,42 +785,29 @@ func submitGuessForPlayer(httpCtx context.Context, ctx gameContext, card databas
 }
 
 // describeVerdict builds the message private to the guesser: describeVerdictPublic's
-// unconditional right/wrong statement, plus — for a qualifying guess — the
-// unconditional token promise. Every qualifying guess earns its own token at
-// reveal (database.AwardGuessTokens) regardless of turn order or who else
-// guessed, so there is no caveat left to state.
-func describeVerdict(verdict guess.Verdict, guessMode string) string {
-	line := describeVerdictPublic(verdict, guessMode)
-	if !database.GuessQualifies(database.Guess{
+// unconditional right/wrong statement, plus what it paid. Every right part earns
+// its tokens the moment it is judged (database.AwardGuessToken) regardless of
+// turn order or who else guessed, so there is no caveat left to state.
+func describeVerdict(verdict guess.Verdict) string {
+	line := describeVerdictPublic(verdict)
+	earned := database.GuessTokensEarned(database.Guess{
 		TitleCorrect:  verdict.TitleCorrect,
 		ArtistCorrect: verdict.ArtistCorrect,
-	}, guessMode) {
+	})
+	if earned == 0 {
 		return line
 	}
-	return line + " You'll get a token at reveal."
+	return line + " You earned " + tokenCount(earned) + "!"
 }
 
-func describeVerdictPublic(verdict guess.Verdict, guessMode string) string {
+func describeVerdictPublic(verdict guess.Verdict) string {
 	titleWord := correctWord(verdict.TitleCorrect)
 	artistWord := correctWord(verdict.ArtistCorrect)
 	if verdict.ByAI {
-		switch guessMode {
-		case database.GuessModeTitle:
-			return fmt.Sprintf("title %s — judged by the AI Quizmaster", titleWord)
-		default:
-			return fmt.Sprintf("title %s, artist %s — judged by the AI Quizmaster", titleWord, artistWord)
-		}
+		return fmt.Sprintf("title %s, artist %s — judged by the AI Quizmaster", titleWord, artistWord)
 	}
-	switch guessMode {
-	case database.GuessModeTitle:
-		return fmt.Sprintf("title %s (%.0f%% match)", titleWord, verdict.TitleMatchPercent)
-	case database.GuessModeEither:
-		return fmt.Sprintf("title %s (%.0f%% match), artist %s (%.0f%% match)",
-			titleWord, verdict.TitleMatchPercent, artistWord, verdict.ArtistMatchPercent)
-	default:
-		return fmt.Sprintf("title %s (%.0f%% match), artist %s (%.0f%% match)",
-			titleWord, verdict.TitleMatchPercent, artistWord, verdict.ArtistMatchPercent)
-	}
+	return fmt.Sprintf("title %s (%.0f%% match), artist %s (%.0f%% match)",
+		titleWord, verdict.TitleMatchPercent, artistWord, verdict.ArtistMatchPercent)
 }
 
 // describeStoredGuessForPlayer reconstructs the same private verdict message
@@ -828,7 +817,7 @@ func describeVerdictPublic(verdict guess.Verdict, guessMode string) string {
 // fragment re-renders (fragments.go's GetCurrentCard), rather than only
 // catching it in the moment via the status bar before it clears. Returns
 // ok=false if this player has no recorded guess this round (nothing to show).
-func describeStoredGuessForPlayer(gameId uuid.UUID, playerId uuid.UUID, guessMode string) (string, bool) {
+func describeStoredGuessForPlayer(gameId uuid.UUID, playerId uuid.UUID) (string, bool) {
 	guesses, err := database.GetGuesses(gameId)
 	if err != nil {
 		log.Println(err)
@@ -854,7 +843,7 @@ func describeStoredGuessForPlayer(gameId uuid.UUID, playerId uuid.UUID, guessMod
 		ArtistMatchPercent: float64(mine.ArtistMatchPercent),
 		ByAI:               mine.JudgedByAI,
 	}
-	return describeVerdict(verdict, guessMode), true
+	return describeVerdict(verdict), true
 }
 
 // truncateRunes caps s at maxRunes runes, not bytes: s[:maxRunes] on the raw
@@ -879,17 +868,11 @@ func correctWord(correct bool) string {
 // that was already recorded and is only now, at reveal, being told to chat.
 // g.JudgedByAI is the persisted guess.Verdict.ByAI, so an AI-judged guess
 // still gets the AI-Quizmaster phrasing here instead of a match percent.
-func describeGuessPublic(g database.Guess, guessMode string) string {
+func describeGuessPublic(g database.Guess) string {
 	titleWord := correctWord(g.TitleCorrect)
 	artistWord := correctWord(g.ArtistCorrect)
 	if g.JudgedByAI {
-		if guessMode == database.GuessModeTitle {
-			return fmt.Sprintf("title %s — judged by the AI Quizmaster", titleWord)
-		}
 		return fmt.Sprintf("title %s, artist %s — judged by the AI Quizmaster", titleWord, artistWord)
-	}
-	if guessMode == database.GuessModeTitle {
-		return fmt.Sprintf("title %s (%d%% match)", titleWord, g.TitleMatchPercent)
 	}
 	return fmt.Sprintf("title %s (%d%% match), artist %s (%d%% match)",
 		titleWord, g.TitleMatchPercent, artistWord, g.ArtistMatchPercent)
@@ -994,14 +977,14 @@ func SkipCard(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("Failed to check your tokens."))
 		return
 	}
-	if tokens < 1 {
+	if tokens < database.SkipCost {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("You need a token to skip."))
+		_, _ = w.Write([]byte("You need " + tokenCount(database.SkipCost) + " to skip."))
 		return
 	}
-	if _, err := database.AddPlayerTokens(ctx.Game.Id, ctx.Player.Id, -1); err != nil {
+	if _, err := database.AddPlayerTokens(ctx.Game.Id, ctx.Player.Id, -database.SkipCost); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to spend your token."))
+		_, _ = w.Write([]byte("Failed to spend your tokens."))
 		return
 	}
 
@@ -1012,7 +995,7 @@ func SkipCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "songStop")
-	announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> %s to skip a song", esc(ctx.Player.Name), tokensWonLost(-1)))
+	announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> %s to skip a song", esc(ctx.Player.Name), tokensSpent(database.SkipCost)))
 	sendStatus(ctx.LobbyId, "Song skipped — a new one has been drawn.")
 	refresh(ctx.LobbyId)
 

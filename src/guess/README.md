@@ -55,18 +55,17 @@ Whatever you write, that safety net stays.
 `claude.go` asks Haiku whether the player *meant* the authored title and
 artist. Typos, nicknames, and messy wording are yes; a different song or
 performer is no. Match percents are 100 or 0 to match that boolean. An
-unreadable model reply is an error, which sends `AdjudicateKind` to the local
+unreadable model reply is an error, which sends `AdjudicateGuess` to the local
 fallback — far better than silently scoring a malformed answer as "no".
 
 Set `TRACK_TIMELINE_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY`) on the server.
-New Game and Quizmaster Testing then offer **AI Judge** yes/no. No uses the local
-word matcher at the chosen match percent. Yes uses Claude, and the same
-percent is the heuristic fallback if the API errors or the reply is unreadable.
-Without a key, Yes is disabled.
+Every game then uses Claude; there is no per-lobby choice. The local word
+matcher, at its fixed default bar, is only the fallback when the key is missing
+or the API errors, times out or gives an unreadable reply. The admin **API
+Status** page shows whether Claude is reachable.
 
-Gameplay uses `AdjudicateKind` with the lobby's `GUESS_JUDGE`. `SetJudge` is
-still unused; the default `Adjudicate` path stays local so tests do not need a
-key.
+Gameplay uses `AdjudicateGuess`. `SetJudge` is still unused; the default
+`Adjudicate` path stays local so tests do not need a key.
 
 ## Things worth knowing
 

@@ -94,13 +94,14 @@
                     class="btn-secondary"
                     style="display: none"
                     disabled
-                    {{if lt .TokenCount 1}}data-no-tokens="1"{{end}}
+                    data-cost="{{.Economy.ReplayCost}}"
+                    {{if lt .TokenCount .Economy.ReplayCost}}data-no-tokens="1"{{end}}
                     hx-post="/api/track-timeline/{{.LobbyId}}/replay-song"
                     hx-swap="none"
-                    hx-confirm="Spend a token to hear the clip again from the beginning?"
-                    title="{{if lt .TokenCount 1}}You need a token to restart.{{else}}Restart this clip from the beginning, once, for a token{{end}}"
+                    hx-confirm="Spend {{.Economy.Tokens .Economy.ReplayCost}} to hear the clip again from the beginning?"
+                    title="{{if lt .TokenCount .Economy.ReplayCost}}You need {{.Economy.Tokens .Economy.ReplayCost}} to restart.{{else}}Restart this clip from the beginning, once, for {{.Economy.Tokens .Economy.ReplayCost}}{{end}}"
                 >
-                    <span class="bi bi-arrow-counterclockwise"></span> Restart (1)
+                    <span class="bi bi-arrow-counterclockwise"></span> Restart ({{.Economy.ReplayCost}})
                 </button>
                 {{end}}
                 {{if and (eq .RoundPhase "listening") (not .HasPlaced)}}
@@ -114,22 +115,19 @@
                     id="tt-skip-btn"
                     class="btn-secondary"
                     disabled
-                    {{if lt .TokenCount 1}}data-no-tokens="1"{{end}}
+                    data-cost="{{.Economy.SkipCost}}"
+                    {{if lt .TokenCount .Economy.SkipCost}}data-no-tokens="1"{{end}}
                     hx-post="/api/track-timeline/{{.LobbyId}}/skip-card"
                     hx-swap="none"
-                    hx-confirm="Spend a token to skip this song and draw another?"
-                    title="{{if lt .TokenCount 1}}You need a token to skip.{{else}}Play the song first{{end}}"
+                    hx-confirm="Spend {{.Economy.Tokens .Economy.SkipCost}} to skip this song and draw another?"
+                    title="{{if lt .TokenCount .Economy.SkipCost}}You need {{.Economy.Tokens .Economy.SkipCost}} to skip.{{else}}Play the song first{{end}}"
                 >
-                    <span class="bi bi-skip-forward"></span> Skip (1)
+                    <span class="bi bi-skip-forward"></span> Skip ({{.Economy.SkipCost}})
                 </button>
                 {{end}}
             </div>
             {{end}}
 
-            <!-- The whole naming economy is off in this lobby, so nothing to
-                 type into. The server rejects a guess in this mode too; this
-                 just stops offering something that cannot pay out. -->
-            {{if ne .GuessMode "off"}}
             {{if not .HasGuessed}}
             {{if .IsCurrentPlayer}}
             <!-- A real submit button here too, not just the fields bundled into
@@ -157,7 +155,6 @@
                         placeholder="Song name"
                         autocomplete="off"
                     />
-                    {{if ne .GuessMode "title"}}
                     <span class="guess-by">by</span>
                     <input
                         type="text"
@@ -167,12 +164,11 @@
                         placeholder="Artist"
                         autocomplete="off"
                     />
-                    {{end}}
                 </div>
                 <button type="submit" class="btn-small">
                     <span class="bi bi-lightbulb"></span> Guess
                 </button>
-                <p class="guess-hint">Optional — 1 token if correct.</p>
+                <p class="guess-hint">Optional — {{.Economy.Tokens .Economy.GuessTokensPerPart}} for the song name, {{.Economy.Tokens .Economy.GuessTokensPerPart}} for the artist.</p>
                 <div class="htmx-result"></div>
             </form>
             {{else}}
@@ -186,21 +182,18 @@
                      wipes out whatever this player is mid-typing. -->
                 <div id="tt-guess-fields-other" class="guess-fields" hx-preserve="true">
                     <input type="text" id="tt-guess-title-other" name="guessTitle" maxlength="250" placeholder="Song name" autocomplete="off" />
-                    {{if ne .GuessMode "title"}}
                     <span class="guess-by">by</span>
                     <input type="text" id="tt-guess-artist-other" name="guessArtist" maxlength="250" placeholder="Artist" autocomplete="off" />
-                    {{end}}
                 </div>
                 <button type="submit" class="btn-small">
                     <span class="bi bi-lightbulb"></span> Guess
                 </button>
-                <p class="guess-hint">Optional — 1 token if correct.</p>
+                <p class="guess-hint">Optional — {{.Economy.Tokens .Economy.GuessTokensPerPart}} for the song name, {{.Economy.Tokens .Economy.GuessTokensPerPart}} for the artist.</p>
                 <div class="htmx-result"></div>
             </form>
             {{end}}
             {{else}}
             <div class="guess-spent">{{if .GuessResultText}}{{.GuessResultText}}{{else}}You have already guessed this song.{{end}}</div>
-            {{end}}
             {{end}}
             {{end}}
         </div>

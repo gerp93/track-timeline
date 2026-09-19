@@ -1,4 +1,5 @@
 {{define "rules-content"}}
+{{$e := .Economy}}
 <div class="tt-rules-wrapper">
     <div class="tt-rules-hero">
         <h2><span class="bi bi-music-note-beamed"></span> Track Timeline Rules</h2>
@@ -18,7 +19,7 @@
             </li>
             <li>
                 <strong>Anyone Can Guess for Tokens:</strong>
-                While the clip is playing, <em>every player</em> has an opportunity to guess the song title and/or artist in the guess box. A correct guess earns you a valuable token!
+                While the clip is playing, <em>every player</em> has an opportunity to guess the song title and the artist in the guess boxes. Each part you get right earns tokens right away: {{$e.Tokens $e.GuessTokensPerPart}} for the song name and {{$e.Tokens $e.GuessTokensPerPart}} for the artist, up to {{$e.Tokens $e.MaxGuessTokens}} per round!
             </li>
             <li>
                 <strong>Active Player Places the Song:</strong>
@@ -26,7 +27,7 @@
             </li>
             <li>
                 <strong>The 5-Second Steal Window:</strong>
-                As soon as the turn player locks in, a 5-second countdown begins. Any rival player with at least 1 token can click <strong>STEAL</strong> to challenge the placement!
+                As soon as the turn player locks in, a 5-second countdown begins. Any rival player with at least {{$e.Tokens $e.StealCost}} can click <strong>STEAL</strong> to challenge the placement!
             </li>
             <li>
                 <strong>The Reveal:</strong>
@@ -67,9 +68,9 @@
             <div class="tt-econ-column">
                 <h4><span class="bi bi-plus-circle-fill" style="color: #22c55e;"></span> Earning Tokens</h4>
                 <div class="tt-econ-item">
-                    <span class="tt-econ-badge plus">+1</span>
+                    <span class="tt-econ-badge plus">+{{$e.GuessTokensPerPart}} to +{{$e.MaxGuessTokens}}</span>
                     <div>
-                        <strong>Name the Song:</strong> Guess the title and/or artist during playback before the reveal.
+                        <strong>Name the Song:</strong> Guess the title and the artist during playback before the reveal. Each part you get right pays {{$e.Tokens $e.GuessTokensPerPart}}, so a perfect guess pays {{$e.Tokens $e.MaxGuessTokens}}. You get them the moment your guess is judged.
                     </div>
                 </div>
                 <div class="tt-econ-item">
@@ -82,27 +83,27 @@
             <div class="tt-econ-column">
                 <h4><span class="bi bi-dash-circle-fill" style="color: #ef4444;"></span> Spending Tokens</h4>
                 <div class="tt-econ-item">
-                    <span class="tt-econ-badge minus">-1</span>
+                    <span class="tt-econ-badge minus">-{{$e.ReplayCost}}</span>
                     <div>
-                        <strong>Replay Clip:</strong> On your turn, spend 1 token to listen to the song clip a second time.
+                        <strong>Replay Clip:</strong> On your turn, spend {{$e.Tokens $e.ReplayCost}} to listen to the song clip a second time.
                     </div>
                 </div>
                 <div class="tt-econ-item">
-                    <span class="tt-econ-badge minus">-1</span>
+                    <span class="tt-econ-badge minus">-{{$e.SkipCost}}</span>
                     <div>
-                        <strong>Skip Song:</strong> On your turn, pass a difficult song without risking a missed placement.
+                        <strong>Skip Song:</strong> On your turn, spend {{$e.Tokens $e.SkipCost}} to pass a difficult song without risking a missed placement.
                     </div>
                 </div>
                 <div class="tt-econ-item">
-                    <span class="tt-econ-badge minus">-1</span>
+                    <span class="tt-econ-badge minus">-{{$e.StealCost}}</span>
                     <div>
-                        <strong>Steal / Challenge:</strong> Challenge a rival's placement during the 5-second steal window.
+                        <strong>Steal / Challenge:</strong> Spend {{$e.Tokens $e.StealCost}} to challenge a rival's placement during the 5-second steal window.
                     </div>
                 </div>
                 <div class="tt-econ-item">
-                    <span class="tt-econ-badge minus">-5</span>
+                    <span class="tt-econ-badge minus">-{{$e.BuyCardCost}}</span>
                     <div>
-                        <strong>Buy a Card:</strong> Spend 5 tokens at any time to draw and place a song card directly into your timeline!
+                        <strong>Buy a Card:</strong> Spend {{$e.Tokens $e.BuyCardCost}} at any time to draw and place a song card directly into your timeline!
                     </div>
                 </div>
             </div>
@@ -120,7 +121,7 @@
                 A <strong>5-second Steal Window</strong> opens for everyone else in the game.
             </li>
             <li>
-                The first player to click <strong>STEAL</strong> spends 1 token and claims the sole challenge attempt for that round.
+                The first player to click <strong>STEAL</strong> spends {{$e.Tokens $e.StealCost}} and claims the sole challenge attempt for that round.
             </li>
             <li>
                 The challenger gets <strong>15 seconds</strong> to choose where that same song belongs in <em>their own</em> timeline.
@@ -181,7 +182,7 @@
                     <strong>Turn Player (Alice):</strong> Her timeline starts with <em>Stayin' Alive (1977)</em>. She hears <em>"Hey Jude"</em> and mistakenly places it <strong>after 1977</strong>.
                 </p>
                 <p>
-                    <strong>Challenger (Bob):</strong> Bob knows The Beatles released <em>Hey Jude</em> in the 1960s. As soon as the 5-second window starts, Bob clicks <strong>STEAL</strong> (spending 1 token) and places it <strong>before 1977</strong> in his own timeline.
+                    <strong>Challenger (Bob):</strong> Bob knows The Beatles released <em>Hey Jude</em> in the 1960s. As soon as the 5-second window starts, Bob clicks <strong>STEAL</strong> (spending {{$e.Tokens $e.StealCost}}) and places it <strong>before 1977</strong> in his own timeline.
                 </p>
                 <p class="tt-example-result">
                     <span class="bi bi-trophy-fill"></span> <strong>Result:</strong>
@@ -196,8 +197,8 @@
                 <span class="badge">Example 4</span> Buying a Card with Tokens
             </div>
             <p class="tt-example-explanation">
-                During rounds where other players are placing, you correctly guess several song titles and accumulate <strong>5 tokens</strong>.
-                On your turn or between rounds, you click <strong>Buy Card (5 Tokens)</strong>. 5 tokens are deducted, and a mystery song from the draw pile is automatically drawn and placed into your timeline in its correct spot, advancing you 1 card closer to victory!
+                During rounds where other players are placing, you guess several songs correctly and accumulate <strong>{{$e.Tokens $e.BuyCardCost}}</strong>.
+                On your turn or between rounds, you click <strong>Buy Card ({{$e.Tokens $e.BuyCardCost}})</strong>. {{$e.Tokens $e.BuyCardCost}} are deducted, and a mystery song from the draw pile is automatically drawn and placed into your timeline in its correct spot, advancing you 1 card closer to victory!
             </p>
         </div>
     </div>

@@ -55,7 +55,7 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 	// off or another status message replaced it.
 	guessResultText := ""
 	if hasGuessed {
-		guessResultText, _ = describeStoredGuessForPlayer(ctx.Game.Id, ctx.Player.Id, ctx.Game.GuessMode)
+		guessResultText, _ = describeStoredGuessForPlayer(ctx.Game.Id, ctx.Player.Id)
 	}
 
 	tmpl, err := template.ParseFS(static.StaticFiles, "html/components/tracktimeline/current-card.html")
@@ -95,7 +95,7 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		GuessResultText string
 		ReplayUsed      bool
 		TokenCount      int
-		GuessMode       string
+		Economy         database.Economy
 	}
 
 	_ = tmpl.Execute(w, data{
@@ -112,7 +112,7 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		GuessResultText: guessResultText,
 		ReplayUsed:      ctx.Game.ReplayUsed,
 		TokenCount:      tokens,
-		GuessMode:       ctx.Game.GuessMode,
+		Economy:         database.CurrentEconomy(),
 	})
 }
 
@@ -184,10 +184,8 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 	// players have already submitted a guess this round. Safe to show before
 	// reveal — it says who has guessed, never what or whether it was right.
 	guessedCount := 0
-	if ctx.Game.GuessMode != database.GuessModeOff {
-		if guesses, guessErr := database.GetGuesses(ctx.Game.Id); guessErr == nil {
-			guessedCount = len(guesses)
-		}
+	if guesses, guessErr := database.GetGuesses(ctx.Game.Id); guessErr == nil {
+		guessedCount = len(guesses)
 	}
 
 	tmpl, err := template.New("timeline.html").Funcs(template.FuncMap{
@@ -210,9 +208,8 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 		TokenCount        int
 		CardsToWin        int
 		InLead            bool
-		BuyCardCost       int
+		Economy           database.Economy
 		CurrentPlayerName string
-		GuessMode         string
 		GuessedCount      int
 		ActivePlayerCount int
 	}
@@ -227,9 +224,8 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 		TokenCount:        tokens,
 		CardsToWin:        ctx.Game.CardsToWin,
 		InLead:            inLead,
-		BuyCardCost:       database.BuyCardCost,
+		Economy:           database.CurrentEconomy(),
 		CurrentPlayerName: currentPlayerName,
-		GuessMode:         ctx.Game.GuessMode,
 		GuessedCount:      guessedCount,
 		ActivePlayerCount: len(timelines),
 	})

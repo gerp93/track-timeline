@@ -123,16 +123,16 @@ func TestPlacementYearRangeFormat(t *testing.T) {
 }
 
 func TestCanBuyCard(t *testing.T) {
-	if !CanBuyCard(3, 5, 5, false) {
-		t.Fatal("3 songs with 5 tokens toward 5 should allow buy")
+	if !CanBuyCard(3, BuyCardCost, 5, false) {
+		t.Fatal("3 songs with exactly the buy price toward 5 should allow buy")
 	}
-	if CanBuyCard(4, 5, 5, false) {
+	if CanBuyCard(4, BuyCardCost, 5, false) {
 		t.Fatal("one away from winning must not allow buy")
 	}
-	if CanBuyCard(3, 4, 5, false) {
+	if CanBuyCard(3, BuyCardCost-1, 5, false) {
 		t.Fatal("not enough tokens must not allow buy")
 	}
-	if CanBuyCard(3, 5, 5, true) {
+	if CanBuyCard(3, BuyCardCost, 5, true) {
 		t.Fatal("a strict leader must not be allowed to buy")
 	}
 }
@@ -194,44 +194,113 @@ func TestSameUUIDOrder(t *testing.T) {
 	}
 }
 
-func TestGuessQualifies(t *testing.T) {
-	both := Guess{TitleCorrect: true, ArtistCorrect: true}
-	titleOnly := Guess{TitleCorrect: true, ArtistCorrect: false}
-	artistOnly := Guess{TitleCorrect: false, ArtistCorrect: true}
-	neither := Guess{TitleCorrect: false, ArtistCorrect: false}
-
+// A guess pays for each part on its own: the right title, the right artist, or
+// both, and nothing for neither.
+func TestGuessTokensEarned(t *testing.T) {
 	cases := []struct {
-		mode string
+		name string
 		g    Guess
-		want bool
+		want int
 	}{
-		{GuessModeBoth, both, true},
-		{GuessModeBoth, titleOnly, false},
-		{GuessModeBoth, artistOnly, false},
-		{GuessModeTitle, both, true},
-		{GuessModeTitle, titleOnly, true},
-		{GuessModeTitle, artistOnly, false},
-		{GuessModeEither, titleOnly, true},
-		{GuessModeEither, artistOnly, true},
-		{GuessModeEither, neither, false},
-		{GuessModeOff, both, false},
+		{"both right", Guess{TitleCorrect: true, ArtistCorrect: true}, 2 * GuessTokensPerPart},
+		{"title only", Guess{TitleCorrect: true}, GuessTokensPerPart},
+		{"artist only", Guess{ArtistCorrect: true}, GuessTokensPerPart},
+		{"neither", Guess{}, 0},
 	}
 	for _, test := range cases {
-		if got := GuessQualifies(test.g, test.mode); got != test.want {
-			t.Errorf("GuessQualifies(%+v, %q) = %v, want %v", test.g, test.mode, got, test.want)
+		if got := GuessTokensEarned(test.g); got != test.want {
+			t.Errorf("%s: GuessTokensEarned = %d, want %d", test.name, got, test.want)
 		}
 	}
 }
 
-func TestValidateGuessMatchPercent(t *testing.T) {
-	for _, percent := range []int{60, 70, 80, 90} {
-		if err := ValidateGuessMatchPercent(percent); err != nil {
-			t.Errorf("ValidateGuessMatchPercent(%d) = %v, want nil", percent, err)
+// One perfect guess pays for one skip, replay or steal, and the buy price is a
+// whole number of those: the ratio the economy is balanced around.
+func TestEconomyIsInternallyConsistent(t *testing.T) {
+	e := CurrentEconomy()
+	if e.MaxGuessTokens != 2*e.GuessTokensPerPart {
+		t.Errorf("MaxGuessTokens %d should be title + artist = %d", e.MaxGuessTokens, 2*e.GuessTokensPerPart)
+	}
+	for name, cost := range map[string]int{"skip": e.SkipCost, "replay": e.ReplayCost, "steal": e.StealCost} {
+		if cost != e.MaxGuessTokens {
+			t.Errorf("%s costs %d, want one perfect guess (%d)", name, cost, e.MaxGuessTokens)
 		}
 	}
-	for _, percent := range []int{50, 100, 0, 85} {
-		if err := ValidateGuessMatchPercent(percent); err == nil {
-			t.Errorf("ValidateGuessMatchPercent(%d) = nil, want an error", percent)
+	if e.BuyCardCost%e.MaxGuessTokens != 0 {
+		t.Errorf("buy price %d should be a whole number of perfect guesses (%d each)", e.BuyCardCost, e.MaxGuessTokens)
+	}
+	if e.DefaultStartingTokens < e.MinStartingTokens || e.DefaultStartingTokens > e.MaxStartingTokens {
+		t.Errorf("default starting tokens %d is outside %d-%d", e.DefaultStartingTokens, e.MinStartingTokens, e.MaxStartingTokens)
+	}
+	if got := e.Tokens(1); got != "1 token" {
+		t.Errorf("Tokens(1) = %q", got)
+	}
+	if got := e.Tokens(2); got != "2 tokens" {
+		t.Errorf("Tokens(2) = %q", got)
+	}
+}
+
+// A guess that earned nothing pays nothing, decided before any database call.
+func TestAwardGuessTokenPaysNothingForAWrongGuess(t *testing.T) {
+	paid, err := AwardGuessToken(uuid.Nil, uuid.Nil, Guess{})
+	if err != nil || paid != 0 {
+		t.Errorf("a wrong guess: paid=%d err=%v, want no payout", paid, err)
+	}
+}
+
+// With "never-played songs first" on, every unseen row is dealt before any seen
+// row, nothing is dropped, and a normal game is left fully random.
+func TestOrderDrawPileFreshFirst(t *testing.T) {
+	const total, seenCount = 40, 25
+	build := func() ([]uuid.UUID, map[uuid.UUID]bool) {
+		ids := make([]uuid.UUID, total)
+		seen := make(map[uuid.UUID]bool)
+		for i := range ids {
+			ids[i] = uuid.New()
+			seen[ids[i]] = i < seenCount
 		}
+		return ids, seen
+	}
+
+	for run := 0; run < 20; run++ {
+		ids, seen := build()
+		ordered := orderDrawPile(ids, seen, true)
+		if len(ordered) != total {
+			t.Fatalf("ordered %d rows, want %d", len(ordered), total)
+		}
+		reachedSeen := false
+		present := make(map[uuid.UUID]bool)
+		for _, id := range ordered {
+			present[id] = true
+			if seen[id] {
+				reachedSeen = true
+			} else if reachedSeen {
+				t.Fatalf("a never-played song was dealt after a played one (run %d)", run)
+			}
+		}
+		if len(present) != total {
+			t.Fatalf("rows were dropped or duplicated: %d distinct of %d", len(present), total)
+		}
+	}
+
+	// Off: still a permutation of everything, and mixed rather than grouped.
+	interleaved := false
+	for run := 0; run < 20 && !interleaved; run++ {
+		ids, seen := build()
+		ordered := orderDrawPile(ids, seen, false)
+		if len(ordered) != total {
+			t.Fatalf("ordered %d rows, want %d", len(ordered), total)
+		}
+		reachedSeen := false
+		for _, id := range ordered {
+			if seen[id] {
+				reachedSeen = true
+			} else if reachedSeen {
+				interleaved = true
+			}
+		}
+	}
+	if !interleaved {
+		t.Error("with the setting off, the pile should stay fully random, not grouped by played/unplayed")
 	}
 }

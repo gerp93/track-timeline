@@ -36,13 +36,13 @@ func main() {
 	gsApi.SetBrandName("Track Timeline")
 	gsAuth.SetCookiePrefix("TRACK-TIMELINE")
 	gsApi.SetPagePolicy(gsApi.PagePolicy{
-		LoginPaths: []string{"/account", "/users", "/categories", "/stats", "/videos", "/guess-test"},
+		LoginPaths: []string{"/account", "/users", "/categories", "/stats", "/videos", "/guess-test", "/status"},
 		LoginPathPrefixes: []string{
 			"/deck",
 			"/track-timeline",
 			"/stats",
 		},
-		AdminPaths: []string{"/users", "/categories", "/videos", "/guess-test"},
+		AdminPaths: []string{"/users", "/categories", "/videos", "/guess-test", "/status"},
 	})
 	gsDatabase.SetEnvVarPrefix("TRACK_TIMELINE")
 	gsApiUser.SetMaxWinGifBytes(1000 * 1024)
@@ -94,6 +94,7 @@ func main() {
 	http.Handle("GET /categories", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.Categories)))
 	http.Handle("GET /videos", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.DeadVideos)))
 	http.Handle("GET /guess-test", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.GuessTest)))
+	http.Handle("GET /status", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.Status)))
 	http.Handle("GET /deck/{deckId}", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.Deck)))
 
 	// Overrides the framework's own /decks (see Features.DecksListPageOverride
@@ -106,6 +107,7 @@ func main() {
 	http.Handle("GET /api/deck/{deckId}/card-export", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.GetCardExport)))
 	http.Handle("POST /api/deck/{deckId}/card-import", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.ImportJSON)))
 	http.Handle("POST /api/guess-test", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.TestGuess)))
+	http.Handle("POST /api/status/check", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiPages.StatusCheck)))
 	http.Handle("POST /api/videos/check-stale", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.CheckStaleVideos)))
 	http.Handle("POST /api/videos/auto-check-stale", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.AutoCheckStaleVideos)))
 	http.Handle("GET /api/videos/library-issues-button", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.LibraryIssuesButton)))
@@ -154,6 +156,7 @@ func main() {
 	http.Handle("GET /stats/card/{cardId}", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.StatsCard)))
 
 	// lobby setup
+	http.Handle("PUT /api/track-timeline/{lobbyId}/settings", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.UpdateSettings)))
 	http.Handle("POST /api/track-timeline/create", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.Create)))
 	http.Handle("POST /api/track-timeline/search", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.Search)))
 	http.Handle("POST /api/track-timeline/card-count", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.CardCount)))
