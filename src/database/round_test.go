@@ -133,7 +133,24 @@ func TestCanBuyCard(t *testing.T) {
 		t.Fatal("not enough tokens must not allow buy")
 	}
 	if CanBuyCard(3, BuyCardCost, 5, true) {
-		t.Fatal("a strict leader must not be allowed to buy")
+		t.Fatal("a player in or tied for the lead must not be allowed to buy")
+	}
+}
+
+func TestHasOrSharesLead(t *testing.T) {
+	for _, c := range []struct {
+		mine, maxOther int
+		want           bool
+	}{
+		{3, 2, true},  // outright leader
+		{2, 2, true},  // tied for the lead
+		{1, 2, false}, // behind
+		{0, 0, true},  // everyone level, including the start of a game
+		{2, -1, true}, // no other players
+	} {
+		if got := HasOrSharesLead(c.mine, c.maxOther); got != c.want {
+			t.Errorf("HasOrSharesLead(%d, %d) = %v, want %v", c.mine, c.maxOther, got, c.want)
+		}
 	}
 }
 
@@ -302,5 +319,55 @@ func TestOrderDrawPileFreshFirst(t *testing.T) {
 	}
 	if !interleaved {
 		t.Error("with the setting off, the pile should stay fully random, not grouped by played/unplayed")
+	}
+}
+
+func TestDrawPileTooltip(t *testing.T) {
+	b := DrawPileBreakdown{Total: 20, New: 12, Repeat: 8}
+	if got := b.Tooltip(true); got != "20 songs remaining: 12 new, 8 repeated" {
+		t.Errorf("fresh-first tooltip = %q", got)
+	}
+	if got := (DrawPileBreakdown{Total: 1, New: 1}).Tooltip(true); got != "1 song remaining: 1 new, 0 repeated" {
+		t.Errorf("singular tooltip = %q", got)
+	}
+	// Without fresh-songs-first there is no new/repeat ordering to describe.
+	if got := b.Tooltip(false); got != "Songs remaining in the draw pile" {
+		t.Errorf("fully-random tooltip = %q", got)
+	}
+}
+
+// A strict majority of the eligible voters (everyone but the challenger) upholds
+// a challenge; it is rejected the moment a majority is out of reach, and at the
+// deadline anything not yet upheld is rejected.
+func TestChallengeVerdict(t *testing.T) {
+	tests := []struct {
+		name                     string
+		agree, disagree, voters  int
+		timedOut                 bool
+		wantResolved, wantUphold bool
+	}{
+		{"one voter agrees", 1, 0, 1, false, true, true},
+		{"one voter disagrees", 0, 1, 1, false, true, false},
+		{"two voters, one yes is not a majority yet", 1, 0, 2, false, false, false},
+		{"two voters both agree", 2, 0, 2, false, true, true},
+		{"two voters, one no kills it", 0, 1, 2, false, true, false},
+		{"two voters split", 1, 1, 2, false, true, false},
+		{"three voters, two yes", 2, 0, 3, false, true, true},
+		{"three voters, two no", 0, 2, 3, false, true, false},
+		{"three voters, one each, waiting", 1, 1, 3, false, false, false},
+		{"four voters, a tie is not a majority", 2, 2, 4, false, true, false},
+		{"four voters, three yes", 3, 0, 4, false, true, true},
+		{"nobody voted yet", 0, 0, 3, false, false, false},
+		{"deadline with no majority rejects", 1, 0, 3, true, true, false},
+		{"deadline never counts non-voters as yes", 0, 0, 3, true, true, false},
+		{"deadline with a majority still upholds", 2, 0, 3, true, true, true},
+	}
+	for _, test := range tests {
+		resolved, upheld := ChallengeVerdict(test.agree, test.disagree, test.voters, test.timedOut)
+		if resolved != test.wantResolved || upheld != test.wantUphold {
+			t.Errorf("%s: ChallengeVerdict(%d, %d, %d, %v) = (%v, %v), want (%v, %v)",
+				test.name, test.agree, test.disagree, test.voters, test.timedOut,
+				resolved, upheld, test.wantResolved, test.wantUphold)
+		}
 	}
 }

@@ -159,6 +159,50 @@ func ResolveClipWindow(mode string, clipSeconds int, durationSeconds int) ClipWi
 	return ClipWindow{StartSeconds: 0, EndSeconds: clipSeconds}
 }
 
+// PickDifferentClipWindow chooses another clipSeconds-long slice of the same
+// song to play instead of current, for a player who has paid to hear a
+// different part. It samples the same way PlaybackSample does (past the
+// lead-in, inside the song) whatever the lobby's own mode, and prefers a slice
+// that does not overlap current at all, so a re-roll is genuinely new audio
+// rather than a few seconds shifted. ok is false when the song has no other
+// slice to offer (a clip as long as the usable part of the song), in which
+// case nothing should be charged.
+func PickDifferentClipWindow(clipSeconds, durationSeconds int, current ClipWindow) (window ClipWindow, ok bool) {
+	var lowest, highest int
+	switch {
+	case durationSeconds == 0:
+		// Unknown length: same assumption ResolveClipWindow makes.
+		lowest, highest = SampleLeadInSeconds, SampleLeadInSeconds+180
+	case durationSeconds-clipSeconds > SampleLeadInSeconds:
+		lowest, highest = SampleLeadInSeconds, durationSeconds-clipSeconds
+	default:
+		// Too short to skip the lead-in: anywhere that still fits a full clip.
+		lowest, highest = 0, max(0, durationSeconds-clipSeconds)
+	}
+
+	// Starts that would play none of the audio current already did.
+	var fresh, other []int
+	for start := lowest; start <= highest; start++ {
+		if start == current.StartSeconds {
+			continue
+		}
+		other = append(other, start)
+		if start+clipSeconds <= current.StartSeconds || start >= current.StartSeconds+clipSeconds {
+			fresh = append(fresh, start)
+		}
+	}
+
+	pool := fresh
+	if len(pool) == 0 {
+		pool = other
+	}
+	if len(pool) == 0 {
+		return current, false
+	}
+	start := pool[rand.Intn(len(pool))]
+	return ClipWindow{StartSeconds: start, EndSeconds: start + clipSeconds}, true
+}
+
 // SampleWouldFit reports whether a middle sample of clipSeconds can be carved
 // out of a song of durationSeconds past the lead-in.
 func SampleWouldFit(clipSeconds int, durationSeconds int) bool {
@@ -240,6 +284,10 @@ type Game struct {
 	// ReplayUsed is whether the player on turn has already spent a token to
 	// hear this round's clip a second time. Reset on every turn advance.
 	ReplayUsed bool
+
+	// BetweenRounds is true from the moment a round resolves until the next
+	// song is played: the only window in which a challenge can be raised.
+	BetweenRounds bool
 	WinnerId   uuid.NullUUID
 }
 
@@ -364,6 +412,7 @@ func getGameByColumn(column string, value uuid.UUID) (Game, error) {
 			CLIP_START_SECONDS,
 			CLIP_END_SECONDS,
 			REPLAY_USED,
+			BETWEEN_ROUNDS,
 			WINNER_ID
 		FROM TRACK_TIMELINE_GAME
 		WHERE %s = ?
@@ -392,6 +441,7 @@ func getGameByColumn(column string, value uuid.UUID) (Game, error) {
 			&game.ClipStartSeconds,
 			&game.ClipEndSeconds,
 			&game.ReplayUsed,
+			&game.BetweenRounds,
 			&game.WinnerId,
 		); err != nil {
 			log.Println(err)
@@ -848,28 +898,62 @@ func GetGameDecks(gameId uuid.UUID) ([]DeckInfo, error) {
 	return result, nil
 }
 
-// GetDrawPileCount reports how many songs are left undrawn.
-func GetDrawPileCount(gameId uuid.UUID) (int, error) {
+// DrawPileBreakdown is what is left undrawn: the total, and how much of it no
+// game has played before (New) versus songs that have already been heard in
+// some earlier game (Repeat).
+type DrawPileBreakdown struct {
+	Total  int
+	New    int
+	Repeat int
+}
+
+// Tooltip is the hover text for the "songs left" badge. Only a lobby that deals
+// fresh songs first has a new/repeat split worth showing; otherwise the order is
+// fully random and the plain description is all there is to say.
+func (b DrawPileBreakdown) Tooltip(freshFirst bool) string {
+	if !freshFirst {
+		return "Songs remaining in the draw pile"
+	}
+	return fmt.Sprintf("%s remaining: %d new, %d repeated", songCount(b.Total), b.New, b.Repeat)
+}
+
+func songCount(n int) string {
+	if n == 1 {
+		return "1 song"
+	}
+	return fmt.Sprintf("%d songs", n)
+}
+
+// GetDrawPileBreakdown reports how many songs are left undrawn and how many of
+// those are new (never drawn, dealt or bought in any game) versus repeats — the
+// same notion of "seen" ShuffleDrawPile uses to deal fresh songs first.
+func GetDrawPileBreakdown(gameId uuid.UUID) (DrawPileBreakdown, error) {
+	var breakdown DrawPileBreakdown
+
 	sqlString := `
-		SELECT COUNT(*)
-		FROM TRACK_TIMELINE_DRAW_PILE
-		WHERE TRACK_TIMELINE_GAME_ID = ? AND DRAWN = 0
+		SELECT COUNT(*),
+			COALESCE(SUM(NOT EXISTS (
+				SELECT 1 FROM TRACK_TIMELINE_LOG_CARD L
+				WHERE L.CARD_ID = P.CARD_ID AND L.EVENT_TYPE IN ('drawn', 'dealt', 'bought')
+			)), 0)
+		FROM TRACK_TIMELINE_DRAW_PILE P
+		WHERE P.TRACK_TIMELINE_GAME_ID = ? AND P.DRAWN = 0
 	`
 	rows, err := query(sqlString, gameId)
 	if err != nil {
-		return 0, err
+		return breakdown, err
 	}
 	defer rows.Close()
 
-	var count int
 	for rows.Next() {
-		if err := rows.Scan(&count); err != nil {
+		if err := rows.Scan(&breakdown.Total, &breakdown.New); err != nil {
 			log.Println(err)
-			return 0, errors.New("failed to scan row in query results")
+			return breakdown, errors.New("failed to scan row in query results")
 		}
 	}
+	breakdown.Repeat = breakdown.Total - breakdown.New
 
-	return count, nil
+	return breakdown, nil
 }
 
 // GetPlayers returns every player in turn order, with timeline size and token
@@ -1312,6 +1396,9 @@ func ResetGame(gameId uuid.UUID) error {
 		"DELETE FROM TRACK_TIMELINE_PLACEMENT WHERE TRACK_TIMELINE_GAME_ID = ?",
 		"DELETE FROM TRACK_TIMELINE_TITLE_GUESS WHERE TRACK_TIMELINE_GAME_ID = ?",
 		"DELETE FROM TRACK_TIMELINE_PLAYER_TOKEN WHERE TRACK_TIMELINE_GAME_ID = ?",
+		// Votes go with their challenges (ON DELETE CASCADE). A new game gives
+		// every player their challenge back.
+		"DELETE FROM TRACK_TIMELINE_CHALLENGE WHERE TRACK_TIMELINE_GAME_ID = ?",
 	} {
 		if err := execute(sqlString, gameId); err != nil {
 			return err
@@ -1337,7 +1424,7 @@ func ResetGame(gameId uuid.UUID) error {
 	sqlResetGame := `
 		UPDATE TRACK_TIMELINE_GAME
 		SET GAME_STATUS = ?, ROUND_PHASE = ?, PHASE_STARTED_ON_DATE = NULL,
-			CURRENT_PLAYER_ID = NULL, WINNER_ID = NULL
+			CURRENT_PLAYER_ID = NULL, WINNER_ID = NULL, BETWEEN_ROUNDS = 0
 		WHERE ID = ?
 	`
 	return execute(sqlResetGame, StatusWaiting, PhaseListening, gameId)

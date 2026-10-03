@@ -104,6 +104,26 @@
                     <span class="bi bi-arrow-counterclockwise"></span> Restart ({{.Economy.ReplayCost}})
                 </button>
                 {{end}}
+                {{if and (eq .RoundPhase "listening") (not .HasPlaced) (ne .PlaybackMode "full")}}
+                <!-- Same gating as Restart (revealed by syncPlaybackUI once the
+                     clip has been heard through or paused), but repeatable:
+                     each buy plays a fresh random slice of the same song.
+                     Hidden entirely when the lobby plays the whole song. -->
+                <button
+                    id="tt-newclip-btn"
+                    class="btn-secondary"
+                    style="display: none"
+                    disabled
+                    data-cost="{{.Economy.NewClipCost}}"
+                    {{if lt .TokenCount .Economy.NewClipCost}}data-no-tokens="1"{{end}}
+                    hx-post="/api/track-timeline/{{.LobbyId}}/new-clip"
+                    hx-swap="none"
+                    hx-confirm="Spend {{.Economy.Tokens .Economy.NewClipCost}} to hear a different part of this song?"
+                    title="{{if lt .TokenCount .Economy.NewClipCost}}You need {{.Economy.Tokens .Economy.NewClipCost}} for a different clip.{{else}}Hear a different part of this song for {{.Economy.Tokens .Economy.NewClipCost}}{{end}}"
+                >
+                    <span class="bi bi-shuffle"></span> New Clip ({{.Economy.NewClipCost}})
+                </button>
+                {{end}}
                 {{if and (eq .RoundPhase "listening") (not .HasPlaced)}}
                 <!-- Starts disabled and is enabled by syncPlaybackUI once the
                      song has actually been cued: skipping is for a song you
@@ -125,6 +145,23 @@
                     <span class="bi bi-skip-forward"></span> Skip ({{.Economy.SkipCost}})
                 </button>
                 {{end}}
+            </div>
+            {{end}}
+            {{if .CanChallenge}}
+            <!-- Between rounds only, for anyone who still has their challenge:
+                 the server decides (CanChallenge) and the Challenge button goes
+                 as soon as the next song starts. -->
+            <div class="challenge-row">
+                <button
+                    type="button"
+                    id="tt-challenge-btn"
+                    class="btn-secondary"
+                    data-max-tokens="{{.MaxChallengeTokens}}"
+                    onclick="ttOpenChallengeForm()"
+                    title="Think the game got something wrong? Ask the table to vote on what you're owed"
+                >
+                    <span class="bi bi-flag"></span> Challenge
+                </button>
             </div>
             {{end}}
 

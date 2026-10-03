@@ -35,14 +35,27 @@ import (
 // stamps a new PHASE_STARTED_ON_DATE, which makes the stale timer's check
 // fail and turns it into a no-op instead of double-resolving the round.
 
+// remainingMs is how long is left until deadline, per this process's clock —
+// the same clock the enforcing time.AfterFunc uses. Clients count down from
+// this duration on their own clock rather than comparing the absolute
+// absolute deadline to Date.now(): a browser whose clock runs ahead of the server's
+// would otherwise see the window as already expired (a permanent "0").
+func remainingMs(deadline time.Time) int64 {
+	ms := time.Until(deadline).Milliseconds()
+	if ms < 0 {
+		return 0
+	}
+	return ms
+}
+
 // stealJoinPayload is the steal: websocket message, broadcast once when the
 // turn player's placement is committed. Every client renders the same
-// countdown computed from DeadlineMs, rather than each starting its own
+// countdown computed from RemainingMs, rather than each starting its own
 // local timer on receipt. The year bounds are the implied slot on the
 // placer's timeline — including for exact-year lock-ins — so the digits of
 // an exact-year wager are never leaked here.
 type stealJoinPayload struct {
-	DeadlineMs   int64 `json:"deadlineMs"`
+	RemainingMs  int64 `json:"remainingMs"`
 	HasLowerYear bool  `json:"hasLowerYear,omitempty"`
 	LowerYear    int   `json:"lowerYear,omitempty"`
 	HasUpperYear bool  `json:"hasUpperYear,omitempty"`
@@ -50,7 +63,7 @@ type stealJoinPayload struct {
 }
 
 func sendStealJoin(lobbyId uuid.UUID, deadline time.Time, timeline []database.TimelineCard, position int) {
-	payload := stealJoinPayload{DeadlineMs: deadline.UnixMilli()}
+	payload := stealJoinPayload{RemainingMs: remainingMs(deadline)}
 	if position > 0 {
 		payload.HasLowerYear = true
 		payload.LowerYear = timeline[position-1].ReleaseYear
@@ -71,14 +84,14 @@ func sendStealJoin(lobbyId uuid.UUID, deadline time.Time, timeline []database.Ti
 // stealTurnPayload is the stealTurn: websocket message, broadcast once the
 // sole steal attempt has been claimed.
 type stealTurnPayload struct {
-	DeadlineMs  int64  `json:"deadlineMs"`
+	RemainingMs int64  `json:"remainingMs"`
 	StealerId   string `json:"stealerId"`
 	StealerName string `json:"stealerName"`
 }
 
 func sendStealTurn(lobbyId uuid.UUID, deadline time.Time, stealerId uuid.UUID, stealerName string) {
 	payload := stealTurnPayload{
-		DeadlineMs:  deadline.UnixMilli(),
+		RemainingMs: remainingMs(deadline),
 		StealerId:   stealerId.String(),
 		StealerName: stealerName,
 	}

@@ -497,9 +497,9 @@ func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	drawPileCount, err := database.GetDrawPileCount(game.Id)
+	drawPile, err := database.GetDrawPileBreakdown(game.Id)
 	if err != nil {
-		drawPileCount = 0
+		drawPile = database.DrawPileBreakdown{}
 	}
 
 	decks, err := database.GetGameDecks(game.Id)
@@ -537,6 +537,7 @@ func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
 		Game             database.Game
 		Decks            []database.DeckInfo
 		DrawPileCount    int
+		DrawPileTooltip  string
 		YearRanges       []database.YearRange
 		TurnTimerSeconds int
 		WinnerName       string
@@ -552,7 +553,8 @@ func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
 		Lobby:            lobby,
 		Game:             game,
 		Decks:            decks,
-		DrawPileCount:    drawPileCount,
+		DrawPileCount:    drawPile.Total,
+		DrawPileTooltip:  drawPile.Tooltip(game.FreshSongsFirst),
 		YearRanges:       yearRanges,
 		TurnTimerSeconds: turnTimerSeconds,
 		WinnerName:       winnerName,

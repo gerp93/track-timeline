@@ -73,7 +73,7 @@
                 <span class="stat-text" title="First to {{.Game.CardsToWin}} cards wins">
                     <span class="bi bi-trophy"></span> First to <strong>{{.Game.CardsToWin}}</strong>
                 </span>
-                <span class="stat-text" title="Songs remaining in the draw pile">
+                <span class="stat-text" id="tt-draw-pile-stat" title="{{.DrawPileTooltip}}">
                     <span class="bi bi-music-note-list"></span> <strong id="tt-draw-pile-count">{{.DrawPileCount}}</strong> songs left
                 </span>
                 <span class="stat-text tt-deck-tooltip" title="Hover for the decks in this game">

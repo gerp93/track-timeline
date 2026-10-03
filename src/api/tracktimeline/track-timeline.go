@@ -89,6 +89,17 @@ func tokensWonLost(delta int) string {
 	return fmt.Sprintf("lost %d %s", n, word)
 }
 
+// wagerResult is the chat phrasing for a settled exact-year wager: it names the
+// stake as well as the outcome ("wagered 3 tokens and lost 3 tokens"), since
+// the won/lost amount alone does not tell the table how much was riding on it.
+func wagerResult(wager int, correct bool) string {
+	delta := -wager
+	if correct {
+		delta = wager
+	}
+	return fmt.Sprintf("wagered %s and %s", tokenCount(wager), tokensWonLost(delta))
+}
+
 // tokenCount phrases a number of tokens for chat: "1 token", "2 tokens".
 func tokenCount(n int) string {
 	return database.CurrentEconomy().Tokens(n)
@@ -701,6 +712,9 @@ func PlaySong(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if challengeInProgress(w, ctx) {
+		return
+	}
 
 	if ctx.Game.GameStatus != database.StatusActive {
 		w.WriteHeader(http.StatusBadRequest)
@@ -739,6 +753,15 @@ func PlaySong(w http.ResponseWriter, r *http.Request) {
 
 	sendSong(ctx.LobbyId, card, window)
 
+	// The song is on: the window for challenging the previous round is over.
+	// Everyone's current-card fragment is refreshed so the Challenge button goes.
+	if ctx.Game.BetweenRounds {
+		if err := database.SetBetweenRounds(ctx.Game.Id, false); err != nil {
+			log.Println(err)
+		}
+		refresh(ctx.LobbyId)
+	}
+
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("Playing."))
 }
@@ -750,6 +773,9 @@ func PlaySong(w http.ResponseWriter, r *http.Request) {
 func ReplaySong(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)
 	if !ok {
+		return
+	}
+	if challengeInProgress(w, ctx) {
 		return
 	}
 
@@ -813,6 +839,90 @@ func ReplaySong(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("Replaying."))
 }
 
+// NewClip spends tokens to hear a different slice of this song instead of the
+// one already heard — the same song, a fresh random window, as often as the
+// player can pay. Gated like ReplaySong (the player on turn, before they lock
+// in a placement) but with no once-a-round limit, and it never reveals which
+// part of the song the new window is. Pointless when the lobby plays the whole
+// song, so that mode refuses it.
+func NewClip(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := loadContext(w, r)
+	if !ok {
+		return
+	}
+	if challengeInProgress(w, ctx) {
+		return
+	}
+
+	if ctx.Game.GameStatus != database.StatusActive {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("The game is not running."))
+		return
+	}
+	if ctx.Game.RoundPhase != database.PhaseListening {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("It is too late to pick another clip."))
+		return
+	}
+	if !ctx.Game.CurrentPlayerId.Valid || ctx.Game.CurrentPlayerId.UUID != ctx.Player.Id {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Only the player on turn can pick another clip."))
+		return
+	}
+	if ctx.Game.PlaybackMode == database.PlaybackFull {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("The whole song already plays in this lobby."))
+		return
+	}
+
+	tokens, err := database.GetPlayerTokens(ctx.Game.Id, ctx.Player.Id)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to check your tokens."))
+		return
+	}
+	if tokens < database.NewClipCost {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("You need " + tokenCount(database.NewClipCost) + " to hear a different clip."))
+		return
+	}
+
+	card, err := database.GetCurrentCard(ctx.Game.Id)
+	if err != nil || card.CardId == uuid.Nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("No song is in play."))
+		return
+	}
+
+	// Picked before any token moves, so a song with nothing else to offer
+	// costs nothing.
+	window, found := database.PickDifferentClipWindow(
+		ctx.Game.ClipSeconds, card.DurationSeconds,
+		database.ClipWindow{StartSeconds: ctx.Game.ClipStartSeconds, EndSeconds: ctx.Game.ClipEndSeconds},
+	)
+	if !found {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("There is no other clip to play for this song."))
+		return
+	}
+
+	if _, err := database.AddPlayerTokens(ctx.Game.Id, ctx.Player.Id, -database.NewClipCost); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to spend your tokens."))
+		return
+	}
+	if err := database.SetClipWindow(ctx.Game.Id, window); err != nil {
+		log.Println(err)
+	}
+
+	announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> %s to hear a different clip", esc(ctx.Player.Name), tokensSpent(database.NewClipCost)))
+	sendSong(ctx.LobbyId, card, window)
+	refresh(ctx.LobbyId)
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("Playing a different clip."))
+}
+
 // PauseSong and ResumeSong toggle playback in place for everyone, distinct
 // from PlaySong: PlaySong (re)cues the song from its configured start offset,
 // while resuming has to continue from wherever playback was paused instead of
@@ -823,6 +933,9 @@ func ReplaySong(w http.ResponseWriter, r *http.Request) {
 func PauseSong(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)
 	if !ok {
+		return
+	}
+	if challengeInProgress(w, ctx) {
 		return
 	}
 
@@ -846,6 +959,9 @@ func PauseSong(w http.ResponseWriter, r *http.Request) {
 func ResumeSong(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)
 	if !ok {
+		return
+	}
+	if challengeInProgress(w, ctx) {
 		return
 	}
 

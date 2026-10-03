@@ -36,6 +36,9 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if challengeInProgress(w, ctx) {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("Failed to parse form."))
@@ -149,6 +152,10 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("Failed to spend your wager."))
 			return
 		}
+		// The stake is public the moment it is put down; the year digits and
+		// whether they were right wait for the reveal (see announceAndFinish).
+		announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> wagered %s on an exact year",
+			esc(ctx.Player.Name), tokenCount(yearWager)))
 		if exactYearCorrect {
 			// Double-or-nothing: return 2× the wager for a net gain of the wager.
 			if _, err := database.AddPlayerTokens(ctx.Game.Id, ctx.Player.Id, 2*yearWager); err != nil {
@@ -238,6 +245,9 @@ func BuyCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if challengeInProgress(w, ctx) {
+		return
+	}
 
 	if ctx.Game.GameStatus != database.StatusActive {
 		w.WriteHeader(http.StatusBadRequest)
@@ -276,6 +286,9 @@ func BuyCard(w http.ResponseWriter, r *http.Request) {
 func ClaimSteal(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)
 	if !ok {
+		return
+	}
+	if challengeInProgress(w, ctx) {
 		return
 	}
 
@@ -328,6 +341,9 @@ func ClaimSteal(w http.ResponseWriter, r *http.Request) {
 func AttemptSteal(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)
 	if !ok {
+		return
+	}
+	if challengeInProgress(w, ctx) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -481,12 +497,12 @@ func announceAndFinish(ctx gameContext, outcome database.RoundOutcome) {
 		if outcome.ExactYearCorrect {
 			announce(ctx.LobbyId, fmt.Sprintf(
 				"<green>%s</> nailed the exact year %d — %s",
-				esc(outcome.ExactYearPlayer), outcome.ExactYearGuess, tokensWonLost(outcome.YearWager),
+				esc(outcome.ExactYearPlayer), outcome.ExactYearGuess, wagerResult(outcome.YearWager, true),
 			))
 		} else {
 			announce(ctx.LobbyId, fmt.Sprintf(
 				"<red>%s</> missed the exact year (guessed %d, was %d) — %s",
-				esc(outcome.ExactYearPlayer), outcome.ExactYearGuess, outcome.ReleaseYear, tokensWonLost(-outcome.YearWager),
+				esc(outcome.ExactYearPlayer), outcome.ExactYearGuess, outcome.ReleaseYear, wagerResult(outcome.YearWager, false),
 			))
 		}
 	}
@@ -651,6 +667,9 @@ func SubmitGuess(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if challengeInProgress(w, ctx) {
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("Failed to parse form."))
@@ -778,6 +797,9 @@ func submitGuessForPlayer(httpCtx context.Context, ctx gameContext, card databas
 	// everyone else before the song is actually revealed. The public line is
 	// sent later, at reveal, from the stored guess (see announceAndFinish).
 	private := describeVerdict(verdict)
+	if parts := describeRightParts(verdict.TitleCorrect, verdict.ArtistCorrect, card.Title, card.Artist); parts != "" {
+		private += " " + parts
+	}
 	if verdict.Explanation != "" {
 		private += " " + verdict.Explanation
 	}
@@ -843,7 +865,31 @@ func describeStoredGuessForPlayer(gameId uuid.UUID, playerId uuid.UUID) (string,
 		ArtistMatchPercent: float64(mine.ArtistMatchPercent),
 		ByAI:               mine.JudgedByAI,
 	}
-	return describeVerdict(verdict), true
+	text := describeVerdict(verdict)
+	if mine.TitleCorrect || mine.ArtistCorrect {
+		if card, err := database.GetCurrentCardAnswer(gameId); err == nil {
+			if parts := describeRightParts(mine.TitleCorrect, mine.ArtistCorrect, card.Title, card.Artist); parts != "" {
+				text += " " + parts
+			}
+		}
+	}
+	return text, true
+}
+
+// describeRightParts confirms to the guesser the actual title and/or artist of
+// whichever parts they got right. Only the right parts are named — a correct
+// title must not hand over the artist the player hasn't earned yet. Safe to
+// send privately before reveal, since it only repeats what they already typed.
+func describeRightParts(titleCorrect, artistCorrect bool, title, artist string) string {
+	switch {
+	case titleCorrect && artistCorrect:
+		return fmt.Sprintf("It's \"%s\" by %s.", title, artist)
+	case titleCorrect:
+		return fmt.Sprintf("The title is \"%s\".", title)
+	case artistCorrect:
+		return fmt.Sprintf("The artist is %s.", artist)
+	}
+	return ""
 }
 
 // truncateRunes caps s at maxRunes runes, not bytes: s[:maxRunes] on the raw
@@ -896,6 +942,9 @@ func describeGuessPublic(g database.Guess) string {
 func ReportDeadVideo(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)
 	if !ok {
+		return
+	}
+	if challengeInProgress(w, ctx) {
 		return
 	}
 
@@ -954,6 +1003,9 @@ func SkipCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if challengeInProgress(w, ctx) {
+		return
+	}
 
 	if ctx.Game.GameStatus != database.StatusActive {
 		w.WriteHeader(http.StatusBadRequest)
@@ -988,6 +1040,10 @@ func SkipCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Read before the swap: once skipped, the song is out of play for good, so
+	// telling the table what it was gives away nothing.
+	skipped, skippedErr := database.GetCurrentCardAnswer(ctx.Game.Id)
+
 	if err := database.SkipCurrentCard(ctx.Game.Id); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to skip the song."))
@@ -995,7 +1051,11 @@ func SkipCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "songStop")
-	announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> %s to skip a song", esc(ctx.Player.Name), tokensSpent(database.SkipCost)))
+	skipLine := fmt.Sprintf("<blue>%s</> %s to skip a song", esc(ctx.Player.Name), tokensSpent(database.SkipCost))
+	if skippedErr == nil && skipped.CardId != uuid.Nil {
+		skipLine += fmt.Sprintf(": “%s” by %s (%d)", esc(skipped.Title), esc(skipped.Artist), skipped.ReleaseYear)
+	}
+	announce(ctx.LobbyId, skipLine)
 	sendStatus(ctx.LobbyId, "Song skipped — a new one has been drawn.")
 	refresh(ctx.LobbyId)
 
@@ -1012,6 +1072,9 @@ func SkipCard(w http.ResponseWriter, r *http.Request) {
 func TimeoutPass(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)
 	if !ok {
+		return
+	}
+	if challengeInProgress(w, ctx) {
 		return
 	}
 

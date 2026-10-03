@@ -59,6 +59,10 @@ CREATE TABLE IF NOT EXISTS TRACK_TIMELINE_GAME(
     -- Whether the player on turn has already spent a token to replay this
     -- round's clip. One replay per round, cleared on every turn advance.
     REPLAY_USED TINYINT(1) NOT NULL DEFAULT 0,
+    -- A round has resolved and the next song has not been started yet: the one
+    -- window in which a player may raise a challenge. Set when the turn
+    -- advances, cleared when the next song is played.
+    BETWEEN_ROUNDS TINYINT(1) NOT NULL DEFAULT 0,
     WINNER_ID UUID NULL,
     PRIMARY KEY(ID),
     FOREIGN KEY(LOBBY_ID) REFERENCES LOBBY(ID) ON DELETE CASCADE,

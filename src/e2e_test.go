@@ -900,8 +900,8 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	// included) rather than an arbitrary one of the two: by this point in the
 	// test several steals/placements have already happened, and this section
 	// is testing the buy mechanic itself, not the separate in-the-lead
-	// restriction (covered on its own in TestBuyCardCostAndStrictLeaderRestriction) --
-	// picking whoever is behind guarantees they are never the strict leader.
+	// restriction (covered on its own in TestBuyCardCostAndLeadRestriction) --
+	// whoever is picked is made strictly behind below.
 	candidates := otherPlayers(currentPlayer())
 	buyer := candidates[0]
 	buyerLen, err := database.GetPlayerTimeline(gameId, buyer.playerId)
@@ -916,6 +916,27 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 		if len(cLen) < len(buyerLen) {
 			buyer = c
 			buyerLen = cLen
+		}
+	}
+	// A player in or tied for the lead cannot buy, so make sure the buyer is
+	// strictly behind someone: if they are level with the longest timeline, take
+	// their last card off (the buy below puts one back, so they end the section
+	// exactly where they started).
+	maxOther := 0
+	allPlayers, err := database.GetPlayers(gameId)
+	if err != nil {
+		t.Fatalf("players: %v", err)
+	}
+	for _, p := range allPlayers {
+		if p.IsActive && p.PlayerId != buyer.playerId && p.TimelineSize > maxOther {
+			maxOther = p.TimelineSize
+		}
+	}
+	if len(buyerLen) >= maxOther && len(buyerLen) > 0 {
+		if err := gsDatabase.Execute(
+			"DELETE FROM TRACK_TIMELINE_PLAYER_TIMELINE WHERE TRACK_TIMELINE_GAME_ID = ? AND PLAYER_ID = ? ORDER BY POSITION DESC LIMIT 1",
+			gameId, buyer.playerId); err != nil {
+			t.Fatalf("make the buyer trail: %v", err)
 		}
 	}
 	if err := database.SetPlayerTokens(gameId, buyer.playerId, database.BuyCardCost); err != nil {

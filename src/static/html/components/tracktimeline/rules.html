@@ -89,6 +89,18 @@
                     </div>
                 </div>
                 <div class="tt-econ-item">
+                    <span class="tt-econ-badge plus">vote</span>
+                    <div>
+                        <strong>Challenge:</strong> Between rounds, if you think the game got something wrong (the AI judge, a glitch, a bad video or year), challenge it: say what happened and ask for a free card or some tokens. The others vote, and if most of them agree you get it. You can keep challenging as long as you win, but one rejected challenge uses up yours for the game. Nothing else can happen while a challenge is being voted on.
+                    </div>
+                </div>
+                <div class="tt-econ-item">
+                    <span class="tt-econ-badge minus">-{{$e.NewClipCost}}</span>
+                    <div>
+                        <strong>New Clip:</strong> After hearing the clip, spend {{$e.Tokens $e.NewClipCost}} to hear a different random part of the same song. Buy it as many times as you like.
+                    </div>
+                </div>
+                <div class="tt-econ-item">
                     <span class="tt-econ-badge minus">-{{$e.SkipCost}}</span>
                     <div>
                         <strong>Skip Song:</strong> On your turn, spend {{$e.Tokens $e.SkipCost}} to pass a difficult song without risking a missed placement.
@@ -103,7 +115,7 @@
                 <div class="tt-econ-item">
                     <span class="tt-econ-badge minus">-{{$e.BuyCardCost}}</span>
                     <div>
-                        <strong>Buy a Card:</strong> Spend {{$e.Tokens $e.BuyCardCost}} at any time to draw and place a song card directly into your timeline!
+                        <strong>Buy a Card:</strong> Spend {{$e.Tokens $e.BuyCardCost}} at any time to draw and place a song card directly into your timeline! Not available while you are in or tied for the lead.
                     </div>
                 </div>
             </div>

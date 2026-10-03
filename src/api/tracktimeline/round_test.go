@@ -69,6 +69,36 @@ func TestDescribeVerdictReportsWhatWasEarned(t *testing.T) {
 	}
 }
 
+// The chat line for a settled wager has to state the stake, not just the
+// delta, so the table can see how much was riding on it.
+func TestWagerResultNamesStakeAndOutcome(t *testing.T) {
+	if got := wagerResult(3, false); got != "wagered 3 tokens and lost 3 tokens" {
+		t.Errorf("lost wager: got %q", got)
+	}
+	if got := wagerResult(1, true); got != "wagered 1 token and won 1 token" {
+		t.Errorf("won wager: got %q", got)
+	}
+}
+
+// A right part is confirmed back to the guesser, but a wrong part is never
+// revealed — a correct title must not leak the artist.
+func TestDescribeRightPartsOnlyNamesWhatWasRight(t *testing.T) {
+	if got := describeRightParts(true, true, "Africa", "Toto"); got != `It's "Africa" by Toto.` {
+		t.Errorf("both right: got %q", got)
+	}
+	got := describeRightParts(true, false, "Africa", "Toto")
+	if !strings.Contains(got, "Africa") || strings.Contains(got, "Toto") {
+		t.Errorf("title only should name the title and not the artist, got %q", got)
+	}
+	got = describeRightParts(false, true, "Africa", "Toto")
+	if !strings.Contains(got, "Toto") || strings.Contains(got, "Africa") {
+		t.Errorf("artist only should name the artist and not the title, got %q", got)
+	}
+	if got := describeRightParts(false, false, "Africa", "Toto"); got != "" {
+		t.Errorf("a wrong guess should reveal nothing, got %q", got)
+	}
+}
+
 // A hand-built POST skips the form's maxlength, and both boxes are sent on to
 // the AI judge, so the server has to cap them itself.
 func TestGuessFieldsCapsEachBox(t *testing.T) {

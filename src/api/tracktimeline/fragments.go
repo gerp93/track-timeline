@@ -1,9 +1,9 @@
 package apiTrackTimeline
 
 import (
+	"encoding/json"
 	"html/template"
 	"net/http"
-	"strconv"
 
 	"github.com/google/uuid"
 
@@ -58,6 +58,21 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		guessResultText, _ = describeStoredGuessForPlayer(ctx.Game.Id, ctx.Player.Id)
 	}
 
+	// The Challenge button is offered to anyone who still has a challenge, but
+	// only in the window between a round ending and the next song starting, and
+	// not while one is already being voted on.
+	canChallenge := false
+	if ctx.Game.GameStatus == database.StatusActive && ctx.Game.BetweenRounds &&
+		ctx.Game.RoundPhase == database.PhaseListening {
+		if open, openErr := database.GetOpenChallenge(ctx.Game.Id); openErr == nil && !open.Exists() {
+			if left, leftErr := database.PlayerHasChallengeLeft(ctx.Game.Id, ctx.Player.Id); leftErr == nil && left {
+				if voters, votersErr := database.ChallengeVoters(ctx.Game.Id, ctx.Player.Id); votersErr == nil && len(voters) > 0 {
+					canChallenge = true
+				}
+			}
+		}
+	}
+
 	tmpl, err := template.ParseFS(static.StaticFiles, "html/components/tracktimeline/current-card.html")
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -83,36 +98,42 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 
 	type data struct {
 		database.CurrentCard
-		Answer          database.CurrentCardAnswer
-		Revealed        bool
-		LobbyId         uuid.UUID
-		GameStatus      string
-		RoundPhase      string
-		IsCurrentPlayer bool
-		IsWinner        bool
-		HasPlaced       bool
-		HasGuessed      bool
-		GuessResultText string
-		ReplayUsed      bool
-		TokenCount      int
-		Economy         database.Economy
+		Answer             database.CurrentCardAnswer
+		Revealed           bool
+		LobbyId            uuid.UUID
+		GameStatus         string
+		RoundPhase         string
+		IsCurrentPlayer    bool
+		IsWinner           bool
+		HasPlaced          bool
+		HasGuessed         bool
+		GuessResultText    string
+		ReplayUsed         bool
+		PlaybackMode       string
+		CanChallenge       bool
+		MaxChallengeTokens int
+		TokenCount         int
+		Economy            database.Economy
 	}
 
 	_ = tmpl.Execute(w, data{
-		CurrentCard:     card,
-		Answer:          answer,
-		Revealed:        revealed,
-		LobbyId:         ctx.LobbyId,
-		GameStatus:      ctx.Game.GameStatus,
-		RoundPhase:      ctx.Game.RoundPhase,
-		IsCurrentPlayer: isCurrentPlayer,
-		IsWinner:        isWinner,
-		HasPlaced:       hasPlaced,
-		HasGuessed:      hasGuessed,
-		GuessResultText: guessResultText,
-		ReplayUsed:      ctx.Game.ReplayUsed,
-		TokenCount:      tokens,
-		Economy:         database.CurrentEconomy(),
+		CurrentCard:        card,
+		Answer:             answer,
+		Revealed:           revealed,
+		LobbyId:            ctx.LobbyId,
+		GameStatus:         ctx.Game.GameStatus,
+		RoundPhase:         ctx.Game.RoundPhase,
+		IsCurrentPlayer:    isCurrentPlayer,
+		IsWinner:           isWinner,
+		HasPlaced:          hasPlaced,
+		HasGuessed:         hasGuessed,
+		GuessResultText:    guessResultText,
+		ReplayUsed:         ctx.Game.ReplayUsed,
+		PlaybackMode:       ctx.Game.PlaybackMode,
+		CanChallenge:       canChallenge,
+		MaxChallengeTokens: database.MaxChallengeTokens,
+		TokenCount:         tokens,
+		Economy:            database.CurrentEconomy(),
 	})
 }
 
@@ -161,9 +182,8 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 		ctx.Game.StealerPlayerId.UUID == ctx.Player.Id
 
 	// Computed from the timelines already fetched above rather than a second
-	// database round-trip: strictly more cards than every other active
-	// player disables Buy — a leader shopping the pile for the finish is not
-	// the point of the token.
+	// database round-trip: being in or tied for the lead disables Buy — it is a
+	// catch-up token, not a way for the front-runner to shop for the finish.
 	myTimelineLen, maxOtherTimelineLen := -1, -1
 	currentPlayerName := ""
 	for _, t := range timelines {
@@ -177,7 +197,7 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 			maxOtherTimelineLen = len(t.Timeline)
 		}
 	}
-	inLead := myTimelineLen > maxOtherTimelineLen
+	inLead := database.HasOrSharesLead(myTimelineLen, maxOtherTimelineLen)
 
 	// Live "who's still deciding" status for the persistent board banner,
 	// not a toast that vanishes after a few seconds: how many of the active
@@ -231,21 +251,26 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetDrawPileCount returns the bare number of songs left.
-func GetDrawPileCount(w http.ResponseWriter, r *http.Request) {
+// GetDrawPile returns the songs-left count and its hover text as JSON, so the
+// header badge can refresh both together.
+func GetDrawPile(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)
 	if !ok {
 		return
 	}
 
-	count, err := database.GetDrawPileCount(ctx.Game.Id)
+	breakdown, err := database.GetDrawPileBreakdown(ctx.Game.Id)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("0"))
+		_, _ = w.Write([]byte("Failed to read the draw pile."))
 		return
 	}
 
-	_, _ = w.Write([]byte(strconv.Itoa(count)))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(struct {
+		Count   int    `json:"count"`
+		Tooltip string `json:"tooltip"`
+	}{breakdown.Total, breakdown.Tooltip(ctx.Game.FreshSongsFirst)})
 }
 
 // GetDecks renders which decks fed this game's pile.

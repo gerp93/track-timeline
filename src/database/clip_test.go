@@ -80,3 +80,52 @@ func TestResolveClipWindow(t *testing.T) {
 		}
 	})
 }
+
+// A re-roll has to be genuinely different audio: never the same start, and
+// non-overlapping whenever the song has room for that.
+func TestPickDifferentClipWindow(t *testing.T) {
+	const clip = 30
+
+	t.Run("never repeats the current start and stays inside the song", func(t *testing.T) {
+		current := ClipWindow{StartSeconds: 60, EndSeconds: 90}
+		for i := 0; i < 500; i++ {
+			got, ok := PickDifferentClipWindow(clip, 240, current)
+			if !ok {
+				t.Fatal("a 240s song has other clips to offer")
+			}
+			if got.StartSeconds == current.StartSeconds {
+				t.Fatalf("picked the same start again: %+v", got)
+			}
+			if got.StartSeconds < SampleLeadInSeconds || got.EndSeconds > 240 {
+				t.Fatalf("window %+v is outside the usable part of the song", got)
+			}
+			if got.EndSeconds-got.StartSeconds != clip {
+				t.Fatalf("window %+v is not %ds long", got, clip)
+			}
+		}
+	})
+
+	t.Run("avoids overlapping the clip already heard when there is room", func(t *testing.T) {
+		current := ClipWindow{StartSeconds: 100, EndSeconds: 130}
+		for i := 0; i < 500; i++ {
+			got, _ := PickDifferentClipWindow(clip, 300, current)
+			if got.StartSeconds < current.EndSeconds && got.EndSeconds > current.StartSeconds {
+				t.Fatalf("window %+v overlaps the clip already heard %+v", got, current)
+			}
+		}
+	})
+
+	t.Run("unknown duration still offers another clip", func(t *testing.T) {
+		got, ok := PickDifferentClipWindow(clip, 0, ClipWindow{StartSeconds: 50, EndSeconds: 80})
+		if !ok || got.StartSeconds == 50 {
+			t.Errorf("expected a different window, got %+v ok=%v", got, ok)
+		}
+	})
+
+	t.Run("a song with no other slice offers nothing, so nothing is charged", func(t *testing.T) {
+		// Exactly one clip fits: there is no other start to move to.
+		if got, ok := PickDifferentClipWindow(clip, clip, ClipWindow{StartSeconds: 0, EndSeconds: clip}); ok {
+			t.Errorf("expected no alternative, got %+v", got)
+		}
+	})
+}

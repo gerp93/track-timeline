@@ -541,6 +541,7 @@ const (
 
 	SkipCost    = 2
 	ReplayCost  = 2
+	NewClipCost = 2
 	StealCost   = 2
 	BuyCardCost = 10
 )
@@ -555,6 +556,7 @@ type Economy struct {
 	MaxGuessTokens int
 	SkipCost       int
 	ReplayCost     int
+	NewClipCost    int
 	StealCost      int
 	BuyCardCost    int
 
@@ -570,6 +572,7 @@ func CurrentEconomy() Economy {
 		MaxGuessTokens:        2 * GuessTokensPerPart,
 		SkipCost:              SkipCost,
 		ReplayCost:            ReplayCost,
+		NewClipCost:           NewClipCost,
 		StealCost:             StealCost,
 		BuyCardCost:           BuyCardCost,
 		MinStartingTokens:     MinStartingTokens,
@@ -588,9 +591,9 @@ func (Economy) Tokens(n int) string {
 
 // CanBuyCard reports whether buying a free card is allowed for this seat:
 // enough tokens, the purchase would not be the winning song (wins must come
-// from a real placement or steal), and the buyer is not already strictly
-// ahead of every other active player — buying tokens away a game that is
-// already close, so a leader shopping for the finish is not the intent.
+// from a real placement or steal), and the buyer is not in or tied for the
+// lead — buying is a catch-up mechanic, so only a player strictly behind
+// someone may use it.
 func CanBuyCard(timelineLen, tokenCount, cardsToWin int, inLead bool) bool {
 	if tokenCount < BuyCardCost {
 		return false
@@ -604,23 +607,30 @@ func CanBuyCard(timelineLen, tokenCount, cardsToWin int, inLead bool) bool {
 	return true
 }
 
-// IsStrictlyInLead reports whether playerId's timeline is strictly longer
-// than every other active player's — a tie for first does not count, only
-// sole possession of the lead does.
-func IsStrictlyInLead(gameId uuid.UUID, playerId uuid.UUID, timelineLen int) (bool, error) {
+// HasOrSharesLead reports whether a timeline of myLen cards is at least as long
+// as the longest of everyone else's (maxOtherLen) — outright leading or tied
+// for first both count. A player alone in the game has no one ahead of them.
+func HasOrSharesLead(myLen, maxOtherLen int) bool {
+	return myLen >= maxOtherLen
+}
+
+// IsInOrTiedForLead reports whether playerId's timeline is as long as or longer
+// than every other active player's.
+func IsInOrTiedForLead(gameId uuid.UUID, playerId uuid.UUID, timelineLen int) (bool, error) {
 	players, err := GetPlayers(gameId)
 	if err != nil {
 		return false, err
 	}
+	maxOther := -1
 	for _, p := range players {
 		if !p.IsActive || p.PlayerId == playerId {
 			continue
 		}
-		if p.TimelineSize >= timelineLen {
-			return false, nil
+		if p.TimelineSize > maxOther {
+			maxOther = p.TimelineSize
 		}
 	}
-	return true, nil
+	return HasOrSharesLead(timelineLen, maxOther), nil
 }
 
 // BoughtCard is what a successful BuyCard produced — enough to announce it,
@@ -711,7 +721,7 @@ func BuyCard(gameId uuid.UUID, playerId uuid.UUID) (BoughtCard, error) {
 	if err != nil {
 		return bought, err
 	}
-	inLead, err := IsStrictlyInLead(gameId, playerId, len(timeline))
+	inLead, err := IsInOrTiedForLead(gameId, playerId, len(timeline))
 	if err != nil {
 		return bought, err
 	}
@@ -720,7 +730,7 @@ func BuyCard(gameId uuid.UUID, playerId uuid.UUID) (BoughtCard, error) {
 			return bought, errors.New("not enough tokens")
 		}
 		if inLead {
-			return bought, errors.New("you can't buy a card while you're in the lead")
+			return bought, errors.New("you can't buy a card while you're in or tied for the lead")
 		}
 		return bought, errors.New("that would be the winning card — it has to come from a real guess")
 	}
@@ -1016,6 +1026,11 @@ func AdvanceToNextPlayer(gameId uuid.UUID) error {
 		return err
 	}
 	if err := SetRoundPhase(gameId, PhaseListening); err != nil {
+		return err
+	}
+	// The round that just ended is over and the next song has not started: the
+	// window in which a challenge about it can be raised.
+	if err := SetBetweenRounds(gameId, true); err != nil {
 		return err
 	}
 
