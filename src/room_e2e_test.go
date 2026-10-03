@@ -73,7 +73,6 @@ func TestRoomModeEndToEnd(t *testing.T) {
 	form.Set("cardsToWin", "5")
 	form.Set("startingTokens", "2")
 	form.Set("playbackMode", database.PlaybackSample)
-	form.Set("guessMode", database.GuessModeBoth)
 	form.Set("clipSeconds", "20")
 	form.Add("deckId", deckId.String())
 

@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/gerp93/track-timeline/database"
-	"github.com/gerp93/track-timeline/guess"
 )
 
 const hostCookieName = "TRACK-TIMELINE-ROOM-HOST"
@@ -73,51 +72,11 @@ func Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	guessMode := strings.TrimSpace(r.FormValue("guessMode"))
-	if guessMode == "" {
-		guessMode = database.GuessModeBoth
-	}
-	if err := database.ValidateGuessMode(guessMode); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(capitalize(err.Error())))
-		return
-	}
+	// A select on the form ("1" = never-played songs first); anything else is
+	// the plain random pile.
+	freshSongsFirst := strings.TrimSpace(r.FormValue("freshSongsFirst")) == "1"
 
-	guessMatchPercent := database.DefaultGuessMatchPercent
-	if raw := strings.TrimSpace(r.FormValue("guessMatchPercent")); raw != "" {
-		guessMatchPercent, err = strconv.Atoi(raw)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte("Match required must be 60, 70, 80, or 90."))
-			return
-		}
-	}
-	if err := database.ValidateGuessMatchPercent(guessMatchPercent); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(capitalize(err.Error())))
-		return
-	}
-
-	guessJudge := strings.TrimSpace(r.FormValue("guessJudge"))
-	if guessJudge == "" {
-		if guess.ClaudeConfigured() {
-			guessJudge = database.GuessJudgeClaude
-		} else {
-			guessJudge = database.GuessJudgeLocal
-		}
-	}
-	if err := database.ValidateGuessJudge(guessJudge); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(capitalize(err.Error())))
-		return
-	}
-	if guessJudge == database.GuessJudgeClaude && !guess.ClaudeConfigured() {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("Intent judging is not configured on this server."))
-		return
-	}
-
-	clipSeconds := 20
+	clipSeconds := 30
 	if raw := strings.TrimSpace(r.FormValue("clipSeconds")); raw != "" {
 		clipSeconds, err = strconv.Atoi(raw)
 		if err != nil {
@@ -198,7 +157,7 @@ func Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gameId, err := database.CreateGame(lobbyId, cardsToWin, startingTokens, guessMode, guessMatchPercent, guessJudge, playbackMode, clipSeconds)
+	gameId, err := database.CreateGame(lobbyId, cardsToWin, startingTokens, freshSongsFirst, playbackMode, clipSeconds)
 	if err != nil {
 		_ = gsDatabase.DeleteLobby(lobbyId)
 		w.WriteHeader(http.StatusInternalServerError)

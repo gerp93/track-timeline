@@ -18,7 +18,6 @@ import (
 
 	apiRoom "github.com/gerp93/track-timeline/api/room"
 	"github.com/gerp93/track-timeline/database"
-	"github.com/gerp93/track-timeline/guess"
 	"github.com/gerp93/track-timeline/static"
 )
 
@@ -44,11 +43,16 @@ type resultPayload struct {
 	WinVideoId           string `json:"winVideoId,omitempty"`
 	WinVideoStartSeconds int    `json:"winVideoStartSeconds,omitempty"`
 
-	// Guess-token outcome, independent of the card outcome above.
-	GuessTokenWinnerName         string `json:"guessTokenWinnerName,omitempty"`
-	GuessTokenGuessText          string `json:"guessTokenGuessText,omitempty"`
-	GuessTokenTitleMatchPercent  int    `json:"guessTokenTitleMatchPercent,omitempty"`
-	GuessTokenArtistMatchPercent int    `json:"guessTokenArtistMatchPercent,omitempty"`
+	// Guess-token outcome, independent of the card outcome above. Every
+	// qualifying guess earns its own token -- no single-token race -- so this
+	// is a list, one entry per player who named the song this round.
+	GuessTokenWinners []guessTokenWinnerPayload `json:"guessTokenWinners,omitempty"`
+}
+
+type guessTokenWinnerPayload struct {
+	Name      string `json:"name"`
+	GuessText string `json:"guessText,omitempty"`
+	Tokens    int    `json:"tokens"`
 }
 
 // songPayload tells every client which song to cue and which slice of it to
@@ -86,12 +90,51 @@ func tokensWonLost(delta int) string {
 	return fmt.Sprintf("lost %d %s", n, word)
 }
 
+// wagerResult is the chat phrasing for a settled exact-year wager: it names the
+// stake as well as the outcome ("wagered 3 tokens and lost 3 tokens"), since
+// the won/lost amount alone does not tell the table how much was riding on it.
+func wagerResult(wager int, correct bool) string {
+	delta := -wager
+	if correct {
+		delta = wager
+	}
+	return fmt.Sprintf("wagered %s and %s", tokenCount(wager), tokensWonLost(delta))
+}
+
+// tokenCount phrases a number of tokens for chat: "1 token", "2 tokens".
+func tokenCount(n int) string {
+	return database.CurrentEconomy().Tokens(n)
+}
+
+// tokensSpent is tokensWonLost's counterpart for a deliberate purchase: a
+// player who pays for something chose to spend, they did not "lose" tokens.
+func tokensSpent(n int) string {
+	word := "token"
+	if n != 1 {
+		word = "tokens"
+	}
+	return fmt.Sprintf("spent %d %s", n, word)
+}
+
 // announce posts a chat line to the lobby. A bare string with no prefix is
 // rendered as chat.
 func announce(lobbyId uuid.UUID, message string) {
 	gsWebsocket.LobbyBroadcast(lobbyId, message)
 	apiRoom.MirrorBroadcast(lobbyId, "log:"+message)
 	apiRoom.MirrorBroadcast(lobbyId, message)
+}
+
+// chatDivider is a plain line of dashes marking the end of one turn's chat
+// lines (guesses, tokens earned, the placement/steal verdict) before the
+// next turn's start their own cluster — the shared chat renderer
+// (gameshell-framework's chat.js) only understands plain text plus the
+// <red>/<green>/<blue> color tokens, so this is deliberately just
+// characters, not a real HTML rule.
+const chatDivider = "──────────────────────────"
+
+// announceDivider posts the turn-boundary divider to the lobby.
+func announceDivider(lobbyId uuid.UUID) {
+	announce(lobbyId, chatDivider)
 }
 
 // sendStatus updates the bottom status line for everyone, with no popup.
@@ -305,7 +348,7 @@ func Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	startingTokens := 2
+	startingTokens := database.DefaultStartingTokens
 	if raw := strings.TrimSpace(r.FormValue("startingTokens")); raw != "" {
 		startingTokens, err = strconv.Atoi(raw)
 		if err != nil {
@@ -330,53 +373,11 @@ func Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	guessMode := strings.TrimSpace(r.FormValue("guessMode"))
-	if guessMode == "" {
-		guessMode = database.GuessModeBoth
-	}
-	if err := database.ValidateGuessMode(guessMode); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(capitalize(err.Error())))
-		return
-	}
+	// A select on the form ("1" = never-played songs first); anything else,
+	// including a missing field from an older client, is the plain random pile.
+	freshSongsFirst := strings.TrimSpace(r.FormValue("freshSongsFirst")) == "1"
 
-	guessMatchPercent := database.DefaultGuessMatchPercent
-	if raw := strings.TrimSpace(r.FormValue("guessMatchPercent")); raw != "" {
-		guessMatchPercent, err = strconv.Atoi(raw)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte("Match required must be 60, 70, 80, or 90."))
-			return
-		}
-	}
-	if err := database.ValidateGuessMatchPercent(guessMatchPercent); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(capitalize(err.Error())))
-		return
-	}
-
-	guessJudge := strings.TrimSpace(r.FormValue("guessJudge"))
-	if guessJudge == "" {
-		// Prefer the AI Quizmaster when the key is configured; otherwise the
-		// local heuristic. Matches the lobby form's default.
-		if guess.ClaudeConfigured() {
-			guessJudge = database.GuessJudgeClaude
-		} else {
-			guessJudge = database.GuessJudgeLocal
-		}
-	}
-	if err := database.ValidateGuessJudge(guessJudge); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(capitalize(err.Error())))
-		return
-	}
-	if guessJudge == database.GuessJudgeClaude && !guess.ClaudeConfigured() {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("Intent judging is not configured on this server."))
-		return
-	}
-
-	clipSeconds := 20
+	clipSeconds := 30
 	if raw := strings.TrimSpace(r.FormValue("clipSeconds")); raw != "" {
 		clipSeconds, err = strconv.Atoi(raw)
 		if err != nil {
@@ -433,7 +434,7 @@ func Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gameId, err := database.CreateGame(lobbyId, cardsToWin, startingTokens, guessMode, guessMatchPercent, guessJudge, playbackMode, clipSeconds)
+	gameId, err := database.CreateGame(lobbyId, cardsToWin, startingTokens, freshSongsFirst, playbackMode, clipSeconds)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to create game."))
@@ -478,6 +479,8 @@ func capitalize(s string) string {
 
 // parseDeckIds validates the selected decks and confirms the caller may read
 // each one, so a lobby cannot be seeded from a deck its creator cannot open.
+// UserCanReadDeck (not UserHasDeckAccess) is deliberate: this is a read/use
+// check, not an edit check, so a deck flagged public-readonly must pass too.
 func parseDeckIds(values []string, userId uuid.UUID) ([]uuid.UUID, string) {
 	if len(values) == 0 {
 		return nil, "Select at least one deck."
@@ -489,7 +492,7 @@ func parseDeckIds(values []string, userId uuid.UUID) ([]uuid.UUID, string) {
 		if err != nil {
 			return nil, "Invalid deck."
 		}
-		ok, err := gsDatabase.UserHasDeckAccess(userId, deckId)
+		ok, err := gsDatabase.UserCanReadDeck(userId, deckId)
 		if err != nil {
 			return nil, "Failed to check deck access."
 		}
@@ -633,6 +636,42 @@ func Search(w http.ResponseWriter, r *http.Request) {
 	_ = tmpl.Execute(w, data{Lobbies: lobbies, Page: page, LastPage: lastPage})
 }
 
+// DeleteLobby removes a lobby nobody's using anymore -- an explicit cleanup
+// action for one that never started or has already finished, rather than
+// waiting on the framework's own delete-when-empty behavior
+// (gameshell-framework/websocket/hub.go), which only fires once every last
+// connected client actually disconnects and can leave a finished lobby
+// sitting in the list indefinitely until that happens. loadContext already
+// requires the caller to have a PLAYER row in this lobby, so only someone
+// who was actually part of it can delete it.
+func DeleteLobby(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := loadContext(w, r)
+	if !ok {
+		return
+	}
+	if ctx.Game.GameStatus == database.StatusActive {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("You can't delete a lobby with a game in progress."))
+		return
+	}
+
+	if err := gsDatabase.DeleteLobby(ctx.LobbyId); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to delete the lobby."))
+		return
+	}
+	// Best-effort: anyone who still has this lobby's own page open elsewhere
+	// gets sent back to the list rather than left looking at a dead page.
+	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "kick")
+
+	// A full refresh (rather than an htmx row swap) re-runs the lobbies
+	// search so the list, its pagination, and the deleted row all stay
+	// consistent with one re-fetch instead of hand-patching the DOM.
+	w.Header().Set("HX-Refresh", "true")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("Deleted."))
+}
+
 // StartGame deals the opening hand and draws the first song.
 func StartGame(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)
@@ -690,6 +729,9 @@ func PlaySong(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if challengeInProgress(w, ctx) {
+		return
+	}
 
 	if ctx.Game.GameStatus != database.StatusActive {
 		w.WriteHeader(http.StatusBadRequest)
@@ -728,6 +770,15 @@ func PlaySong(w http.ResponseWriter, r *http.Request) {
 
 	sendSong(ctx.LobbyId, card, window)
 
+	// The song is on: the window for challenging the previous round is over.
+	// Everyone's current-card fragment is refreshed so the Challenge button goes.
+	if ctx.Game.BetweenRounds {
+		if err := database.SetBetweenRounds(ctx.Game.Id, false); err != nil {
+			log.Println(err)
+		}
+		refresh(ctx.LobbyId)
+	}
+
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("Playing."))
 }
@@ -739,6 +790,9 @@ func PlaySong(w http.ResponseWriter, r *http.Request) {
 func ReplaySong(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)
 	if !ok {
+		return
+	}
+	if challengeInProgress(w, ctx) {
 		return
 	}
 
@@ -769,9 +823,9 @@ func ReplaySong(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("Failed to check your tokens."))
 		return
 	}
-	if tokens < 1 {
+	if tokens < database.ReplayCost {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("You need a token to hear it again."))
+		_, _ = w.Write([]byte("You need " + tokenCount(database.ReplayCost) + " to hear it again."))
 		return
 	}
 
@@ -782,16 +836,16 @@ func ReplaySong(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := database.AddPlayerTokens(ctx.Game.Id, ctx.Player.Id, -1); err != nil {
+	if _, err := database.AddPlayerTokens(ctx.Game.Id, ctx.Player.Id, -database.ReplayCost); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to spend your token."))
+		_, _ = w.Write([]byte("Failed to spend your tokens."))
 		return
 	}
 	if err := database.SetReplayUsed(ctx.Game.Id, true); err != nil {
 		log.Println(err)
 	}
 
-	announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> %s to hear it again", esc(ctx.Player.Name), tokensWonLost(-1)))
+	announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> %s to hear it again", esc(ctx.Player.Name), tokensSpent(database.ReplayCost)))
 	sendSong(ctx.LobbyId, card, database.ClipWindow{
 		StartSeconds: ctx.Game.ClipStartSeconds,
 		EndSeconds:   ctx.Game.ClipEndSeconds,
@@ -800,6 +854,90 @@ func ReplaySong(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("Replaying."))
+}
+
+// NewClip spends tokens to hear a different slice of this song instead of the
+// one already heard — the same song, a fresh random window, as often as the
+// player can pay. Gated like ReplaySong (the player on turn, before they lock
+// in a placement) but with no once-a-round limit, and it never reveals which
+// part of the song the new window is. Pointless when the lobby plays the whole
+// song, so that mode refuses it.
+func NewClip(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := loadContext(w, r)
+	if !ok {
+		return
+	}
+	if challengeInProgress(w, ctx) {
+		return
+	}
+
+	if ctx.Game.GameStatus != database.StatusActive {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("The game is not running."))
+		return
+	}
+	if ctx.Game.RoundPhase != database.PhaseListening {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("It is too late to pick another clip."))
+		return
+	}
+	if !ctx.Game.CurrentPlayerId.Valid || ctx.Game.CurrentPlayerId.UUID != ctx.Player.Id {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Only the player on turn can pick another clip."))
+		return
+	}
+	if ctx.Game.PlaybackMode == database.PlaybackFull {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("The whole song already plays in this lobby."))
+		return
+	}
+
+	tokens, err := database.GetPlayerTokens(ctx.Game.Id, ctx.Player.Id)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to check your tokens."))
+		return
+	}
+	if tokens < database.NewClipCost {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("You need " + tokenCount(database.NewClipCost) + " to hear a different clip."))
+		return
+	}
+
+	card, err := database.GetCurrentCard(ctx.Game.Id)
+	if err != nil || card.CardId == uuid.Nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("No song is in play."))
+		return
+	}
+
+	// Picked before any token moves, so a song with nothing else to offer
+	// costs nothing.
+	window, found := database.PickDifferentClipWindow(
+		ctx.Game.ClipSeconds, card.DurationSeconds,
+		database.ClipWindow{StartSeconds: ctx.Game.ClipStartSeconds, EndSeconds: ctx.Game.ClipEndSeconds},
+	)
+	if !found {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("There is no other clip to play for this song."))
+		return
+	}
+
+	if _, err := database.AddPlayerTokens(ctx.Game.Id, ctx.Player.Id, -database.NewClipCost); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to spend your tokens."))
+		return
+	}
+	if err := database.SetClipWindow(ctx.Game.Id, window); err != nil {
+		log.Println(err)
+	}
+
+	announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> %s to hear a different clip", esc(ctx.Player.Name), tokensSpent(database.NewClipCost)))
+	sendSong(ctx.LobbyId, card, window)
+	refresh(ctx.LobbyId)
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("Playing a different clip."))
 }
 
 // PauseSong and ResumeSong toggle playback in place for everyone, distinct
@@ -812,6 +950,9 @@ func ReplaySong(w http.ResponseWriter, r *http.Request) {
 func PauseSong(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)
 	if !ok {
+		return
+	}
+	if challengeInProgress(w, ctx) {
 		return
 	}
 
@@ -838,6 +979,9 @@ func ResumeSong(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if challengeInProgress(w, ctx) {
+		return
+	}
 
 	if ctx.Game.GameStatus != database.StatusActive {
 		w.WriteHeader(http.StatusBadRequest)
@@ -855,4 +999,127 @@ func ResumeSong(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("Resumed."))
+}
+
+// settingsPayload is what a "settings:" message carries: the lobby settings
+// that can change after the game has started, so every open page can follow.
+type settingsPayload struct {
+	PlaybackMode    string `json:"playbackMode"`
+	ClipSeconds     int    `json:"clipSeconds"`
+	FreshSongsFirst bool   `json:"freshSongsFirst"`
+}
+
+func sendSettings(lobbyId uuid.UUID, playbackMode string, clipSeconds int, freshSongsFirst bool) {
+	encoded, err := json.Marshal(settingsPayload{
+		PlaybackMode:    playbackMode,
+		ClipSeconds:     clipSeconds,
+		FreshSongsFirst: freshSongsFirst,
+	})
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	gsWebsocket.LobbyBroadcast(lobbyId, "settings:"+string(encoded))
+}
+
+// UpdateSettings changes the lobby settings that are safe to change once the
+// game is under way: how much of each song plays, and whether never-played songs
+// are dealt first. Anyone in the lobby may, the same as the turn timer and the
+// lobby message. A change applies from the next song: the clip window for the
+// song in play is stamped when it is first played (see database.ClipWindow), so
+// a replay of it stays the same clip. Fields left out keep their current value.
+func UpdateSettings(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := loadContext(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Failed to parse form."))
+		return
+	}
+
+	playbackMode := ctx.Game.PlaybackMode
+	if raw := strings.TrimSpace(r.FormValue("playbackMode")); raw != "" {
+		playbackMode = raw
+	}
+	if err := database.ValidatePlaybackMode(playbackMode); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(capitalize(err.Error()) + "."))
+		return
+	}
+
+	clipSeconds := ctx.Game.ClipSeconds
+	if raw := strings.TrimSpace(r.FormValue("clipSeconds")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("Clip length must be a whole number of seconds."))
+			return
+		}
+		clipSeconds = parsed
+	}
+	if err := database.ValidateClipSeconds(clipSeconds); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(capitalize(err.Error()) + "."))
+		return
+	}
+
+	freshSongsFirst := ctx.Game.FreshSongsFirst
+	if _, sent := r.Form["freshSongsFirst"]; sent {
+		freshSongsFirst = strings.TrimSpace(r.FormValue("freshSongsFirst")) == "1"
+	}
+
+	var changes []string
+	if playbackMode != ctx.Game.PlaybackMode {
+		changes = append(changes, "playback to “"+database.PlaybackLabel(playbackMode)+"”")
+	}
+	if clipSeconds != ctx.Game.ClipSeconds {
+		changes = append(changes, fmt.Sprintf("clip length to %d seconds", clipSeconds))
+	}
+	if freshSongsFirst != ctx.Game.FreshSongsFirst {
+		state := "off"
+		if freshSongsFirst {
+			state = "on"
+		}
+		changes = append(changes, "never-played songs first to "+state)
+	}
+	if len(changes) == 0 {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Nothing changed."))
+		return
+	}
+
+	if err := database.UpdateGameSettings(ctx.Game.Id, playbackMode, clipSeconds, freshSongsFirst); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to save the settings."))
+		return
+	}
+	// The pile's order is fixed when it is shuffled, so flipping the setting
+	// only takes effect once the cards still in it are shuffled again.
+	if freshSongsFirst != ctx.Game.FreshSongsFirst {
+		if err := database.ShuffleDrawPile(ctx.Game.Id); err != nil {
+			log.Println(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Saved, but failed to reorder the draw pile."))
+			return
+		}
+	}
+
+	announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> changed %s", esc(ctx.Player.Name), joinPhrases(changes)))
+	sendSettings(ctx.LobbyId, playbackMode, clipSeconds, freshSongsFirst)
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("Saved. It applies from the next song."))
+}
+
+// joinPhrases reads a list aloud: "a", "a and b", "a, b and c".
+func joinPhrases(phrases []string) string {
+	switch len(phrases) {
+	case 0:
+		return ""
+	case 1:
+		return phrases[0]
+	}
+	return strings.Join(phrases[:len(phrases)-1], ", ") + " and " + phrases[len(phrases)-1]
 }

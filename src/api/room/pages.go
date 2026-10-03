@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/gerp93/track-timeline/database"
-	"github.com/gerp93/track-timeline/guess"
 	"github.com/gerp93/track-timeline/static"
 )
 
@@ -51,13 +50,11 @@ func CreatePage(w http.ResponseWriter, r *http.Request) {
 		gsApi.BasePageData
 		Decks       []gsDatabase.Deck
 		Categories  []database.Category
-		ClaudeReady bool
 	}
 	_ = tmpl.ExecuteTemplate(w, "base", data{
 		BasePageData: base,
 		Decks:        decks,
 		Categories:   categories,
-		ClaudeReady:  guess.ClaudeConfigured(),
 	})
 }
 

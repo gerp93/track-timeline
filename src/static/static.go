@@ -28,6 +28,8 @@ var SQLFiles = []string{
 	"sql/tables/TRACK_TIMELINE_PLAYER_TOKEN.sql",
 	"sql/tables/TRACK_TIMELINE_PLACEMENT.sql",
 	"sql/tables/TRACK_TIMELINE_TITLE_GUESS.sql",
+	"sql/tables/TRACK_TIMELINE_CHALLENGE.sql",
+	"sql/tables/TRACK_TIMELINE_CHALLENGE_VOTE.sql",
 
 	// append-only gameplay logs (no FKs by design; they feed the stats pages
 	// and must outlive the lobby/game rows, which cascade away on disconnect)
@@ -42,6 +44,9 @@ var SQLFiles = []string{
 	"sql/migrations/MIG_TRACK_TIMELINE_TITLE_GUESS_ADD_MATCH_PERCENT.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_TITLE_GUESS_ADD_ARTIST_MATCH_PERCENT.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_LOG_CARD_ADD_BOUGHT_EVENT.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_LOG_CARD_ADD_DEALT_EVENT.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_LOG_CARD_ADD_CARD_ID_INDEX.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_FRESH_SONGS_FIRST.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_GAME_CLEAR_LEGACY_CHALLENGE_PHASE.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ROUND_PHASE_STEAL_ENUM.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_PHASE_STARTED_ON_DATE.sql",
@@ -53,9 +58,8 @@ var SQLFiles = []string{
 	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_STEALER_PLAYER_ID.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_CARD_VIDEO_STATUS_ADD_DURATION_SECONDS.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_PLAYBACK_SETTINGS.sql",
-	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_GUESS_MODE.sql",
-	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_GUESS_MATCH_PERCENT.sql",
-	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_GUESS_JUDGE.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_GAME_DROP_GUESS_MODE.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_GAME_DROP_GUESS_JUDGE_AND_MATCH_PERCENT.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_DRAW_PILE_ADD_SHUFFLE_ORDER.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_CARD_VIDEO_STATUS_ADD_AWAITING_VALIDATION.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_CARD_VIDEO_STATUS_ADD_INCORRECT_VIDEO.sql",
@@ -63,6 +67,8 @@ var SQLFiles = []string{
 	"sql/migrations/MIG_AUDIT_CARD_DROP_START_OFFSET_SECONDS.sql",
 	"sql/migrations/MIG_CARD_YOUTUBE_VIDEO_ID_NULLABLE.sql",
 	"sql/migrations/MIG_AUDIT_CARD_YOUTUBE_VIDEO_ID_NULLABLE.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_TITLE_GUESS_ADD_JUDGED_BY_AI.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_BETWEEN_ROUNDS.sql",
 
 	// triggers
 	"sql/triggers/TR_AUDIT_CARD_DELETE.sql",

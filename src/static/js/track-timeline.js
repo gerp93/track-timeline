@@ -12,6 +12,13 @@ let ttTurnTimerSeconds = 0;
 let ttDeferTimerStart = false;
 let ttStatusTimeout = null;
 
+let ttClipStartSeconds = 0;
+let ttClipEndSeconds = 0;
+let ttClipDurationSeconds = 0;
+let ttClipProgressInterval = null;
+let ttVolume = 100;
+let ttMuted = false;
+
 const TT_STATUS_MESSAGE_MS = 8000;
 
 // ---------------------------------------------------------------- websocket
@@ -20,6 +27,7 @@ function initTrackTimeline(lobbyId, turnTimerSeconds) {
     ttLobbyId = lobbyId;
     setTurnTimerSeconds(turnTimerSeconds || 0);
 
+    ttInitVolume();
     loadYouTubeApi();
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -44,6 +52,7 @@ function initTrackTimeline(lobbyId, turnTimerSeconds) {
     // the board is swapped in.
     document.body.addEventListener("htmx:afterSwap", (event) => {
         if (event.detail.target && event.detail.target.id === "tt-board") {
+            ttLoadChallengeOnce();
             ttSyncSelfStatus();
             syncPlaybackUI();
             restartTurnTimer();
@@ -100,6 +109,7 @@ function handleMessage(message) {
             console.error("[TrackTimeline] bad song payload:", e);
             return;
         }
+        ttEndChallengeWindow();
         playSong(payload.videoId, payload.startSeconds || 0, payload.endSeconds || 0);
         return;
     }
@@ -127,6 +137,32 @@ function handleMessage(message) {
         }
         handleStealTurn(payload);
         refreshGame();
+        return;
+    }
+
+    if (message.startsWith("challenge:")) {
+        let payload;
+        try {
+            payload = JSON.parse(message.substring("challenge:".length));
+        } catch (e) {
+            console.error("[TrackTimeline] bad challenge payload:", e);
+            return;
+        }
+        ttShowChallengeVote(payload);
+        return;
+    }
+
+    if (message.startsWith("challengeEnd:")) {
+        let payload;
+        try {
+            payload = JSON.parse(message.substring("challengeEnd:".length));
+        } catch (e) {
+            console.error("[TrackTimeline] bad challengeEnd payload:", e);
+            return;
+        }
+        ttChallengeMyVote = { id: "", vote: "" };
+        ttCloseChallengeModal();
+        showStatus(payload.message);
         return;
     }
 
@@ -196,6 +232,11 @@ function handleMessage(message) {
         return;
     }
 
+    if (message.startsWith("settings:")) {
+        ttApplyLiveSettings(JSON.parse(message.substring("settings:".length)));
+        return;
+    }
+
     if (message.startsWith("turnTimer:")) {
         setTurnTimerSeconds(message.substring("turnTimer:".length));
         showStatus(ttTurnTimerSeconds > 0
@@ -224,6 +265,28 @@ function handleMessage(message) {
 }
 
 // ------------------------------------------------------------ fragment refresh
+
+// The lobby settings form is server-rendered once, so when anyone changes
+// playback or song order the server sends the new values in a "settings:"
+// message and every open page updates its own form to match.
+function ttSyncLiveClipRow() {
+    const mode = document.getElementById("tt-set-playback");
+    const showClip = !mode || mode.value !== "full";
+    const clip = document.getElementById("tt-set-clip");
+    const label = document.getElementById("tt-set-clip-label");
+    if (clip) clip.style.display = showClip ? "" : "none";
+    if (label) label.style.display = showClip ? "" : "none";
+}
+
+function ttApplyLiveSettings(settings) {
+    const mode = document.getElementById("tt-set-playback");
+    const clip = document.getElementById("tt-set-clip");
+    const fresh = document.getElementById("tt-set-fresh");
+    if (mode) mode.value = settings.playbackMode;
+    if (clip) clip.value = settings.clipSeconds;
+    if (fresh) fresh.value = settings.freshSongsFirst ? "1" : "0";
+    ttSyncLiveClipRow();
+}
 
 // ttSyncSelfStatus copies the board template's tokens/Buy into the header
 // badge strip so those controls do not consume a row on every timeline.
@@ -268,9 +331,13 @@ function refreshGame() {
 
     const pile = document.getElementById("tt-draw-pile-count");
     if (pile) {
-        fetch(base + "/draw-pile-count", { cache: "no-store" })
-            .then((r) => r.text())
-            .then((count) => { pile.textContent = count; })
+        fetch(base + "/draw-pile", { cache: "no-store" })
+            .then((r) => r.json())
+            .then((info) => {
+                pile.textContent = info.count;
+                const stat = document.getElementById("tt-draw-pile-stat");
+                if (stat) stat.title = info.tooltip;
+            })
             .catch(() => {});
     }
 }
@@ -323,6 +390,7 @@ window.onYouTubeIframeAPIReady = function () {
         events: {
             onReady: () => {
                 ttPlayerReady = true;
+                ttApplyVolumeToPlayer();
                 if (ttPendingSong) {
                     const pending = ttPendingSong;
                     ttPendingSong = null;
@@ -366,12 +434,23 @@ window.onYouTubeIframeAPIReady = function () {
                     // real PLAYING arms the end/pause release so the turn
                     // clock cannot start on those pre-play transitions.
                     ttClipReachedPlaying = true;
+                    ttStartClipProgressTimer();
                 }
-                if (event.data === YT.PlayerState.ENDED) {
+                if (event.data === YT.PlayerState.PAUSED) {
+                    ttStopClipProgressTimer();
+                    ttUpdateClipProgress();
+                }
+                // ttClipReachedPlaying is false from stopSong until the next
+                // clip really plays, so an ENDED that lags in from a song that
+                // was just skipped or discarded is ignored here. Without that,
+                // it marked the NEXT song finished and left Play disabled.
+                if (event.data === YT.PlayerState.ENDED && ttClipReachedPlaying) {
                     // The clip ran its full length. Play must not silently
                     // restart it from the top after this — hearing it again
                     // is what the paid restart is for.
                     ttClipFinished = true;
+                    ttStopClipProgressTimer();
+                    ttFinishClipProgress();
                 }
                 if (ttClipReachedPlaying &&
                     (event.data === YT.PlayerState.ENDED || event.data === YT.PlayerState.PAUSED)) {
@@ -383,6 +462,51 @@ window.onYouTubeIframeAPIReady = function () {
         },
     });
 };
+
+// ttIsSpinning is whether the record should be turning right now: the clip is
+// really playing, or the player is only briefly BUFFERING mid-clip (audio keeps
+// coming from what is already buffered, and YouTube reports that as a state of
+// its own, not PLAYING). Without the second case the record stopped on every
+// rebuffer while the song carried on.
+//
+// The third case is the backstop for a state report that never arrives or
+// reads wrong: if the playhead moved since the last look, audio is coming out,
+// whatever getPlayerState says.
+let ttLastSpinTime = -1;
+let ttLastSpinMoved = 0;
+function ttIsSpinning() {
+    if (!ttPlayer || !ttPlayerReady) return false;
+    try {
+        const state = ttPlayer.getPlayerState();
+        const now = ttPlayer.getCurrentTime();
+        if (now !== ttLastSpinTime) {
+            if (ttLastSpinTime >= 0 && now > ttLastSpinTime) ttLastSpinMoved = Date.now();
+            ttLastSpinTime = now;
+        }
+        if (state === YT.PlayerState.PLAYING) return true;
+        if (state === YT.PlayerState.BUFFERING && ttClipReachedPlaying && !ttClipFinished) return true;
+        return !ttClipFinished && state !== YT.PlayerState.PAUSED && Date.now() - ttLastSpinMoved < 400;
+    } catch (e) {
+        return false;
+    }
+}
+
+// ttApplySpin points the record, tonearm and visualizer at ttIsSpinning. Run
+// from syncPlaybackUI AND on every clip-progress tick, so a state change or
+// fragment swap that was missed or arrived out of order corrects itself within
+// a tenth of a second instead of leaving the record stopped under live audio.
+function ttApplySpin() {
+    const spinning = ttIsSpinning();
+    document.querySelectorAll(".tt-record").forEach((el) => {
+        el.classList.toggle("is-spinning", spinning);
+    });
+    document.querySelectorAll(".tt-visualizer").forEach((el) => {
+        el.classList.toggle("is-active", spinning);
+    });
+    document.querySelectorAll(".tt-tonearm").forEach((el) => {
+        el.classList.toggle("is-active", spinning);
+    });
+}
 
 // syncPlaybackUI re-applies the playing/paused state to every
 // playback-reactive element on the page, based on the YouTube player's real
@@ -399,15 +523,10 @@ function syncPlaybackUI() {
             // Nothing useful to do if the player went away mid-check.
         }
     }
-    document.querySelectorAll(".tt-record").forEach((el) => {
-        el.classList.toggle("is-spinning", playing);
-    });
-    document.querySelectorAll(".tt-visualizer").forEach((el) => {
-        el.classList.toggle("is-active", playing);
-    });
-    document.querySelectorAll(".tt-tonearm").forEach((el) => {
-        el.classList.toggle("is-active", playing);
-    });
+    ttApplySpin();
+
+    ttUpdateClipProgress();
+    ttApplyVolumeUI();
 
     const btn = document.getElementById("tt-play-pause-btn");
     if (btn) {
@@ -420,7 +539,7 @@ function syncPlaybackUI() {
         // stops being a free second listen.
         btn.disabled = ttClipFinished && !playing;
         btn.title = btn.disabled
-            ? "The clip has finished — restart it for a token to hear it again"
+            ? "The clip has finished — use Restart to hear it again"
             : "Play or pause the song for everyone";
     }
 
@@ -434,11 +553,27 @@ function syncPlaybackUI() {
         replayBtn.style.display = ttClipListenedThisRound ? "" : "none";
         replayBtn.disabled = noTokens || !ttClipListenedThisRound;
         if (noTokens) {
-            replayBtn.title = "You need a token to restart.";
+            replayBtn.title = "You need " + replayBtn.getAttribute("data-cost") + " tokens to restart.";
         } else if (!ttClipListenedThisRound) {
             replayBtn.title = "Hear the clip through (or pause it) before restarting.";
         } else {
-            replayBtn.title = "Restart this clip from the beginning, once, for a token";
+            replayBtn.title = "Restart this clip from the beginning, once, for " + replayBtn.getAttribute("data-cost") + " tokens";
+        }
+    }
+
+    // Same earned-by-listening gate as Restart, but never used up: every buy
+    // plays a fresh slice, so it stays on offer for as long as they can pay.
+    const newClipBtn = document.getElementById("tt-newclip-btn");
+    if (newClipBtn) {
+        const noTokens = newClipBtn.getAttribute("data-no-tokens") === "1";
+        newClipBtn.style.display = ttClipListenedThisRound ? "" : "none";
+        newClipBtn.disabled = noTokens || !ttClipListenedThisRound;
+        if (noTokens) {
+            newClipBtn.title = "You need " + newClipBtn.getAttribute("data-cost") + " tokens for a different clip.";
+        } else if (!ttClipListenedThisRound) {
+            newClipBtn.title = "Hear the clip through (or pause it) first.";
+        } else {
+            newClipBtn.title = "Hear a different part of this song for " + newClipBtn.getAttribute("data-cost") + " tokens";
         }
     }
 
@@ -447,11 +582,11 @@ function syncPlaybackUI() {
         const noTokens = skipBtn.getAttribute("data-no-tokens") === "1";
         skipBtn.disabled = noTokens || !ttPlaybackStartedThisRound;
         if (noTokens) {
-            skipBtn.title = "You need a token to skip.";
+            skipBtn.title = "You need " + skipBtn.getAttribute("data-cost") + " tokens to skip.";
         } else if (!ttPlaybackStartedThisRound) {
             skipBtn.title = "Play the song first";
         } else {
-            skipBtn.title = "Skip this song for a token and draw another";
+            skipBtn.title = "Skip this song for " + skipBtn.getAttribute("data-cost") + " tokens and draw another";
         }
     }
 
@@ -487,7 +622,7 @@ function syncPlacementButtons() {
         } else if (!listenGateOpen) {
             btn.title = "Give everyone a chance to guess — " + ttListenGateRemainingSeconds() + "s left before you can place";
         } else if (exactYearOn) {
-            btn.title = "Using exact-year wager — lock in below";
+            btn.title = "Using exact-year wager — lock in above";
         } else {
             btn.title = "Place here";
         }
@@ -598,6 +733,11 @@ function ttReportDeadVideo() {
 function playSong(videoId, startSeconds, endSeconds) {
     if (!videoId) return;
 
+    ttClipStartSeconds = startSeconds || 0;
+    ttClipEndSeconds = endSeconds || 0;
+    ttClipDurationSeconds = (endSeconds > startSeconds) ? (endSeconds - startSeconds) : 0;
+    ttResetClipProgress();
+
     // The API may not have finished loading when the first song arrives; hold
     // it and play once the player reports ready.
     if (!ttPlayerReady || !ttPlayer) {
@@ -610,7 +750,29 @@ function playSong(videoId, startSeconds, endSeconds) {
     // ttHoldTimerForPlayback).
     ttHoldTimerForPlayback();
     ttPlaybackStartedThisRound = true;
-    ttStartListenGate();
+    // Explicit, not just relying on ttHoldTimerForPlayback's own reset: a
+    // paid Restart (ReplaySong) calls playSong() again for the exact same
+    // round, and both of these gate real UI actions (the Play/Pause click
+    // handler and the clip-progress ring) on being accurate right now, not
+    // eventually once some event fires.
+    ttClipFinished = false;
+    ttClipReachedPlaying = false;
+    // Only arm the listen gate on this round's first play. A paid Restart is
+    // a second listen, not a second decision window -- the player already
+    // earned placement eligibility once this round, and restarting the clip
+    // must not take it back. ttListenGateDeadlineMs stays nonzero from the
+    // first arm until ttClearListenGate() runs at the round's actual end, so
+    // this naturally re-arms only for a genuinely new round.
+    if (ttListenGateDeadlineMs === 0) {
+        ttStartListenGate();
+    }
+
+    // Re-apply the buttons now rather than waiting for the player's PLAYING
+    // event: clearing ttClipFinished above is what re-enables Play after a
+    // Restart or New Clip, and if the video is slow to start (or autoplay is
+    // blocked) that event may be a long time coming, leaving Play disabled
+    // with nothing playing.
+    syncPlaybackUI();
 
     try {
         // endSeconds is the IFrame API's own clip support: it stops there and
@@ -645,8 +807,26 @@ function playSong(videoId, startSeconds, endSeconds) {
 function stopSong() {
     // Clear the hold gate BEFORE stopVideo so a lagged ENDED/PAUSED from the
     // forced stop cannot release and flash the turn timer as the round ends.
+    // ttTimerReleasedThisRound must clear too, not just the hold flag: a
+    // round that ends without a reveal (timeout discard, skip) never runs
+    // afterReveal's reset, so a released flag from a clip heard earlier in
+    // this same turn would otherwise survive into the next song/turn and let
+    // restartTurnTimer start the clock again before anyone has pressed Play.
     ttTimerHeldForPlayback = false;
+    ttTimerReleasedThisRound = false;
     ttClipReachedPlaying = false;
+    // An explicit stop is not a playhead that merely stopped moving: drop the
+    // movement backstop so the record halts now, not up to 400ms later.
+    ttLastSpinMoved = 0;
+    // A round that ends here without a reveal never reaches the "result:"
+    // handler's own ttCloseTurnTimerBanner() call, so a banner already shown
+    // for the round that just got discarded (e.g. "ran out of time") would
+    // otherwise linger on screen, frozen, into the next player's turn.
+    ttCloseTurnTimerBanner();
+    ttTurnTimerDeadlineMs = 0;
+
+    ttStopClipProgressTimer();
+    ttResetClipProgress();
 
     if (ttPlayer && ttPlayerReady) {
         try {
@@ -743,7 +923,7 @@ let ttPlaybackStartedThisRound = false;
 // Client-side only, same trust model this file already uses for "Play the
 // song first" (ttPlaybackStartedThisRound has no server-side check either):
 // a good-faith courtesy, not an anti-cheat boundary.
-const TT_MIN_LISTEN_MS = 30000;
+const TT_MIN_LISTEN_MS = 20000;
 let ttListenGateDeadlineMs = 0;
 let ttListenGateInterval = null;
 
@@ -897,9 +1077,8 @@ function ttShowTurnTimerBanner(deadlineMs) {
         popup.appendChild(hint);
     }
 
-    const countdown = document.createElement("div");
-    countdown.className = "tt-popup-year tt-steal-countdown";
-    popup.appendChild(countdown);
+    const ringObj = ttCreateCountdownRing();
+    popup.appendChild(ringObj.element);
 
     wrap.appendChild(popup);
     document.body.appendChild(wrap);
@@ -907,10 +1086,11 @@ function ttShowTurnTimerBanner(deadlineMs) {
     const badgeEl = document.getElementById("tt-turn-timer");
     let expired = false;
 
+    const totalTurnMs = (ttTurnTimerSeconds || 30) * 1000;
     const tick = () => {
         const remainingMs = ttTurnTimerDeadlineMs - Date.now();
+        ringObj.update(remainingMs, totalTurnMs);
         const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
-        countdown.textContent = seconds.toString();
         if (badgeEl) badgeEl.textContent = seconds + "s";
 
         if (remainingMs <= 0) {
@@ -997,15 +1177,15 @@ function showResultPopup(payload, onDone) {
     }
     popup.appendChild(verdict);
 
-    if (payload.guessTokenWinnerName) {
+    // Every right part of a guess earns its own tokens -- no single-token
+    // race -- so there can be more than one of these, one line per player.
+    (payload.guessTokenWinners || []).forEach((winner) => {
         const guessLine = document.createElement("div");
         guessLine.className = "tt-popup-guess";
-        var quoted = payload.guessTokenGuessText
-            ? " — “" + payload.guessTokenGuessText + "”"
-            : "";
-        guessLine.textContent = payload.guessTokenWinnerName + " named it" + quoted + " — won 1 token";
+        const quoted = winner.guessText ? " — “" + winner.guessText + "”" : "";
+        guessLine.textContent = winner.name + " named it" + quoted + " — won " + winner.tokens + (winner.tokens === 1 ? " token" : " tokens");
         popup.appendChild(guessLine);
-    }
+    });
 
     // "won" carries a win-celebration; "discarded" carries the turn player's
     // lose-celebration — same split as timeline-trivia's correct/incorrect.
@@ -1217,11 +1397,11 @@ function showWinVideoModal(payload, onDone) {
 // -------------------------------------------------------------- steal modal
 //
 // Unlike the turn timer (each client starts its own independent local
-// countdown on receipt), the steal countdown is server-authoritative: the
-// deadline in the payload is a fixed instant computed by the server, and
-// every client renders the same remaining time by recomputing
-// deadlineMs - Date.now() each tick, rather than each starting its own timer
-// from a duration. The server enforces the deadline itself (a scheduled
+// countdown on receipt), the steal countdown's length is server-authoritative:
+// the payload carries the time left (remainingMs), and each client counts
+// down from receipt using only its own clock's elapsed time — never an
+// absolute server timestamp, which a skewed client clock would misread. The
+// server enforces the deadline itself (a scheduled
 // time.AfterFunc) regardless of what any client does — this modal is display
 // only, never the actual authority on when the phase ends.
 
@@ -1273,9 +1453,8 @@ function ttShowStealModal(opts) {
         popup.appendChild(hint);
     }
 
-    const countdown = document.createElement("div");
-    countdown.className = "tt-popup-year tt-steal-countdown";
-    popup.appendChild(countdown);
+    const ringObj = ttCreateCountdownRing();
+    popup.appendChild(ringObj.element);
 
     let joinButton = null;
     if (opts.showJoinButton) {
@@ -1314,18 +1493,32 @@ function ttShowStealModal(opts) {
         });
     }
 
+    const totalStealMs = Math.max(1000, opts.deadlineMs - Date.now());
     const tick = () => {
         const remainingMs = opts.deadlineMs - Date.now();
         if (remainingMs <= 0) {
-            countdown.textContent = "0";
+            ringObj.update(0, totalStealMs);
+            if (joinButton) {
+                joinButton.disabled = true;
+                joinButton.textContent = "Time's up";
+            }
             clearInterval(ttStealInterval);
             ttStealInterval = null;
             return;
         }
-        countdown.textContent = Math.ceil(remainingMs / 1000).toString();
+        ringObj.update(remainingMs, totalStealMs);
     };
     tick();
-    ttStealInterval = setInterval(tick, 200);
+    ttStealInterval = setInterval(tick, 100);
+}
+
+// ttLocalDeadline turns a steal payload into a deadline on THIS browser's
+// clock: now plus the time the server says is left. The server never sends an
+// absolute timestamp, because comparing one to Date.now() breaks for any client
+// whose clock is skewed from the server's (a fast clock shows the window as
+// already over).
+function ttLocalDeadline(payload) {
+    return Date.now() + payload.remainingMs;
 }
 
 // handleStealJoin shows the join-window modal. The turn player cannot steal
@@ -1351,7 +1544,7 @@ function handleStealJoin(payload) {
     ttShowStealModal({
         heading: "Steal it?",
         hint: hint,
-        deadlineMs: payload.deadlineMs,
+        deadlineMs: ttLocalDeadline(payload),
         showJoinButton: !amCurrentPlayer,
     });
 }
@@ -1370,10 +1563,257 @@ function handleStealTurn(payload) {
     ttShowStealModal({
         heading: amStealer ? "Your turn to steal!" : payload.stealerName + " is attempting to steal it",
         hint: amStealer ? "Place it on your own timeline before time runs out." : "",
-        deadlineMs: payload.deadlineMs,
+        deadlineMs: ttLocalDeadline(payload),
         showJoinButton: false,
         blocking: !amStealer,
     });
+}
+
+// ---------------------------------------------------------------- challenge
+//
+// A challenge is a player saying the game wronged them and asking the table to
+// vote on what they are owed (see api/tracktimeline/challenge.go). The form and
+// the vote are both full-screen dialogs: while one is open nothing else in the
+// game can happen, and the server enforces that too, so this is only the
+// face of it. The vote countdown runs on the time-left the server sends, never
+// an absolute timestamp, so a player's clock cannot break it.
+
+let ttChallengeInterval = null;
+let ttChallengeMyVote = { id: "", vote: "" };
+let ttChallengeLoaded = false;
+
+function ttChallengeEl(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text !== undefined) el.textContent = text;
+    return el;
+}
+
+function ttCloseChallengeModal() {
+    if (ttChallengeInterval) {
+        clearInterval(ttChallengeInterval);
+        ttChallengeInterval = null;
+    }
+    const existing = document.getElementById("tt-challenge-modal");
+    if (existing) existing.remove();
+}
+
+// ttEndChallengeWindow runs when the next song starts: the Challenge button goes
+// and an unsent form is dropped (the server would refuse it now anyway).
+function ttEndChallengeWindow() {
+    const button = document.getElementById("tt-challenge-btn");
+    if (button) {
+        const row = button.closest(".challenge-row");
+        if (row) row.remove();
+    }
+    const modal = document.getElementById("tt-challenge-modal");
+    if (modal && modal.dataset.mode === "form") ttCloseChallengeModal();
+}
+
+function ttLoadChallengeOnce() {
+    if (ttChallengeLoaded || !ttLobbyId) return;
+    ttChallengeLoaded = true;
+    fetch("/api/track-timeline/" + ttLobbyId + "/challenge", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((info) => {
+            if (!info.open || !info.challenge) return;
+            if (info.myVote) ttChallengeMyVote = { id: info.challenge.id, vote: info.myVote };
+            ttShowChallengeVote(info.challenge);
+        })
+        .catch((e) => console.error("[TrackTimeline] challenge load failed:", e));
+}
+
+function ttOpenChallengeForm() {
+    const openButton = document.getElementById("tt-challenge-btn");
+    const maxTokens = (openButton && parseInt(openButton.getAttribute("data-max-tokens"), 10)) || 10;
+
+    ttCloseChallengeModal();
+
+    const backdrop = ttChallengeEl("div", "tt-popup-backdrop tt-challenge-backdrop");
+    backdrop.id = "tt-challenge-modal";
+    backdrop.dataset.mode = "form";
+    const popup = ttChallengeEl("div", "tt-popup tt-challenge-popup");
+
+    popup.appendChild(ttChallengeEl("div", "tt-popup-artist", "Challenge"));
+    popup.appendChild(ttChallengeEl("div", "tt-challenge-hint",
+        "Think the game got something wrong? Say what, and what you're owed. If most of the others agree, you get it. " +
+        "If they don't, you're out of challenges for this game."));
+
+    const reason = ttChallengeEl("textarea", "tt-challenge-reason");
+    reason.rows = 3;
+    reason.maxLength = 300;
+    reason.placeholder = "What went wrong? (e.g. the AI judge marked my right answer wrong)";
+    popup.appendChild(reason);
+
+    const kindRow = ttChallengeEl("div", "tt-challenge-kinds");
+    const makeRadio = (value, label, checked) => {
+        const wrap = ttChallengeEl("label", "tt-challenge-kind");
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = "tt-challenge-kind";
+        input.value = value;
+        input.checked = checked;
+        wrap.appendChild(input);
+        wrap.appendChild(document.createTextNode(" " + label));
+        kindRow.appendChild(wrap);
+        return input;
+    };
+    const cardRadio = makeRadio("card", "A free card", true);
+    const tokensRadio = makeRadio("tokens", "Tokens", false);
+    popup.appendChild(kindRow);
+
+    const tokensRow = ttChallengeEl("div", "tt-challenge-tokens");
+    tokensRow.style.display = "none";
+    tokensRow.appendChild(document.createTextNode("How many? "));
+    const tokens = document.createElement("input");
+    tokens.type = "number";
+    tokens.min = "1";
+    tokens.max = String(maxTokens);
+    tokens.value = "1";
+    tokensRow.appendChild(tokens);
+    tokensRow.appendChild(document.createTextNode(" (up to " + maxTokens + ")"));
+    popup.appendChild(tokensRow);
+
+    const sync = () => { tokensRow.style.display = tokensRadio.checked ? "" : "none"; };
+    cardRadio.addEventListener("change", sync);
+    tokensRadio.addEventListener("change", sync);
+
+    const error = ttChallengeEl("div", "tt-challenge-error");
+    popup.appendChild(error);
+
+    const actions = ttChallengeEl("div", "tt-confirm-actions");
+    const submit = ttChallengeEl("button", "btn-small", "Submit challenge");
+    submit.type = "button";
+    const cancel = ttChallengeEl("button", "btn-small btn-secondary", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", ttCloseChallengeModal);
+    submit.addEventListener("click", () => {
+        error.textContent = "";
+        submit.disabled = true;
+        const body = new URLSearchParams({
+            kind: tokensRadio.checked ? "tokens" : "card",
+            tokens: tokens.value,
+            reason: reason.value,
+        });
+        fetch("/api/track-timeline/" + ttLobbyId + "/challenge", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: body,
+        })
+            .then((r) => r.text().then((text) => ({ ok: r.ok, text: text })))
+            .then((result) => {
+                if (!result.ok) {
+                    error.textContent = result.text;
+                    submit.disabled = false;
+                    return;
+                }
+                // The server's challenge: broadcast has usually already swapped
+                // this form for the vote by now; only close the form itself.
+                const modal = document.getElementById("tt-challenge-modal");
+                if (modal && modal.dataset.mode === "form") ttCloseChallengeModal();
+            })
+            .catch((e) => {
+                console.error("[TrackTimeline] challenge failed:", e);
+                error.textContent = "Could not send the challenge.";
+                submit.disabled = false;
+            });
+    });
+    actions.appendChild(submit);
+    actions.appendChild(cancel);
+    popup.appendChild(actions);
+
+    backdrop.appendChild(popup);
+    document.body.appendChild(backdrop);
+    reason.focus();
+}
+
+function ttPostChallengeAction(path, form) {
+    return fetch("/api/track-timeline/" + ttLobbyId + "/challenge/" + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(form || {}),
+    }).then((r) => r.text().then((text) => ({ ok: r.ok, text: text })));
+}
+
+function ttShowChallengeVote(payload) {
+    ttCloseChallengeModal();
+
+    const myRow = document.querySelector("#tt-board .player-card.is-me");
+    const myPlayerId = myRow ? myRow.dataset.playerId : null;
+    const isChallenger = !!(myPlayerId && payload.challengerId === myPlayerId);
+    const myVote = ttChallengeMyVote.id === payload.id ? ttChallengeMyVote.vote : "";
+
+    const backdrop = ttChallengeEl("div", "tt-popup-backdrop tt-challenge-backdrop");
+    backdrop.id = "tt-challenge-modal";
+    backdrop.dataset.mode = "vote";
+    const popup = ttChallengeEl("div", "tt-popup tt-challenge-popup");
+
+    popup.appendChild(ttChallengeEl("div", "tt-popup-artist",
+        isChallenger ? "Your challenge" : payload.challengerName + " is challenging"));
+    popup.appendChild(ttChallengeEl("div", "tt-challenge-reason-text", "“" + payload.reason + "”"));
+    popup.appendChild(ttChallengeEl("div", "tt-challenge-claim",
+        "Wants: " + (payload.kind === "card"
+            ? "a free card"
+            : payload.tokens + (payload.tokens === 1 ? " token" : " tokens"))));
+
+    const ring = ttCreateCountdownRing();
+    popup.appendChild(ring.element);
+    popup.appendChild(ttChallengeEl("div", "tt-challenge-status",
+        payload.voted + " of " + payload.eligible + " voted"));
+
+    const actions = ttChallengeEl("div", "tt-confirm-actions");
+    const note = ttChallengeEl("div", "tt-challenge-note");
+    if (isChallenger) {
+        note.textContent = "Waiting for the table to vote…";
+        const withdraw = ttChallengeEl("button", "btn-small btn-secondary", "Withdraw");
+        withdraw.type = "button";
+        withdraw.addEventListener("click", () => {
+            withdraw.disabled = true;
+            ttPostChallengeAction("withdraw").then((r) => { if (!r.ok) note.textContent = r.text; });
+        });
+        actions.appendChild(withdraw);
+    } else if (myVote) {
+        note.textContent = "You voted " + myVote + ". Waiting for the others…";
+    } else {
+        const agreeButton = ttChallengeEl("button", "btn-small", "Agree");
+        agreeButton.type = "button";
+        const disagreeButton = ttChallengeEl("button", "btn-small btn-secondary", "Disagree");
+        disagreeButton.type = "button";
+        const cast = (agree) => {
+            agreeButton.disabled = true;
+            disagreeButton.disabled = true;
+            ttPostChallengeAction("vote", { agree: agree ? "1" : "0" }).then((r) => {
+                if (r.ok) {
+                    ttChallengeMyVote = { id: payload.id, vote: agree ? "agree" : "disagree" };
+                    note.textContent = "Vote recorded. Waiting for the others…";
+                } else {
+                    note.textContent = r.text;
+                }
+            });
+        };
+        agreeButton.addEventListener("click", () => cast(true));
+        disagreeButton.addEventListener("click", () => cast(false));
+        actions.appendChild(agreeButton);
+        actions.appendChild(disagreeButton);
+    }
+    popup.appendChild(actions);
+    popup.appendChild(note);
+
+    backdrop.appendChild(popup);
+    document.body.appendChild(backdrop);
+
+    const deadline = Date.now() + payload.remainingMs;
+    const total = Math.max(payload.windowMs || 0, payload.remainingMs, 1000);
+    const tick = () => {
+        const remaining = deadline - Date.now();
+        ring.update(Math.max(0, remaining), total);
+        if (remaining <= 0 && ttChallengeInterval) {
+            clearInterval(ttChallengeInterval);
+            ttChallengeInterval = null;
+        }
+    };
+    tick();
+    ttChallengeInterval = setInterval(tick, 100);
 }
 
 // ttToggleExactYear swaps the timeline's normal +-slot placement buttons for
@@ -1430,3 +1870,274 @@ function ttValidateExactYear() {
         lock.title = "Lock in this year and spend the wager.";
     }
 }
+
+// -------------------------------------------------- in-game volume & audio progress
+
+function ttInitVolume() {
+    try {
+        const savedVol = localStorage.getItem("tt_volume");
+        if (savedVol !== null) {
+            const parsed = parseInt(savedVol, 10);
+            if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) {
+                ttVolume = parsed;
+            }
+        }
+        const savedMute = localStorage.getItem("tt_muted");
+        if (savedMute === "true") {
+            ttMuted = true;
+        }
+    } catch (e) {
+        // localStorage not available or blocked
+    }
+    ttApplyVolumeUI();
+}
+
+function ttSetVolume(val) {
+    const vol = parseInt(val, 10);
+    if (isNaN(vol) || vol < 0 || vol > 100) return;
+    ttVolume = vol;
+    try {
+        localStorage.setItem("tt_volume", vol.toString());
+    } catch (e) {}
+
+    if (vol > 0 && ttMuted) {
+        ttMuted = false;
+        try {
+            localStorage.setItem("tt_muted", "false");
+        } catch (e) {}
+    }
+    if (vol === 0) {
+        ttMuted = true;
+        try {
+            localStorage.setItem("tt_muted", "true");
+        } catch (e) {}
+    }
+    ttApplyVolumeToPlayer();
+    ttApplyVolumeUI();
+}
+
+function ttToggleMute() {
+    ttMuted = !ttMuted;
+    try {
+        localStorage.setItem("tt_muted", ttMuted ? "true" : "false");
+    } catch (e) {}
+    if (!ttMuted && ttVolume === 0) {
+        ttVolume = 50;
+        try {
+            localStorage.setItem("tt_volume", "50");
+        } catch (e) {}
+    }
+    ttApplyVolumeToPlayer();
+    ttApplyVolumeUI();
+}
+
+function ttApplyVolumeToPlayer() {
+    if (!ttPlayer || !ttPlayerReady) return;
+    try {
+        if (ttMuted) {
+            ttPlayer.mute();
+        } else {
+            ttPlayer.unMute();
+            ttPlayer.setVolume(ttVolume);
+        }
+    } catch (e) {}
+}
+
+function ttApplyVolumeUI() {
+    const displayVol = ttMuted ? 0 : ttVolume;
+    const iconClass = ttMuted || displayVol === 0
+        ? "bi bi-volume-mute-fill"
+        : displayVol < 50
+            ? "bi bi-volume-down-fill"
+            : "bi bi-volume-up-fill";
+
+    document.querySelectorAll(".tt-volume-slider").forEach((el) => {
+        el.value = displayVol;
+    });
+    document.querySelectorAll(".tt-volume-val").forEach((el) => {
+        el.textContent = displayVol + "%";
+    });
+    document.querySelectorAll(".tt-volume-icon").forEach((el) => {
+        el.className = "tt-volume-icon " + iconClass;
+    });
+    document.querySelectorAll(".tt-volume-btn").forEach((el) => {
+        el.title = ttMuted ? "Unmute" : "Mute";
+        el.classList.toggle("is-muted", ttMuted);
+    });
+}
+
+function ttFormatTime(sec) {
+    const s = Math.floor(sec || 0);
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return m + ":" + (rem < 10 ? "0" : "") + rem;
+}
+
+function ttStartClipProgressTimer() {
+    ttStopClipProgressTimer();
+    ttUpdateClipProgress();
+    ttClipProgressInterval = setInterval(ttUpdateClipProgress, 100);
+}
+
+function ttStopClipProgressTimer() {
+    if (ttClipProgressInterval) {
+        clearInterval(ttClipProgressInterval);
+        ttClipProgressInterval = null;
+    }
+}
+
+function ttResetClipProgress() {
+    const dur = ttClipDurationSeconds > 0 ? ttClipDurationSeconds : 20;
+    document.querySelectorAll(".tt-clip-progress-fill").forEach((el) => {
+        el.style.width = "0%";
+    });
+    document.querySelectorAll(".tt-clip-elapsed-text").forEach((el) => {
+        el.textContent = "0:00";
+    });
+    document.querySelectorAll(".tt-clip-duration-text").forEach((el) => {
+        el.textContent = ttFormatTime(dur);
+    });
+    document.querySelectorAll(".tt-clip-countdown-text").forEach((el) => {
+        el.textContent = Math.ceil(dur) + "s left";
+    });
+    document.querySelectorAll(".tt-clip-pulse-dot").forEach((el) => {
+        el.classList.remove("is-active");
+    });
+    document.querySelectorAll(".tt-platter-ring-fill").forEach((el) => {
+        el.style.strokeDashoffset = "0";
+    });
+    document.querySelectorAll(".tt-platter-countdown-val").forEach((el) => {
+        el.textContent = Math.ceil(dur) + "s";
+    });
+}
+
+function ttFinishClipProgress() {
+    const dur = ttClipDurationSeconds > 0 ? ttClipDurationSeconds : 20;
+    document.querySelectorAll(".tt-clip-progress-fill").forEach((el) => {
+        el.style.width = "100%";
+    });
+    document.querySelectorAll(".tt-clip-elapsed-text").forEach((el) => {
+        el.textContent = ttFormatTime(dur);
+    });
+    document.querySelectorAll(".tt-clip-countdown-text").forEach((el) => {
+        el.textContent = "Ended";
+    });
+    document.querySelectorAll(".tt-clip-pulse-dot").forEach((el) => {
+        el.classList.remove("is-active");
+    });
+    document.querySelectorAll(".tt-platter-ring-fill").forEach((el) => {
+        el.style.strokeDashoffset = "295.31";
+    });
+    document.querySelectorAll(".tt-platter-countdown-val").forEach((el) => {
+        el.textContent = "0s";
+    });
+}
+
+function ttUpdateClipProgress() {
+    ttApplySpin();
+    let isPlaying = false;
+    let currentTime = 0;
+    if (ttPlayer && ttPlayerReady) {
+        try {
+            isPlaying = ttPlayer.getPlayerState() === YT.PlayerState.PLAYING;
+            currentTime = ttPlayer.getCurrentTime();
+        } catch (e) {}
+    }
+
+    document.querySelectorAll(".tt-clip-pulse-dot").forEach((el) => {
+        el.classList.toggle("is-active", isPlaying);
+    });
+
+    let duration = ttClipDurationSeconds;
+    if (duration <= 0 && ttPlayer && ttPlayerReady) {
+        try {
+            duration = (ttPlayer.getDuration() || 0) - ttClipStartSeconds;
+        } catch (e) {}
+    }
+    if (duration <= 0) duration = 20;
+
+    let elapsed = Math.max(0, currentTime - ttClipStartSeconds);
+    if (ttClipFinished) elapsed = duration;
+    elapsed = Math.min(elapsed, duration);
+
+    const remaining = Math.max(0, duration - elapsed);
+    const fraction = duration > 0 ? (elapsed / duration) : 0;
+    const percent = Math.min(100, Math.max(0, fraction * 100));
+
+    document.querySelectorAll(".tt-clip-progress-fill").forEach((el) => {
+        el.style.width = percent + "%";
+    });
+    document.querySelectorAll(".tt-clip-elapsed-text").forEach((el) => {
+        el.textContent = ttFormatTime(elapsed);
+    });
+    document.querySelectorAll(".tt-clip-duration-text").forEach((el) => {
+        el.textContent = ttFormatTime(duration);
+    });
+    document.querySelectorAll(".tt-clip-countdown-text").forEach((el) => {
+        if (ttClipFinished) {
+            el.textContent = "Ended";
+        } else {
+            el.textContent = Math.ceil(remaining) + "s left";
+        }
+    });
+
+    // Circular Platter Countdown Ring (radius 47, circumference 295.31)
+    const ringPerimeter = 295.31;
+    const offset = ringPerimeter * fraction;
+    document.querySelectorAll(".tt-platter-ring-fill").forEach((el) => {
+        el.style.strokeDashoffset = offset.toFixed(2);
+    });
+    document.querySelectorAll(".tt-platter-countdown-val").forEach((el) => {
+        el.textContent = (ttClipFinished ? 0 : Math.ceil(remaining)) + "s";
+    });
+}
+
+function ttCreateCountdownRing() {
+    const wrap = document.createElement("div");
+    wrap.className = "tt-countdown-ring-wrap";
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "tt-modal-countdown-svg");
+    svg.setAttribute("viewBox", "0 0 100 100");
+
+    const track = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    track.setAttribute("class", "tt-modal-ring-track");
+    track.setAttribute("cx", "50");
+    track.setAttribute("cy", "50");
+    track.setAttribute("r", "44");
+    svg.appendChild(track);
+
+    const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    ring.setAttribute("class", "tt-modal-ring-fill");
+    ring.setAttribute("cx", "50");
+    ring.setAttribute("cy", "50");
+    ring.setAttribute("r", "44");
+    svg.appendChild(ring);
+
+    wrap.appendChild(svg);
+
+    const countdown = document.createElement("div");
+    countdown.className = "tt-popup-year tt-steal-countdown";
+    wrap.appendChild(countdown);
+
+    return {
+        element: wrap,
+        textEl: countdown,
+        update: (remainingMs, totalMs) => {
+            const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
+            countdown.textContent = seconds.toString();
+            const fraction = totalMs > 0 ? Math.max(0, Math.min(1, remainingMs / totalMs)) : 0;
+            const perimeter = 276.46; // 2 * PI * 44
+            const offset = perimeter * (1 - fraction);
+            ring.style.strokeDashoffset = offset.toFixed(2);
+            ring.classList.toggle("is-warning", seconds <= 5);
+        },
+    };
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", ttInitVolume);
+} else {
+    ttInitVolume();
+}
+

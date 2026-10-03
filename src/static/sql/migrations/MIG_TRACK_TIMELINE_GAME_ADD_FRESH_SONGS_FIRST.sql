@@ -1,0 +1,3 @@
+-- Per-lobby "never-played songs first" draw order.
+ALTER TABLE TRACK_TIMELINE_GAME
+    ADD COLUMN IF NOT EXISTS FRESH_SONGS_FIRST TINYINT(1) NOT NULL DEFAULT 0;

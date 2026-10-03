@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"errors"
 	"log"
 
@@ -13,6 +14,7 @@ const (
 	CardEventDiscarded = "discarded"
 	CardEventSkipped   = "skipped"
 	CardEventBought    = "bought"
+	CardEventDealt     = "dealt"
 )
 
 // The log tables have no foreign keys on purpose (see their DDL): a lobby and
@@ -53,7 +55,7 @@ func LogTitleGuess(userId uuid.UUID, cardId uuid.UUID, guessText string, titleCo
 	return execute(sqlString, id, userId, cardId, guessText, titleCorrect, artistCorrect)
 }
 
-// LogCardEvent records a card being drawn, discarded, or skipped.
+// LogCardEvent records a card being drawn, discarded, skipped or bought.
 func LogCardEvent(cardId uuid.UUID, eventType string) error {
 	id, err := uuid.NewUUID()
 	if err != nil {
@@ -63,6 +65,21 @@ func LogCardEvent(cardId uuid.UUID, eventType string) error {
 
 	sqlString := "INSERT INTO TRACK_TIMELINE_LOG_CARD (ID, CARD_ID, EVENT_TYPE) VALUES (?, ?, ?)"
 	return execute(sqlString, id, cardId, eventType)
+}
+
+// LogCardDealt records a card being dealt to a player as the first card of
+// their timeline. poolSize is how many songs were in the game's draw pile, or
+// invalid if that could not be read, so a run of repeated starting cards can be
+// judged against how small the pile was.
+func LogCardDealt(cardId uuid.UUID, userId uuid.UUID, poolSize sql.NullInt64) error {
+	id, err := uuid.NewUUID()
+	if err != nil {
+		log.Println(err)
+		return errors.New("failed to generate new id")
+	}
+
+	sqlString := "INSERT INTO TRACK_TIMELINE_LOG_CARD (ID, CARD_ID, EVENT_TYPE, USER_ID, POOL_SIZE) VALUES (?, ?, ?, ?, ?)"
+	return execute(sqlString, id, cardId, CardEventDealt, userId, poolSize)
 }
 
 // LogWin records a completed game.

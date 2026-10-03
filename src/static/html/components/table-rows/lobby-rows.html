@@ -11,6 +11,21 @@
     <td>{{if .HasPassword}}<span class="bi bi-lock-fill" title="Password required"></span>{{end}}</td>
     <td>
         <a href="/track-timeline/{{.Id}}"><button class="btn-small">Join</button></a>
+        {{if ne .GameStatus "active"}}
+        <!-- Only ever shown for a lobby that isn't mid-game; the handler
+             (loadContext) separately requires the clicker to actually have
+             been a player in this lobby, and re-checks the status itself. -->
+        <button
+            type="button"
+            class="btn-small btn-delete-lobby"
+            hx-post="/api/track-timeline/{{.Id}}/delete"
+            hx-swap="none"
+            hx-confirm="Delete &quot;{{.Name}}&quot;? This cannot be undone."
+            title="Delete this lobby"
+        >
+            <span class="bi bi-trash"></span>
+        </button>
+        {{end}}
     </td>
 </tr>
 {{end}}

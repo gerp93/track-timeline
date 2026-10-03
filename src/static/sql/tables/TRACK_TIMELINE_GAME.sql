@@ -35,20 +35,11 @@ CREATE TABLE IF NOT EXISTS TRACK_TIMELINE_GAME(
     STEALER_PLAYER_ID UUID NULL,
     CARDS_TO_WIN INT NOT NULL DEFAULT 10,
     STARTING_TOKENS INT NOT NULL DEFAULT 2,
-    -- Free-form title/artist guess economy for this lobby:
-    --   off     no guess UI; no guess token awarded.
-    --   both    both title and artist must be right for the token (default).
-    --   title   only the song title is guessable / judged for the token.
-    --   either  title or artist correct is enough for the token.
-    GUESS_MODE ENUM('off', 'both', 'title', 'either') NOT NULL DEFAULT 'both',
-    -- Fraction of authored title/artist words that must match (60/70/80/90).
-    -- Local judge: that is the bar. Claude: that is the heuristic fallback
-    -- if the API errors or the reply is unreadable. Never 100.
-    GUESS_MATCH_PERCENT INT NOT NULL DEFAULT 60,
-    -- How free-form guesses are judged:
-    --   local   the built-in word matcher (uses GUESS_MATCH_PERCENT).
-    --   claude  Anthropic Claude yes/no on intent; GUESS_MATCH_PERCENT is fallback.
-    GUESS_JUDGE ENUM('local', 'claude') NOT NULL DEFAULT 'local',
+    -- When set, the draw pile is dealt in two groups: songs that have never
+    -- been drawn, dealt or bought in any game first (random among themselves),
+    -- then the rest, also random. So once the never-played songs run out the
+    -- game simply carries on at random. Off by default: a fully random pile.
+    FRESH_SONGS_FIRST TINYINT(1) NOT NULL DEFAULT 0,
     -- How much of each song the lobby hears:
     --   full    the whole song, from the top, until it ends.
     --   intro   the first CLIP_SECONDS seconds.
@@ -68,6 +59,10 @@ CREATE TABLE IF NOT EXISTS TRACK_TIMELINE_GAME(
     -- Whether the player on turn has already spent a token to replay this
     -- round's clip. One replay per round, cleared on every turn advance.
     REPLAY_USED TINYINT(1) NOT NULL DEFAULT 0,
+    -- A round has resolved and the next song has not been started yet: the one
+    -- window in which a player may raise a challenge. Set when the turn
+    -- advances, cleared when the next song is played.
+    BETWEEN_ROUNDS TINYINT(1) NOT NULL DEFAULT 0,
     WINNER_ID UUID NULL,
     PRIMARY KEY(ID),
     FOREIGN KEY(LOBBY_ID) REFERENCES LOBBY(ID) ON DELETE CASCADE,

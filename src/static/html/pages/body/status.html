@@ -1,0 +1,31 @@
+{{define "body"}}
+<h2>API Status</h2>
+<p>
+    Makes one real call to the YouTube Data API and one to the Claude API, every
+    time this page loads, and reports whether each can be reached with its key.
+    Each test costs a tiny amount of real quota or tokens.
+</p>
+
+<div
+    id="status-result"
+    class="htmx-result htmx-result-persist"
+    hx-post="/api/status/check"
+    hx-trigger="load"
+    hx-swap="innerHTML"
+    hx-timeout="25000"
+>
+    <p class="hint">Checking&hellip;</p>
+</div>
+
+<br />
+<button
+    type="button"
+    class="btn-small"
+    hx-post="/api/status/check"
+    hx-target="#status-result"
+    hx-timeout="25000"
+    onclick="document.getElementById('status-result').innerHTML = '<p class=&quot;hint&quot;>Checking&hellip;</p>'"
+>
+    Test again
+</button>
+{{end}}

@@ -262,7 +262,7 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 		}
 		p.playerId = pid
 	}
-	gameId, err := database.CreateGame(lobbyId, 5, 2, database.GuessModeBoth, database.DefaultGuessMatchPercent, database.GuessJudgeLocal, database.PlaybackIntro, 20)
+	gameId, err := database.CreateGame(lobbyId, 5, 2, false, database.PlaybackIntro, 20)
 	if err != nil {
 		t.Fatalf("create game: %v", err)
 	}
@@ -503,8 +503,9 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	// free, pay when your turn begins" step now that there is only one
 	// attempt, not a queue.
 	postClaimTokens, err := database.GetPlayerTokens(gameId, stealer.playerId)
-	if err != nil || postClaimTokens != 1 {
-		t.Errorf("claiming should spend the stealer's token immediately (2 -> 1), got %d (%v)", postClaimTokens, err)
+	if err != nil || postClaimTokens != preClaimTokens-database.StealCost {
+		t.Errorf("claiming should spend the stealer's %d tokens immediately (%d -> %d), got %d (%v)",
+			database.StealCost, preClaimTokens, preClaimTokens-database.StealCost, postClaimTokens, err)
 	}
 
 	// The bystander tries to claim after the stealer already did — refused,
@@ -731,7 +732,7 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	vainStealer := otherPlayers(correctPlacer2)[0]
 	// Top up regardless of accumulated balance from earlier sections — this
 	// step is testing the fallback-on-miss outcome, not token accounting.
-	if err := database.SetPlayerTokens(gameId, vainStealer.playerId, 1); err != nil {
+	if err := database.SetPlayerTokens(gameId, vainStealer.playerId, database.StealCost); err != nil {
 		t.Fatalf("top up vain stealer tokens: %v", err)
 	}
 	rec = serve(apiTrackTimeline.ClaimSteal, authedRequest(t, "POST",
@@ -799,11 +800,12 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 		t.Errorf("expected a private alert confirming a full match, got %v", alerts)
 	}
 
-	// The token is deferred to reveal (database.AwardGuessToken), not awarded
-	// on submit — the balance should not have moved yet.
+	// The token is paid the moment the guess is judged (database.AwardGuessToken),
+	// not held until reveal.
 	postGuessTokens, err := database.GetPlayerTokens(gameId, guesserForTitle.playerId)
-	if err != nil || postGuessTokens != preTokens {
-		t.Errorf("guess token should not be awarded until reveal, got %d -> %d", preTokens, postGuessTokens)
+	if err != nil || postGuessTokens != preTokens+database.CurrentEconomy().MaxGuessTokens {
+		t.Errorf("a perfect guess should pay %d tokens on submit, got %d -> %d",
+			database.CurrentEconomy().MaxGuessTokens, preTokens, postGuessTokens)
 	}
 
 	// A second guess from the same player this round must be refused.
@@ -819,9 +821,9 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	// token (see steal.go) — zero every other player's tokens first so no
 	// window opens at all here and the round resolves immediately, cleanly
 	// isolating the guess-token award (what this section is actually
-	// testing) from the steal mechanic exercised elsewhere. The current
-	// player never guessed this round, so guesserForTitle (the only correct
-	// guess) should win the guess token regardless of who wins the card.
+	// testing) from the steal mechanic exercised elsewhere. This also zeroes
+	// guesserForTitle's just-earned token, so what follows checks that
+	// resolving the round does not pay a second one for the same guess.
 	resolver := currentPlayer()
 	for _, p := range otherPlayers(resolver) {
 		if err := database.SetPlayerTokens(gameId, p.playerId, 0); err != nil {
@@ -851,8 +853,8 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	}
 
 	postResolveTokens, err := database.GetPlayerTokens(gameId, guesserForTitle.playerId)
-	if err != nil || postResolveTokens != preTokens+1 {
-		t.Errorf("expected +1 token once the round resolved, got %d -> %d", preTokens, postResolveTokens)
+	if err != nil || postResolveTokens != preTokens {
+		t.Errorf("resolving the round must not pay the guess token again, got %d -> %d", preTokens, postResolveTokens)
 	}
 
 	// ================= 6. only the current player may skip, and it costs a token
@@ -867,7 +869,7 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	// Top up regardless of how many earlier steps in this test happened to
 	// spend the skipper's tokens — this step is testing skip's own cost, not
 	// accumulated balance from everything before it.
-	if err := database.SetPlayerTokens(gameId, skipper.playerId, 1); err != nil {
+	if err := database.SetPlayerTokens(gameId, skipper.playerId, database.SkipCost); err != nil {
 		t.Fatalf("top up skipper tokens: %v", err)
 	}
 	beforeSkip, _ := database.GetCurrentCard(gameId)
@@ -881,7 +883,7 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 		t.Errorf("skip did not draw a replacement song")
 	}
 	if postSkipTokens, err := database.GetPlayerTokens(gameId, skipper.playerId); err != nil || postSkipTokens != 0 {
-		t.Errorf("expected skip to spend the skipper's token (1 -> 0), got %d (%v)", postSkipTokens, err)
+		t.Errorf("expected skip to spend the skipper's %d tokens (%d -> 0), got %d (%v)", database.SkipCost, database.SkipCost, postSkipTokens, err)
 	}
 	rec = serve(apiTrackTimeline.SkipCard, authedRequest(t, "POST",
 		"/api/track-timeline/"+lobbyId.String()+"/skip-card", url.Values{}, skipper.userId))
@@ -898,8 +900,8 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	// included) rather than an arbitrary one of the two: by this point in the
 	// test several steals/placements have already happened, and this section
 	// is testing the buy mechanic itself, not the separate in-the-lead
-	// restriction (covered on its own in TestBuyCardCostAndStrictLeaderRestriction) --
-	// picking whoever is behind guarantees they are never the strict leader.
+	// restriction (covered on its own in TestBuyCardCostAndLeadRestriction) --
+	// whoever is picked is made strictly behind below.
 	candidates := otherPlayers(currentPlayer())
 	buyer := candidates[0]
 	buyerLen, err := database.GetPlayerTimeline(gameId, buyer.playerId)
@@ -914,6 +916,27 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 		if len(cLen) < len(buyerLen) {
 			buyer = c
 			buyerLen = cLen
+		}
+	}
+	// A player in or tied for the lead cannot buy, so make sure the buyer is
+	// strictly behind someone: if they are level with the longest timeline, take
+	// their last card off (the buy below puts one back, so they end the section
+	// exactly where they started).
+	maxOther := 0
+	allPlayers, err := database.GetPlayers(gameId)
+	if err != nil {
+		t.Fatalf("players: %v", err)
+	}
+	for _, p := range allPlayers {
+		if p.IsActive && p.PlayerId != buyer.playerId && p.TimelineSize > maxOther {
+			maxOther = p.TimelineSize
+		}
+	}
+	if len(buyerLen) >= maxOther && len(buyerLen) > 0 {
+		if err := gsDatabase.Execute(
+			"DELETE FROM TRACK_TIMELINE_PLAYER_TIMELINE WHERE TRACK_TIMELINE_GAME_ID = ? AND PLAYER_ID = ? ORDER BY POSITION DESC LIMIT 1",
+			gameId, buyer.playerId); err != nil {
+			t.Fatalf("make the buyer trail: %v", err)
 		}
 	}
 	if err := database.SetPlayerTokens(gameId, buyer.playerId, database.BuyCardCost); err != nil {
@@ -977,7 +1000,7 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	}
 	stealBlockTimeline, _ := database.GetPlayerTimeline(gameId, stealBlockPlacer.playerId)
 	someoneElse := otherPlayers(stealBlockPlacer)[0]
-	if err := database.SetPlayerTokens(gameId, someoneElse.playerId, 1); err != nil {
+	if err := database.SetPlayerTokens(gameId, someoneElse.playerId, database.StealCost); err != nil {
 		t.Fatalf("top up tokens for steal-block test: %v", err)
 	}
 	rec = serve(apiTrackTimeline.PlaceCard, authedRequest(t, "POST",
@@ -1045,7 +1068,7 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	// window is guaranteed to open rather than resolving immediately because
 	// nobody else held a token.
 	waitingStealer := otherPlayers(placer)[0]
-	if err := database.SetPlayerTokens(gameId, waitingStealer.playerId, 1); err != nil {
+	if err := database.SetPlayerTokens(gameId, waitingStealer.playerId, database.StealCost); err != nil {
 		t.Fatalf("top up waiting stealer tokens: %v", err)
 	}
 
@@ -1175,6 +1198,27 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	}
 
 	// ================= 10. every restart's order differs from the last ======
+	// The song order too: a replay in the same lobby must not deal the same
+	// starting cards and the same run of songs as the game before it.
+	pileOrder := func() string {
+		rows, err := gsDatabase.Query(
+			"SELECT CARD_ID FROM TRACK_TIMELINE_DRAW_PILE WHERE TRACK_TIMELINE_GAME_ID = ? ORDER BY SHUFFLE_ORDER ASC, ID ASC",
+			gameId)
+		if err != nil {
+			t.Fatalf("read draw pile order: %v", err)
+		}
+		defer rows.Close()
+		var ids []string
+		for rows.Next() {
+			var id uuid.UUID
+			if err := rows.Scan(&id); err != nil {
+				t.Fatalf("scan draw pile row: %v", err)
+			}
+			ids = append(ids, id.String())
+		}
+		return strings.Join(ids, ",")
+	}
+	prevPile := pileOrder()
 	prev := strings.Join(turnOrder(), ",")
 	for i := 0; i < 5; i++ {
 		rec = serve(apiTrackTimeline.ResetGame, authedRequest(t, "POST",
@@ -1193,6 +1237,11 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 			t.Errorf("restart %d produced the same order as the previous game: %s", i+1, now)
 		}
 		prev = now
+		if nowPile := pileOrder(); nowPile == prevPile {
+			t.Errorf("restart %d dealt the same song order as the previous game", i+1)
+		} else {
+			prevPile = nowPile
+		}
 		if err := gsDatabase.Execute(
 			"UPDATE TRACK_TIMELINE_GAME SET GAME_STATUS = 'finished' WHERE ID = ?", gameId); err != nil {
 			t.Fatalf("force finish: %v", err)

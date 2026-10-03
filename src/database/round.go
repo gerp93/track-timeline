@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	"strconv"
 	"sync"
@@ -210,16 +211,19 @@ type Guess struct {
 	ArtistCorrect      bool
 	TitleMatchPercent  int
 	ArtistMatchPercent int
+	// JudgedByAI is guess.Verdict.ByAI, persisted so it survives past the
+	// moment of judging — the live "alert:" message has the real Verdict to
+	// read it from, but the reveal chat line and a re-rendered "already
+	// guessed" fragment only have this stored row.
+	JudgedByAI bool
 }
 
-// GetGuesses returns this round's guesses oldest first — the order used to
-// decide who earns the guess token among non-turn players (first qualifying
-// submit wins there); the turn player's guess is checked separately and
-// supersedes submit order entirely. See AwardGuessToken.
+// GetGuesses returns this round's guesses oldest first, for reveal-chat
+// announcement order.
 func GetGuesses(gameId uuid.UUID) ([]Guess, error) {
 	sqlString := `
 		SELECT G.PLAYER_ID, U.NAME, G.GUESS_TEXT, G.TITLE_CORRECT, G.ARTIST_CORRECT,
-			G.TITLE_MATCH_PERCENT, G.ARTIST_MATCH_PERCENT
+			G.TITLE_MATCH_PERCENT, G.ARTIST_MATCH_PERCENT, G.JUDGED_BY_AI
 		FROM TRACK_TIMELINE_TITLE_GUESS G
 			INNER JOIN PLAYER P ON P.ID = G.PLAYER_ID
 			INNER JOIN USER U ON U.ID = P.USER_ID
@@ -237,7 +241,7 @@ func GetGuesses(gameId uuid.UUID) ([]Guess, error) {
 		var g Guess
 		if err := rows.Scan(
 			&g.PlayerId, &g.PlayerName, &g.GuessText, &g.TitleCorrect, &g.ArtistCorrect,
-			&g.TitleMatchPercent, &g.ArtistMatchPercent,
+			&g.TitleMatchPercent, &g.ArtistMatchPercent, &g.JudgedByAI,
 		); err != nil {
 			log.Println(err)
 			return nil, errors.New("failed to scan row in query results")
@@ -248,78 +252,63 @@ func GetGuesses(gameId uuid.UUID) ([]Guess, error) {
 	return result, nil
 }
 
-// AwardGuessToken resolves this round's guess-token economy under the lobby's
-// GuessMode. Being on turn supersedes submit order entirely: if the turn
-// player's own guess qualifies, they win the token no matter when the other
-// guesses came in. Only when the turn player didn't guess, or their guess
-// doesn't qualify, does it become a pure race among everyone else — the
-// earliest-submitted qualifying guess among the non-turn players wins.
-// hasWinner is false if none qualify, or if GuessMode is off.
-//
-// This is deliberately separate from ResolveRound's placement/card judging:
-// the guess-token economy and the card economy are independent, and this runs
-// regardless of whether the turn player's placement was correct.
-func AwardGuessToken(gameId uuid.UUID, currentPlayerId uuid.NullUUID, guessMode string) (winningGuess Guess, hasWinner bool, err error) {
-	if guessMode == GuessModeOff || guessMode == "" {
-		return winningGuess, false, nil
+// GuessTokensEarned is how many tokens a judged guess pays: GuessTokensPerPart
+// for the right title and again for the right artist, so 0, 1 or 2. The two
+// parts are scored independently, so getting only one right still pays.
+func GuessTokensEarned(g Guess) int {
+	earned := 0
+	if g.TitleCorrect {
+		earned += GuessTokensPerPart
 	}
+	if g.ArtistCorrect {
+		earned += GuessTokensPerPart
+	}
+	return earned
+}
 
+// GuessTokenWinners lists this round's guesses that earned their player at
+// least a token, oldest first. It only reads: the tokens were already paid the
+// moment each guess was judged (see AwardGuessToken), so this exists for the
+// reveal, which announces who earned what (GuessTokensEarned on each one).
+func GuessTokenWinners(gameId uuid.UUID) ([]Guess, error) {
 	guesses, err := GetGuesses(gameId)
 	if err != nil {
-		return winningGuess, false, err
+		return nil, err
 	}
 
-	winningGuess, hasWinner = pickGuessTokenWinner(guesses, guessMode, currentPlayerId)
-	if !hasWinner {
-		return winningGuess, false, nil
-	}
-
-	if _, err := AddPlayerTokens(gameId, winningGuess.PlayerId, 1); err != nil {
-		return winningGuess, true, err
-	}
-	return winningGuess, true, nil
-}
-
-// pickGuessTokenWinner returns the turn player's guess if one exists and
-// qualifies — that supersedes every other guess regardless of submit time.
-// Otherwise it returns the first non-turn guess in submit order that
-// qualifies. guesses must already be oldest-first.
-func pickGuessTokenWinner(guesses []Guess, guessMode string, currentPlayerId uuid.NullUUID) (Guess, bool) {
-	if currentPlayerId.Valid {
-		for _, g := range guesses {
-			if g.PlayerId == currentPlayerId.UUID && GuessQualifies(g, guessMode) {
-				return g, true
-			}
-		}
-	}
+	var winners []Guess
 	for _, g := range guesses {
-		if currentPlayerId.Valid && g.PlayerId == currentPlayerId.UUID {
-			continue
-		}
-		if GuessQualifies(g, guessMode) {
-			return g, true
+		if GuessTokensEarned(g) > 0 {
+			winners = append(winners, g)
 		}
 	}
-	return Guess{}, false
+	return winners, nil
 }
 
-// GuessQualifies reports whether a judged guess earns the token under mode.
-func GuessQualifies(g Guess, mode string) bool {
-	switch mode {
-	case GuessModeTitle:
-		return g.TitleCorrect
-	case GuessModeEither:
-		return g.TitleCorrect || g.ArtistCorrect
-	case GuessModeBoth:
-		return g.TitleCorrect && g.ArtistCorrect
-	default:
-		return false
+// AwardGuessToken pays a judged guess its tokens the moment it is recorded:
+// independent of turn order or submit time — there is no race, and no waiting
+// for the reveal. It returns how many were paid (0, 1 or 2), and does nothing
+// for a guess that earned none.
+//
+// This is deliberately separate from ResolveRound's placement/card judging:
+// the guess-token economy and the card economy are independent.
+func AwardGuessToken(gameId uuid.UUID, playerId uuid.UUID, g Guess) (int, error) {
+	earned := GuessTokensEarned(g)
+	if earned == 0 {
+		return 0, nil
 	}
+	if _, err := AddPlayerTokens(gameId, playerId, earned); err != nil {
+		return 0, err
+	}
+	return earned, nil
 }
 
-// RecordGuess stores a judged guess. tokensAwarded is always recorded as 0 at
-// submit time -- the token itself is granted later, at reveal, by
-// AwardGuessToken.
+// RecordGuess stores a judged guess. tokensAwarded is how many tokens the
+// guess paid out, granted by AwardGuessToken right after this insert (the row's
+// unique constraint is what stops a second guess, and so a second token, from
+// the same player this round). judgedByAI is guess.Verdict.ByAI, persisted so later
+// renderings of this guess (reveal chat, a re-fetched "already guessed"
+// fragment) can still skip match-percent phrasing for an AI verdict.
 func RecordGuess(
 	gameId uuid.UUID,
 	playerId uuid.UUID,
@@ -328,6 +317,7 @@ func RecordGuess(
 	artistCorrect bool,
 	titleMatchPercent int,
 	artistMatchPercent int,
+	judgedByAI bool,
 	tokensAwarded int,
 ) error {
 	id, err := uuid.NewUUID()
@@ -339,11 +329,11 @@ func RecordGuess(
 	sqlString := `
 		INSERT INTO TRACK_TIMELINE_TITLE_GUESS
 			(ID, TRACK_TIMELINE_GAME_ID, PLAYER_ID, GUESS_TEXT, TITLE_CORRECT, ARTIST_CORRECT,
-			TITLE_MATCH_PERCENT, ARTIST_MATCH_PERCENT, TOKENS_AWARDED)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			TITLE_MATCH_PERCENT, ARTIST_MATCH_PERCENT, JUDGED_BY_AI, TOKENS_AWARDED)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	return execute(sqlString, id, gameId, playerId, guessText, titleCorrect, artistCorrect,
-		titleMatchPercent, artistMatchPercent, tokensAwarded)
+		titleMatchPercent, artistMatchPercent, judgedByAI, tokensAwarded)
 }
 
 // ClearGuesses empties the round's guesses.
@@ -437,7 +427,7 @@ func PositionForYear(timeline []TimelineCard, year int) int {
 }
 
 // AnyEligibleToSteal reports whether any active player besides the one on
-// turn holds a token, i.e. could claim the steal attempt if a window opened
+// turn holds StealCost tokens, i.e. could claim the steal attempt if a window opened
 // right now. Used to decide whether opening the steal-join window is worth
 // it at all.
 func AnyEligibleToSteal(gameId uuid.UUID) (bool, error) {
@@ -456,7 +446,7 @@ func AnyEligibleToSteal(gameId uuid.UUID) (bool, error) {
 		if game.CurrentPlayerId.Valid && player.PlayerId == game.CurrentPlayerId.UUID {
 			continue
 		}
-		if player.TokenCount < 1 {
+		if player.TokenCount < StealCost {
 			continue
 		}
 		return true, nil
@@ -474,7 +464,7 @@ func AnyEligibleToSteal(gameId uuid.UUID) (bool, error) {
 // claim (if any) has already been durably decided by the UPDATE, so nobody
 // else can have since changed it out from under this read.
 //
-// A successful claim immediately spends the claimant's token and moves the
+// A successful claim immediately spends the claimant's StealCost tokens and moves the
 // round into PhaseStealTurn: claiming and beginning the turn are the same
 // moment now that there is only one steal attempt per round, not a queue to
 // wait on.
@@ -494,7 +484,7 @@ func ClaimSteal(gameId uuid.UUID, playerId uuid.UUID) (claimed bool, err error) 
 		return false, nil
 	}
 
-	if _, err := AddPlayerTokens(gameId, playerId, -1); err != nil {
+	if _, err := AddPlayerTokens(gameId, playerId, -StealCost); err != nil {
 		return true, err
 	}
 	if err := SetRoundPhase(gameId, PhaseStealTurn); err != nil {
@@ -542,14 +532,68 @@ func cardAlreadyOnAnyTimeline(gameId uuid.UUID, cardId uuid.UUID) (bool, error) 
 	return rows.Next(), nil
 }
 
-// BuyCardCost is how many tokens the buy-a-free-card action spends.
-const BuyCardCost = 3
+// The token economy, in whole tokens. A guess pays GuessTokensPerPart for each
+// of the title and the artist (so up to twice that per round); everything a
+// player can spend tokens on costs a multiple of it, so one perfect guess pays
+// for one skip, replay or steal.
+const (
+	GuessTokensPerPart = 1
+
+	SkipCost    = 2
+	ReplayCost  = 2
+	NewClipCost = 2
+	StealCost   = 2
+	BuyCardCost = 10
+)
+
+// Economy is the token economy as data, so templates and clients read the same
+// numbers the server enforces instead of repeating them as literals. Every game
+// uses CurrentEconomy today; if prices ever become a per-lobby setting, this is
+// the one place that changes.
+type Economy struct {
+	GuessTokensPerPart int
+	// MaxGuessTokens is the most one guess can pay: the title and the artist.
+	MaxGuessTokens int
+	SkipCost       int
+	ReplayCost     int
+	NewClipCost    int
+	StealCost      int
+	BuyCardCost    int
+
+	MinStartingTokens     int
+	MaxStartingTokens     int
+	DefaultStartingTokens int
+}
+
+// CurrentEconomy is the economy every game plays under.
+func CurrentEconomy() Economy {
+	return Economy{
+		GuessTokensPerPart:    GuessTokensPerPart,
+		MaxGuessTokens:        2 * GuessTokensPerPart,
+		SkipCost:              SkipCost,
+		ReplayCost:            ReplayCost,
+		NewClipCost:           NewClipCost,
+		StealCost:             StealCost,
+		BuyCardCost:           BuyCardCost,
+		MinStartingTokens:     MinStartingTokens,
+		MaxStartingTokens:     MaxStartingTokens,
+		DefaultStartingTokens: DefaultStartingTokens,
+	}
+}
+
+// Tokens phrases a count for display: "1 token", "2 tokens".
+func (Economy) Tokens(n int) string {
+	if n == 1 {
+		return "1 token"
+	}
+	return fmt.Sprintf("%d tokens", n)
+}
 
 // CanBuyCard reports whether buying a free card is allowed for this seat:
 // enough tokens, the purchase would not be the winning song (wins must come
-// from a real placement or steal), and the buyer is not already strictly
-// ahead of every other active player — buying tokens away a game that is
-// already close, so a leader shopping for the finish is not the intent.
+// from a real placement or steal), and the buyer is not in or tied for the
+// lead — buying is a catch-up mechanic, so only a player strictly behind
+// someone may use it.
 func CanBuyCard(timelineLen, tokenCount, cardsToWin int, inLead bool) bool {
 	if tokenCount < BuyCardCost {
 		return false
@@ -563,23 +607,30 @@ func CanBuyCard(timelineLen, tokenCount, cardsToWin int, inLead bool) bool {
 	return true
 }
 
-// IsStrictlyInLead reports whether playerId's timeline is strictly longer
-// than every other active player's — a tie for first does not count, only
-// sole possession of the lead does.
-func IsStrictlyInLead(gameId uuid.UUID, playerId uuid.UUID, timelineLen int) (bool, error) {
+// HasOrSharesLead reports whether a timeline of myLen cards is at least as long
+// as the longest of everyone else's (maxOtherLen) — outright leading or tied
+// for first both count. A player alone in the game has no one ahead of them.
+func HasOrSharesLead(myLen, maxOtherLen int) bool {
+	return myLen >= maxOtherLen
+}
+
+// IsInOrTiedForLead reports whether playerId's timeline is as long as or longer
+// than every other active player's.
+func IsInOrTiedForLead(gameId uuid.UUID, playerId uuid.UUID, timelineLen int) (bool, error) {
 	players, err := GetPlayers(gameId)
 	if err != nil {
 		return false, err
 	}
+	maxOther := -1
 	for _, p := range players {
 		if !p.IsActive || p.PlayerId == playerId {
 			continue
 		}
-		if p.TimelineSize >= timelineLen {
-			return false, nil
+		if p.TimelineSize > maxOther {
+			maxOther = p.TimelineSize
 		}
 	}
-	return true, nil
+	return HasOrSharesLead(timelineLen, maxOther), nil
 }
 
 // BoughtCard is what a successful BuyCard produced — enough to announce it,
@@ -670,7 +721,7 @@ func BuyCard(gameId uuid.UUID, playerId uuid.UUID) (BoughtCard, error) {
 	if err != nil {
 		return bought, err
 	}
-	inLead, err := IsStrictlyInLead(gameId, playerId, len(timeline))
+	inLead, err := IsInOrTiedForLead(gameId, playerId, len(timeline))
 	if err != nil {
 		return bought, err
 	}
@@ -679,7 +730,7 @@ func BuyCard(gameId uuid.UUID, playerId uuid.UUID) (BoughtCard, error) {
 			return bought, errors.New("not enough tokens")
 		}
 		if inLead {
-			return bought, errors.New("you can't buy a card while you're in the lead")
+			return bought, errors.New("you can't buy a card while you're in or tied for the lead")
 		}
 		return bought, errors.New("that would be the winning card — it has to come from a real guess")
 	}
@@ -729,14 +780,12 @@ type RoundOutcome struct {
 	WinnerName     string
 	WonByChallenge bool
 
-	// GuessTokenWinnerPlayerId is who earned the title/artist guess token this
-	// round, independent of who (if anyone) won the card. Invalid when nobody
-	// qualified under the lobby's guess mode.
-	GuessTokenWinnerPlayerId     uuid.NullUUID
-	GuessTokenWinnerName         string
-	GuessTokenGuessText          string
-	GuessTokenTitleMatchPercent  int
-	GuessTokenArtistMatchPercent int
+	// GuessTokenWinners is every guess that earned its player a title/artist
+	// guess token this round (paid when judged, announced at reveal),
+	// independent of who (if anyone) won the card.
+	// Every qualifying guess is its own winner -- there is no single-token
+	// race. Empty when nobody qualified under the lobby's guess mode.
+	GuessTokenWinners []Guess
 
 	// Guesses is every guess submitted this round, oldest first. Announcing
 	// these to chat is deferred until reveal (unlike the exact-year wager,
@@ -866,19 +915,14 @@ func resolveRound(gameId uuid.UUID, winnerPlayerId uuid.UUID, winnerName string,
 		log.Println(guessErr)
 	}
 
-	// The guess-token economy is independent of the card economy above: it
-	// runs whether or not anyone correctly placed the card.
-	guessWinner, hasGuessWinner, err := AwardGuessToken(gameId, game.CurrentPlayerId, game.GuessMode)
+	// The guess-token economy is independent of the card economy above. The
+	// tokens were already paid when each guess was judged; this only collects
+	// who earned one so the reveal can announce it.
+	guessWinners, err := GuessTokenWinners(gameId)
 	if err != nil {
 		return outcome, err
 	}
-	if hasGuessWinner {
-		outcome.GuessTokenWinnerPlayerId = uuid.NullUUID{UUID: guessWinner.PlayerId, Valid: true}
-		outcome.GuessTokenWinnerName = guessWinner.PlayerName
-		outcome.GuessTokenGuessText = guessWinner.GuessText
-		outcome.GuessTokenTitleMatchPercent = guessWinner.TitleMatchPercent
-		outcome.GuessTokenArtistMatchPercent = guessWinner.ArtistMatchPercent
-	}
+	outcome.GuessTokenWinners = guessWinners
 
 	if err := ClearPlacements(gameId); err != nil {
 		return outcome, err
@@ -982,6 +1026,11 @@ func AdvanceToNextPlayer(gameId uuid.UUID) error {
 		return err
 	}
 	if err := SetRoundPhase(gameId, PhaseListening); err != nil {
+		return err
+	}
+	// The round that just ended is over and the next song has not started: the
+	// window in which a challenge about it can be raised.
+	if err := SetBetweenRounds(gameId, true); err != nil {
 		return err
 	}
 

@@ -123,17 +123,34 @@ func TestPlacementYearRangeFormat(t *testing.T) {
 }
 
 func TestCanBuyCard(t *testing.T) {
-	if !CanBuyCard(3, 3, 5, false) {
-		t.Fatal("3 songs with 3 tokens toward 5 should allow buy")
+	if !CanBuyCard(3, BuyCardCost, 5, false) {
+		t.Fatal("3 songs with exactly the buy price toward 5 should allow buy")
 	}
-	if CanBuyCard(4, 3, 5, false) {
+	if CanBuyCard(4, BuyCardCost, 5, false) {
 		t.Fatal("one away from winning must not allow buy")
 	}
-	if CanBuyCard(3, 2, 5, false) {
+	if CanBuyCard(3, BuyCardCost-1, 5, false) {
 		t.Fatal("not enough tokens must not allow buy")
 	}
-	if CanBuyCard(3, 3, 5, true) {
-		t.Fatal("a strict leader must not be allowed to buy")
+	if CanBuyCard(3, BuyCardCost, 5, true) {
+		t.Fatal("a player in or tied for the lead must not be allowed to buy")
+	}
+}
+
+func TestHasOrSharesLead(t *testing.T) {
+	for _, c := range []struct {
+		mine, maxOther int
+		want           bool
+	}{
+		{3, 2, true},  // outright leader
+		{2, 2, true},  // tied for the lead
+		{1, 2, false}, // behind
+		{0, 0, true},  // everyone level, including the start of a game
+		{2, -1, true}, // no other players
+	} {
+		if got := HasOrSharesLead(c.mine, c.maxOther); got != c.want {
+			t.Errorf("HasOrSharesLead(%d, %d) = %v, want %v", c.mine, c.maxOther, got, c.want)
+		}
 	}
 }
 
@@ -194,89 +211,163 @@ func TestSameUUIDOrder(t *testing.T) {
 	}
 }
 
-func TestGuessQualifies(t *testing.T) {
-	both := Guess{TitleCorrect: true, ArtistCorrect: true}
-	titleOnly := Guess{TitleCorrect: true, ArtistCorrect: false}
-	artistOnly := Guess{TitleCorrect: false, ArtistCorrect: true}
-	neither := Guess{TitleCorrect: false, ArtistCorrect: false}
-
+// A guess pays for each part on its own: the right title, the right artist, or
+// both, and nothing for neither.
+func TestGuessTokensEarned(t *testing.T) {
 	cases := []struct {
-		mode string
+		name string
 		g    Guess
-		want bool
+		want int
 	}{
-		{GuessModeBoth, both, true},
-		{GuessModeBoth, titleOnly, false},
-		{GuessModeBoth, artistOnly, false},
-		{GuessModeTitle, both, true},
-		{GuessModeTitle, titleOnly, true},
-		{GuessModeTitle, artistOnly, false},
-		{GuessModeEither, titleOnly, true},
-		{GuessModeEither, artistOnly, true},
-		{GuessModeEither, neither, false},
-		{GuessModeOff, both, false},
+		{"both right", Guess{TitleCorrect: true, ArtistCorrect: true}, 2 * GuessTokensPerPart},
+		{"title only", Guess{TitleCorrect: true}, GuessTokensPerPart},
+		{"artist only", Guess{ArtistCorrect: true}, GuessTokensPerPart},
+		{"neither", Guess{}, 0},
 	}
 	for _, test := range cases {
-		if got := GuessQualifies(test.g, test.mode); got != test.want {
-			t.Errorf("GuessQualifies(%+v, %q) = %v, want %v", test.g, test.mode, got, test.want)
+		if got := GuessTokensEarned(test.g); got != test.want {
+			t.Errorf("%s: GuessTokensEarned = %d, want %d", test.name, got, test.want)
 		}
 	}
 }
 
-func TestPickGuessTokenWinnerTurnPlayerSupersedes(t *testing.T) {
-	first := uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	second := uuid.MustParse("22222222-2222-2222-2222-222222222222")
-	turn := uuid.MustParse("33333333-3333-3333-3333-333333333333")
-	turnId := uuid.NullUUID{UUID: turn, Valid: true}
-
-	// The turn player's qualifying guess wins even though it was submitted
-	// last — being on turn supersedes submit order entirely.
-	guesses := []Guess{
-		{PlayerId: first, PlayerName: "Kaleb", TitleCorrect: true, ArtistCorrect: true, GuessText: "full"},
-		{PlayerId: second, PlayerName: "other", TitleCorrect: true, ArtistCorrect: true, GuessText: "also full"},
-		{PlayerId: turn, PlayerName: "test2", TitleCorrect: true, ArtistCorrect: false, GuessText: "title only"},
+// One perfect guess pays for one skip, replay or steal, and the buy price is a
+// whole number of those: the ratio the economy is balanced around.
+func TestEconomyIsInternallyConsistent(t *testing.T) {
+	e := CurrentEconomy()
+	if e.MaxGuessTokens != 2*e.GuessTokensPerPart {
+		t.Errorf("MaxGuessTokens %d should be title + artist = %d", e.MaxGuessTokens, 2*e.GuessTokensPerPart)
 	}
-	got, ok := pickGuessTokenWinner(guesses, GuessModeEither, turnId)
-	if !ok || got.PlayerId != turn {
-		t.Fatalf("turn player's qualifying guess should win regardless of order, got ok=%v %+v", ok, got)
+	for name, cost := range map[string]int{"skip": e.SkipCost, "replay": e.ReplayCost, "steal": e.StealCost} {
+		if cost != e.MaxGuessTokens {
+			t.Errorf("%s costs %d, want one perfect guess (%d)", name, cost, e.MaxGuessTokens)
+		}
 	}
-
-	// GuessModeBoth: the turn player's title-only guess does not qualify, so
-	// it falls back to a pure race among the non-turn players -- earliest
-	// qualifying submit among them wins.
-	got, ok = pickGuessTokenWinner(guesses, GuessModeBoth, turnId)
-	if !ok || got.PlayerId != first {
-		t.Fatalf("both mode: turn player doesn't qualify, want earliest qualifying non-turn guess, got ok=%v %+v", ok, got)
+	if e.BuyCardCost%e.MaxGuessTokens != 0 {
+		t.Errorf("buy price %d should be a whole number of perfect guesses (%d each)", e.BuyCardCost, e.MaxGuessTokens)
 	}
-
-	// The turn player never guessed this round: falls back to the race among
-	// everyone else, in submit order.
-	noTurnGuess := []Guess{
-		{PlayerId: second, PlayerName: "other", TitleCorrect: true, ArtistCorrect: true, GuessText: "also full"},
-		{PlayerId: first, PlayerName: "Kaleb", TitleCorrect: true, ArtistCorrect: true, GuessText: "full"},
+	if e.DefaultStartingTokens < e.MinStartingTokens || e.DefaultStartingTokens > e.MaxStartingTokens {
+		t.Errorf("default starting tokens %d is outside %d-%d", e.DefaultStartingTokens, e.MinStartingTokens, e.MaxStartingTokens)
 	}
-	got, ok = pickGuessTokenWinner(noTurnGuess, GuessModeEither, turnId)
-	if !ok || got.PlayerId != second {
-		t.Fatalf("no turn-player guess: want earliest qualifying non-turn guess, got ok=%v %+v", ok, got)
+	if got := e.Tokens(1); got != "1 token" {
+		t.Errorf("Tokens(1) = %q", got)
 	}
-
-	// No current turn player at all (invalid uuid): pure race among everyone,
-	// submit order only.
-	got, ok = pickGuessTokenWinner(noTurnGuess, GuessModeEither, uuid.NullUUID{})
-	if !ok || got.PlayerId != second {
-		t.Fatalf("no current player: want earliest qualifying guess, got ok=%v %+v", ok, got)
+	if got := e.Tokens(2); got != "2 tokens" {
+		t.Errorf("Tokens(2) = %q", got)
 	}
 }
 
-func TestValidateGuessMatchPercent(t *testing.T) {
-	for _, percent := range []int{60, 70, 80, 90} {
-		if err := ValidateGuessMatchPercent(percent); err != nil {
-			t.Errorf("ValidateGuessMatchPercent(%d) = %v, want nil", percent, err)
+// A guess that earned nothing pays nothing, decided before any database call.
+func TestAwardGuessTokenPaysNothingForAWrongGuess(t *testing.T) {
+	paid, err := AwardGuessToken(uuid.Nil, uuid.Nil, Guess{})
+	if err != nil || paid != 0 {
+		t.Errorf("a wrong guess: paid=%d err=%v, want no payout", paid, err)
+	}
+}
+
+// With "never-played songs first" on, every unseen row is dealt before any seen
+// row, nothing is dropped, and a normal game is left fully random.
+func TestOrderDrawPileFreshFirst(t *testing.T) {
+	const total, seenCount = 40, 25
+	build := func() ([]uuid.UUID, map[uuid.UUID]bool) {
+		ids := make([]uuid.UUID, total)
+		seen := make(map[uuid.UUID]bool)
+		for i := range ids {
+			ids[i] = uuid.New()
+			seen[ids[i]] = i < seenCount
+		}
+		return ids, seen
+	}
+
+	for run := 0; run < 20; run++ {
+		ids, seen := build()
+		ordered := orderDrawPile(ids, seen, true)
+		if len(ordered) != total {
+			t.Fatalf("ordered %d rows, want %d", len(ordered), total)
+		}
+		reachedSeen := false
+		present := make(map[uuid.UUID]bool)
+		for _, id := range ordered {
+			present[id] = true
+			if seen[id] {
+				reachedSeen = true
+			} else if reachedSeen {
+				t.Fatalf("a never-played song was dealt after a played one (run %d)", run)
+			}
+		}
+		if len(present) != total {
+			t.Fatalf("rows were dropped or duplicated: %d distinct of %d", len(present), total)
 		}
 	}
-	for _, percent := range []int{50, 100, 0, 85} {
-		if err := ValidateGuessMatchPercent(percent); err == nil {
-			t.Errorf("ValidateGuessMatchPercent(%d) = nil, want an error", percent)
+
+	// Off: still a permutation of everything, and mixed rather than grouped.
+	interleaved := false
+	for run := 0; run < 20 && !interleaved; run++ {
+		ids, seen := build()
+		ordered := orderDrawPile(ids, seen, false)
+		if len(ordered) != total {
+			t.Fatalf("ordered %d rows, want %d", len(ordered), total)
+		}
+		reachedSeen := false
+		for _, id := range ordered {
+			if seen[id] {
+				reachedSeen = true
+			} else if reachedSeen {
+				interleaved = true
+			}
+		}
+	}
+	if !interleaved {
+		t.Error("with the setting off, the pile should stay fully random, not grouped by played/unplayed")
+	}
+}
+
+func TestDrawPileTooltip(t *testing.T) {
+	b := DrawPileBreakdown{Total: 20, New: 12, Repeat: 8}
+	if got := b.Tooltip(true); got != "20 songs remaining: 12 new, 8 repeated" {
+		t.Errorf("fresh-first tooltip = %q", got)
+	}
+	if got := (DrawPileBreakdown{Total: 1, New: 1}).Tooltip(true); got != "1 song remaining: 1 new, 0 repeated" {
+		t.Errorf("singular tooltip = %q", got)
+	}
+	// Without fresh-songs-first there is no new/repeat ordering to describe.
+	if got := b.Tooltip(false); got != "Songs remaining in the draw pile" {
+		t.Errorf("fully-random tooltip = %q", got)
+	}
+}
+
+// A strict majority of the eligible voters (everyone but the challenger) upholds
+// a challenge; it is rejected the moment a majority is out of reach, and at the
+// deadline anything not yet upheld is rejected.
+func TestChallengeVerdict(t *testing.T) {
+	tests := []struct {
+		name                     string
+		agree, disagree, voters  int
+		timedOut                 bool
+		wantResolved, wantUphold bool
+	}{
+		{"one voter agrees", 1, 0, 1, false, true, true},
+		{"one voter disagrees", 0, 1, 1, false, true, false},
+		{"two voters, one yes is not a majority yet", 1, 0, 2, false, false, false},
+		{"two voters both agree", 2, 0, 2, false, true, true},
+		{"two voters, one no kills it", 0, 1, 2, false, true, false},
+		{"two voters split", 1, 1, 2, false, true, false},
+		{"three voters, two yes", 2, 0, 3, false, true, true},
+		{"three voters, two no", 0, 2, 3, false, true, false},
+		{"three voters, one each, waiting", 1, 1, 3, false, false, false},
+		{"four voters, a tie is not a majority", 2, 2, 4, false, true, false},
+		{"four voters, three yes", 3, 0, 4, false, true, true},
+		{"nobody voted yet", 0, 0, 3, false, false, false},
+		{"deadline with no majority rejects", 1, 0, 3, true, true, false},
+		{"deadline never counts non-voters as yes", 0, 0, 3, true, true, false},
+		{"deadline with a majority still upholds", 2, 0, 3, true, true, true},
+	}
+	for _, test := range tests {
+		resolved, upheld := ChallengeVerdict(test.agree, test.disagree, test.voters, test.timedOut)
+		if resolved != test.wantResolved || upheld != test.wantUphold {
+			t.Errorf("%s: ChallengeVerdict(%d, %d, %d, %v) = (%v, %v), want (%v, %v)",
+				test.name, test.agree, test.disagree, test.voters, test.timedOut,
+				resolved, upheld, test.wantResolved, test.wantUphold)
 		}
 	}
 }

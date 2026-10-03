@@ -47,8 +47,9 @@ const (
 	MaxCardsToWin       = 20
 	MinCardsPerWinRatio = 4
 
-	MinStartingTokens = 0
-	MaxStartingTokens = 5
+	MinStartingTokens     = 0
+	MaxStartingTokens     = 10
+	DefaultStartingTokens = 4
 
 	MinClipSeconds = 5
 	MaxClipSeconds = 60
@@ -62,41 +63,6 @@ const (
 	PlaybackSample = "sample"
 )
 
-// Free-form title/artist guess modes. See TRACK_TIMELINE_GAME.GUESS_MODE.
-const (
-	GuessModeOff    = "off"
-	GuessModeBoth   = "both"
-	GuessModeTitle  = "title"
-	GuessModeEither = "either"
-)
-
-// Guess match bars offered in lobby setup. 100 is deliberately not on the
-// list so a small typo can still count.
-const (
-	DefaultGuessMatchPercent = 60
-)
-
-func ValidateGuessMatchPercent(percent int) error {
-	switch percent {
-	case 60, 70, 80, 90:
-		return nil
-	}
-	return fmt.Errorf("guess match percent (%d) must be 60, 70, 80, or 90", percent)
-}
-
-const (
-	GuessJudgeLocal  = "local"
-	GuessJudgeClaude = "claude"
-)
-
-func ValidateGuessJudge(kind string) error {
-	switch kind {
-	case GuessJudgeLocal, GuessJudgeClaude:
-		return nil
-	}
-	return fmt.Errorf("unknown guess judge %q", kind)
-}
-
 // SampleLeadInSeconds is how much of a song the 'sample' mode always skips.
 // The opening is where the title is most likely to be sung and where a
 // recognisable intro lives, so starting a "guess the year" clip there gives
@@ -104,21 +70,39 @@ func ValidateGuessJudge(kind string) error {
 const SampleLeadInSeconds = 30
 
 // ValidatePlaybackMode rejects anything that is not one of the three modes.
+// PlaybackOption is one playback mode as a form offers it.
+type PlaybackOption struct {
+	Value string
+	Label string
+}
+
+// PlaybackOptions lists the playback modes in the order forms show them, so the
+// create-lobby form and the live settings form cannot drift apart.
+func PlaybackOptions() []PlaybackOption {
+	return []PlaybackOption{
+		{PlaybackSample, "Random clip from the middle"},
+		{PlaybackIntro, "Clip from the beginning"},
+		{PlaybackFull, "Play the whole song"},
+	}
+}
+
+// PlaybackLabel is the form wording for a playback mode, or the mode itself if
+// it is not one of the known ones.
+func PlaybackLabel(mode string) string {
+	for _, option := range PlaybackOptions() {
+		if option.Value == mode {
+			return option.Label
+		}
+	}
+	return mode
+}
+
 func ValidatePlaybackMode(mode string) error {
 	switch mode {
 	case PlaybackFull, PlaybackIntro, PlaybackSample:
 		return nil
 	}
 	return fmt.Errorf("unknown playback mode %q", mode)
-}
-
-// ValidateGuessMode rejects anything that is not one of the four modes.
-func ValidateGuessMode(mode string) error {
-	switch mode {
-	case GuessModeOff, GuessModeBoth, GuessModeTitle, GuessModeEither:
-		return nil
-	}
-	return fmt.Errorf("unknown guess mode %q", mode)
 }
 
 // ValidateClipSeconds bounds the clip length. Ignored by PlaybackFull, which
@@ -173,6 +157,50 @@ func ResolveClipWindow(mode string, clipSeconds int, durationSeconds int) ClipWi
 	}
 
 	return ClipWindow{StartSeconds: 0, EndSeconds: clipSeconds}
+}
+
+// PickDifferentClipWindow chooses another clipSeconds-long slice of the same
+// song to play instead of current, for a player who has paid to hear a
+// different part. It samples the same way PlaybackSample does (past the
+// lead-in, inside the song) whatever the lobby's own mode, and prefers a slice
+// that does not overlap current at all, so a re-roll is genuinely new audio
+// rather than a few seconds shifted. ok is false when the song has no other
+// slice to offer (a clip as long as the usable part of the song), in which
+// case nothing should be charged.
+func PickDifferentClipWindow(clipSeconds, durationSeconds int, current ClipWindow) (window ClipWindow, ok bool) {
+	var lowest, highest int
+	switch {
+	case durationSeconds == 0:
+		// Unknown length: same assumption ResolveClipWindow makes.
+		lowest, highest = SampleLeadInSeconds, SampleLeadInSeconds+180
+	case durationSeconds-clipSeconds > SampleLeadInSeconds:
+		lowest, highest = SampleLeadInSeconds, durationSeconds-clipSeconds
+	default:
+		// Too short to skip the lead-in: anywhere that still fits a full clip.
+		lowest, highest = 0, max(0, durationSeconds-clipSeconds)
+	}
+
+	// Starts that would play none of the audio current already did.
+	var fresh, other []int
+	for start := lowest; start <= highest; start++ {
+		if start == current.StartSeconds {
+			continue
+		}
+		other = append(other, start)
+		if start+clipSeconds <= current.StartSeconds || start >= current.StartSeconds+clipSeconds {
+			fresh = append(fresh, start)
+		}
+	}
+
+	pool := fresh
+	if len(pool) == 0 {
+		pool = other
+	}
+	if len(pool) == 0 {
+		return current, false
+	}
+	start := pool[rand.Intn(len(pool))]
+	return ClipWindow{StartSeconds: start, EndSeconds: start + clipSeconds}, true
 }
 
 // SampleWouldFit reports whether a middle sample of clipSeconds can be carved
@@ -242,10 +270,10 @@ type Game struct {
 	StealerPlayerId   uuid.NullUUID
 	CardsToWin        int
 	StartingTokens    int
-	GuessMode         string
-	GuessMatchPercent int
-	GuessJudge        string
-	PlaybackMode      string
+	// FreshSongsFirst deals never-played songs ahead of the rest of the pile
+	// (see ShuffleDrawPile). Fixed at lobby creation.
+	FreshSongsFirst bool
+	PlaybackMode    string
 	ClipSeconds       int
 	// ClipStartSeconds/ClipEndSeconds are the window chosen for the song
 	// currently in play, stamped the first time it is played. A paid replay
@@ -256,6 +284,10 @@ type Game struct {
 	// ReplayUsed is whether the player on turn has already spent a token to
 	// hear this round's clip a second time. Reset on every turn advance.
 	ReplayUsed bool
+
+	// BetweenRounds is true from the moment a round resolves until the next
+	// song is played: the only window in which a challenge can be raised.
+	BetweenRounds bool
 	WinnerId   uuid.NullUUID
 }
 
@@ -374,14 +406,13 @@ func getGameByColumn(column string, value uuid.UUID) (Game, error) {
 			STEALER_PLAYER_ID,
 			CARDS_TO_WIN,
 			STARTING_TOKENS,
-			GUESS_MODE,
-			GUESS_MATCH_PERCENT,
-			GUESS_JUDGE,
+			FRESH_SONGS_FIRST,
 			PLAYBACK_MODE,
 			CLIP_SECONDS,
 			CLIP_START_SECONDS,
 			CLIP_END_SECONDS,
 			REPLAY_USED,
+			BETWEEN_ROUNDS,
 			WINNER_ID
 		FROM TRACK_TIMELINE_GAME
 		WHERE %s = ?
@@ -404,27 +435,17 @@ func getGameByColumn(column string, value uuid.UUID) (Game, error) {
 			&game.StealerPlayerId,
 			&game.CardsToWin,
 			&game.StartingTokens,
-			&game.GuessMode,
-			&game.GuessMatchPercent,
-			&game.GuessJudge,
+			&game.FreshSongsFirst,
 			&game.PlaybackMode,
 			&game.ClipSeconds,
 			&game.ClipStartSeconds,
 			&game.ClipEndSeconds,
 			&game.ReplayUsed,
+			&game.BetweenRounds,
 			&game.WinnerId,
 		); err != nil {
 			log.Println(err)
 			return game, errors.New("failed to scan row in query results")
-		}
-		if game.GuessMode == "" {
-			game.GuessMode = GuessModeBoth
-		}
-		if game.GuessMatchPercent == 0 {
-			game.GuessMatchPercent = DefaultGuessMatchPercent
-		}
-		if game.GuessJudge == "" {
-			game.GuessJudge = GuessJudgeLocal
 		}
 	}
 
@@ -432,7 +453,7 @@ func getGameByColumn(column string, value uuid.UUID) (Game, error) {
 }
 
 // CreateGame creates the game row for a lobby.
-func CreateGame(lobbyId uuid.UUID, cardsToWin int, startingTokens int, guessMode string, guessMatchPercent int, guessJudge string, playbackMode string, clipSeconds int) (uuid.UUID, error) {
+func CreateGame(lobbyId uuid.UUID, cardsToWin int, startingTokens int, freshSongsFirst bool, playbackMode string, clipSeconds int) (uuid.UUID, error) {
 	id, err := uuid.NewUUID()
 	if err != nil {
 		log.Println(err)
@@ -440,10 +461,18 @@ func CreateGame(lobbyId uuid.UUID, cardsToWin int, startingTokens int, guessMode
 	}
 
 	sqlString := `
-		INSERT INTO TRACK_TIMELINE_GAME(ID, LOBBY_ID, CARDS_TO_WIN, STARTING_TOKENS, GUESS_MODE, GUESS_MATCH_PERCENT, GUESS_JUDGE, PLAYBACK_MODE, CLIP_SECONDS)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO TRACK_TIMELINE_GAME(ID, LOBBY_ID, CARDS_TO_WIN, STARTING_TOKENS, FRESH_SONGS_FIRST, PLAYBACK_MODE, CLIP_SECONDS)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
-	return id, execute(sqlString, id, lobbyId, cardsToWin, startingTokens, guessMode, guessMatchPercent, guessJudge, playbackMode, clipSeconds)
+	return id, execute(sqlString, id, lobbyId, cardsToWin, startingTokens, freshSongsFirst, playbackMode, clipSeconds)
+}
+
+// UpdateGameSettings writes the lobby settings that can change after the game
+// has started. Reshuffling the pile when FreshSongsFirst changes is the
+// caller's job (see ShuffleDrawPile).
+func UpdateGameSettings(gameId uuid.UUID, playbackMode string, clipSeconds int, freshSongsFirst bool) error {
+	sqlString := "UPDATE TRACK_TIMELINE_GAME SET PLAYBACK_MODE = ?, CLIP_SECONDS = ?, FRESH_SONGS_FIRST = ? WHERE ID = ?"
+	return execute(sqlString, playbackMode, clipSeconds, freshSongsFirst, gameId)
 }
 
 // InitializeDrawPile fills a game's pile with every playable card from the
@@ -491,11 +520,30 @@ func InitializeDrawPile(gameId uuid.UUID, deckIds []uuid.UUID, excludedCategoryI
 // subsequent draws pull in that fixed order (lowest SHUFFLE_ORDER first)
 // instead of re-rolling ORDER BY RAND() on every draw. Called after the pile
 // is built (and safe to call again after a prune that leaves holes).
+//
+// A game with FreshSongsFirst set gets a two-group order instead: songs no
+// game has ever drawn, dealt or bought first, then the rest, each group still
+// random. Nothing is ever withheld, so when the fresh songs run out the pile
+// simply carries on with the others in random order.
 func ShuffleDrawPile(gameId uuid.UUID) error {
+	freshFirst, err := gameWantsFreshSongsFirst(gameId)
+	if err != nil {
+		return err
+	}
+
+	// Whether a song has been played is only looked up when it is going to be
+	// used, so a normal lobby does not pay for scanning the card event log.
+	seenColumn := "0"
+	if freshFirst {
+		seenColumn = `EXISTS (
+			SELECT 1 FROM TRACK_TIMELINE_LOG_CARD L
+			WHERE L.CARD_ID = P.CARD_ID AND L.EVENT_TYPE IN ('drawn', 'dealt', 'bought')
+		)`
+	}
 	sqlString := `
-		SELECT ID
-		FROM TRACK_TIMELINE_DRAW_PILE
-		WHERE TRACK_TIMELINE_GAME_ID = ? AND DRAWN = 0
+		SELECT P.ID, ` + seenColumn + ` AS SEEN
+		FROM TRACK_TIMELINE_DRAW_PILE P
+		WHERE P.TRACK_TIMELINE_GAME_ID = ? AND P.DRAWN = 0
 	`
 	rows, err := query(sqlString, gameId)
 	if err != nil {
@@ -504,19 +552,22 @@ func ShuffleDrawPile(gameId uuid.UUID) error {
 	defer rows.Close()
 
 	ids := make([]uuid.UUID, 0)
+	seen := make(map[uuid.UUID]bool)
 	for rows.Next() {
 		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
+		var wasSeen bool
+		if err := rows.Scan(&id, &wasSeen); err != nil {
 			log.Println(err)
 			return errors.New("failed to scan row in query results")
 		}
 		ids = append(ids, id)
+		seen[id] = wasSeen
 	}
 	if len(ids) == 0 {
 		return nil
 	}
 
-	rand.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
+	ids = orderDrawPile(ids, seen, freshFirst)
 
 	for order, id := range ids {
 		if err := execute(
@@ -527,6 +578,49 @@ func ShuffleDrawPile(gameId uuid.UUID) error {
 		}
 	}
 	return nil
+}
+
+// orderDrawPile returns the pile rows in the order they will be dealt: a random
+// permutation, or, when freshFirst, the never-seen rows (in random order) ahead
+// of the seen ones (also in random order). Shuffling first and then splitting
+// stably keeps each group uniformly random.
+func orderDrawPile(ids []uuid.UUID, seen map[uuid.UUID]bool, freshFirst bool) []uuid.UUID {
+	rand.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
+	if !freshFirst {
+		return ids
+	}
+
+	ordered := make([]uuid.UUID, 0, len(ids))
+	for _, id := range ids {
+		if !seen[id] {
+			ordered = append(ordered, id)
+		}
+	}
+	for _, id := range ids {
+		if seen[id] {
+			ordered = append(ordered, id)
+		}
+	}
+	return ordered
+}
+
+// gameWantsFreshSongsFirst reads the lobby's draw-order setting. A game that
+// is not found reads as off.
+func gameWantsFreshSongsFirst(gameId uuid.UUID) (bool, error) {
+	rows, err := query("SELECT FRESH_SONGS_FIRST FROM TRACK_TIMELINE_GAME WHERE ID = ?", gameId)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	var freshFirst bool
+	if rows.Next() {
+		if err := rows.Scan(&freshFirst); err != nil {
+			log.Println(err)
+			return false, errors.New("failed to scan row in query results")
+		}
+	}
+	return freshFirst, nil
 }
 
 // AddYearRange stores one inclusive era filter.
@@ -804,28 +898,62 @@ func GetGameDecks(gameId uuid.UUID) ([]DeckInfo, error) {
 	return result, nil
 }
 
-// GetDrawPileCount reports how many songs are left undrawn.
-func GetDrawPileCount(gameId uuid.UUID) (int, error) {
+// DrawPileBreakdown is what is left undrawn: the total, and how much of it no
+// game has played before (New) versus songs that have already been heard in
+// some earlier game (Repeat).
+type DrawPileBreakdown struct {
+	Total  int
+	New    int
+	Repeat int
+}
+
+// Tooltip is the hover text for the "songs left" badge. Only a lobby that deals
+// fresh songs first has a new/repeat split worth showing; otherwise the order is
+// fully random and the plain description is all there is to say.
+func (b DrawPileBreakdown) Tooltip(freshFirst bool) string {
+	if !freshFirst {
+		return "Songs remaining in the draw pile"
+	}
+	return fmt.Sprintf("%s remaining: %d new, %d repeated", songCount(b.Total), b.New, b.Repeat)
+}
+
+func songCount(n int) string {
+	if n == 1 {
+		return "1 song"
+	}
+	return fmt.Sprintf("%d songs", n)
+}
+
+// GetDrawPileBreakdown reports how many songs are left undrawn and how many of
+// those are new (never drawn, dealt or bought in any game) versus repeats — the
+// same notion of "seen" ShuffleDrawPile uses to deal fresh songs first.
+func GetDrawPileBreakdown(gameId uuid.UUID) (DrawPileBreakdown, error) {
+	var breakdown DrawPileBreakdown
+
 	sqlString := `
-		SELECT COUNT(*)
-		FROM TRACK_TIMELINE_DRAW_PILE
-		WHERE TRACK_TIMELINE_GAME_ID = ? AND DRAWN = 0
+		SELECT COUNT(*),
+			COALESCE(SUM(NOT EXISTS (
+				SELECT 1 FROM TRACK_TIMELINE_LOG_CARD L
+				WHERE L.CARD_ID = P.CARD_ID AND L.EVENT_TYPE IN ('drawn', 'dealt', 'bought')
+			)), 0)
+		FROM TRACK_TIMELINE_DRAW_PILE P
+		WHERE P.TRACK_TIMELINE_GAME_ID = ? AND P.DRAWN = 0
 	`
 	rows, err := query(sqlString, gameId)
 	if err != nil {
-		return 0, err
+		return breakdown, err
 	}
 	defer rows.Close()
 
-	var count int
 	for rows.Next() {
-		if err := rows.Scan(&count); err != nil {
+		if err := rows.Scan(&breakdown.Total, &breakdown.New); err != nil {
 			log.Println(err)
-			return 0, errors.New("failed to scan row in query results")
+			return breakdown, errors.New("failed to scan row in query results")
 		}
 	}
+	breakdown.Repeat = breakdown.Total - breakdown.New
 
-	return count, nil
+	return breakdown, nil
 }
 
 // GetPlayers returns every player in turn order, with timeline size and token
@@ -1143,6 +1271,14 @@ func StartGame(gameId uuid.UUID) error {
 		return err
 	}
 
+	// Read once, before any card is dealt, for the starting-card log below.
+	poolSize := sql.NullInt64{}
+	if size, err := drawPileSize(gameId); err != nil {
+		log.Println(err)
+	} else {
+		poolSize = sql.NullInt64{Int64: int64(size), Valid: true}
+	}
+
 	for _, player := range players {
 		if !player.IsActive {
 			continue
@@ -1164,6 +1300,9 @@ func StartGame(gameId uuid.UUID) error {
 		`
 		if err := execute(sqlAdd, id, gameId, player.PlayerId, cardId, releaseYear); err != nil {
 			return err
+		}
+		if logErr := LogCardDealt(cardId, player.UserId, poolSize); logErr != nil {
+			log.Println(logErr)
 		}
 
 		if err := SetPlayerTokens(gameId, player.PlayerId, game.StartingTokens); err != nil {
@@ -1192,6 +1331,24 @@ func StartGame(gameId uuid.UUID) error {
 	}
 
 	return DrawCard(gameId)
+}
+
+// drawPileSize is how many songs are in the game's pile, drawn or not.
+func drawPileSize(gameId uuid.UUID) (int, error) {
+	rows, err := query("SELECT COUNT(*) FROM TRACK_TIMELINE_DRAW_PILE WHERE TRACK_TIMELINE_GAME_ID = ?", gameId)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	var size int
+	if rows.Next() {
+		if err := rows.Scan(&size); err != nil {
+			log.Println(err)
+			return 0, errors.New("failed to scan row in query results")
+		}
+	}
+	return size, nil
 }
 
 // takeCardFromPile pulls the next undrawn card (lowest SHUFFLE_ORDER) out of
@@ -1239,6 +1396,9 @@ func ResetGame(gameId uuid.UUID) error {
 		"DELETE FROM TRACK_TIMELINE_PLACEMENT WHERE TRACK_TIMELINE_GAME_ID = ?",
 		"DELETE FROM TRACK_TIMELINE_TITLE_GUESS WHERE TRACK_TIMELINE_GAME_ID = ?",
 		"DELETE FROM TRACK_TIMELINE_PLAYER_TOKEN WHERE TRACK_TIMELINE_GAME_ID = ?",
+		// Votes go with their challenges (ON DELETE CASCADE). A new game gives
+		// every player their challenge back.
+		"DELETE FROM TRACK_TIMELINE_CHALLENGE WHERE TRACK_TIMELINE_GAME_ID = ?",
 	} {
 		if err := execute(sqlString, gameId); err != nil {
 			return err
@@ -1254,11 +1414,17 @@ func ResetGame(gameId uuid.UUID) error {
 	if err := execute(sqlResetPile, gameId); err != nil {
 		return err
 	}
+	// The pile's order is fixed when it is built at lobby creation. Putting the
+	// cards back without reshuffling would deal the same starting songs, and
+	// the same song after song, in every replay of this lobby.
+	if err := ShuffleDrawPile(gameId); err != nil {
+		return err
+	}
 
 	sqlResetGame := `
 		UPDATE TRACK_TIMELINE_GAME
 		SET GAME_STATUS = ?, ROUND_PHASE = ?, PHASE_STARTED_ON_DATE = NULL,
-			CURRENT_PLAYER_ID = NULL, WINNER_ID = NULL
+			CURRENT_PLAYER_ID = NULL, WINNER_ID = NULL, BETWEEN_ROUNDS = 0
 		WHERE ID = ?
 	`
 	return execute(sqlResetGame, StatusWaiting, PhaseListening, gameId)

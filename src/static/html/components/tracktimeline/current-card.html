@@ -34,13 +34,30 @@
                 class="btn-secondary"
                 style="display: none"
                 disabled
-                {{if lt .TokenCount 1}}data-no-tokens="1"{{end}}
+                data-cost="{{.Economy.ReplayCost}}"
+                {{if lt .TokenCount .Economy.ReplayCost}}data-no-tokens="1"{{end}}
                 hx-post="/api/track-timeline/{{.LobbyId}}/replay-song"
                 hx-swap="none"
-                hx-confirm="Spend a token to hear the clip again from the beginning?"
-                title="{{if lt .TokenCount 1}}You need a token to restart.{{else}}Restart this clip from the beginning, once, for a token{{end}}"
+                hx-confirm="Spend {{.Economy.Tokens .Economy.ReplayCost}} to hear the clip again from the beginning?"
+                title="{{if lt .TokenCount .Economy.ReplayCost}}You need {{.Economy.Tokens .Economy.ReplayCost}} to restart.{{else}}Restart this clip from the beginning, once, for {{.Economy.Tokens .Economy.ReplayCost}}{{end}}"
             >
-                <span class="bi bi-arrow-counterclockwise"></span> Restart (1)
+                <span class="bi bi-arrow-counterclockwise"></span> Restart ({{.Economy.ReplayCost}})
+            </button>
+            {{end}}
+            {{if and (eq .RoundPhase "listening") (not .HasPlaced) (ne .PlaybackMode "full")}}
+            <button
+                id="tt-newclip-btn"
+                class="btn-secondary"
+                style="display: none"
+                disabled
+                data-cost="{{.Economy.NewClipCost}}"
+                {{if lt .TokenCount .Economy.NewClipCost}}data-no-tokens="1"{{end}}
+                hx-post="/api/track-timeline/{{.LobbyId}}/new-clip"
+                hx-swap="none"
+                hx-confirm="Spend {{.Economy.Tokens .Economy.NewClipCost}} to hear a different part of this song?"
+                title="{{if lt .TokenCount .Economy.NewClipCost}}You need {{.Economy.Tokens .Economy.NewClipCost}} for a different clip.{{else}}Hear a different part of this song for {{.Economy.Tokens .Economy.NewClipCost}}{{end}}"
+            >
+                <span class="bi bi-shuffle"></span> New Clip ({{.Economy.NewClipCost}})
             </button>
             {{end}}
             {{if and (eq .RoundPhase "listening") (not .HasPlaced) (not .HasGuessed)}}
@@ -48,18 +65,19 @@
                 id="tt-skip-btn"
                 class="btn-secondary"
                 disabled
-                {{if lt .TokenCount 1}}data-no-tokens="1"{{end}}
+                data-cost="{{.Economy.SkipCost}}"
+                {{if lt .TokenCount .Economy.SkipCost}}data-no-tokens="1"{{end}}
                 hx-post="/api/track-timeline/{{.LobbyId}}/skip-card"
                 hx-swap="none"
-                hx-confirm="Spend a token to skip this song and draw another?"
-                title="{{if lt .TokenCount 1}}You need a token to skip.{{else}}Play the song first{{end}}"
+                hx-confirm="Spend {{.Economy.Tokens .Economy.SkipCost}} to skip this song and draw another?"
+                title="{{if lt .TokenCount .Economy.SkipCost}}You need {{.Economy.Tokens .Economy.SkipCost}} to skip.{{else}}Play the song first{{end}}"
             >
-                <span class="bi bi-skip-forward"></span> Skip (1)
+                <span class="bi bi-skip-forward"></span> Skip ({{.Economy.SkipCost}})
             </button>
             {{end}}
         </div>
 
-        {{if and (ne .GuessMode "off") (not .HasGuessed)}}
+        {{if not .HasGuessed}}
         <form
             class="guess-form turn-player-guess"
             hx-post="/api/track-timeline/{{.LobbyId}}/guess"
@@ -74,7 +92,6 @@
                     placeholder="Song name"
                     autocomplete="off"
                 />
-                {{if ne .GuessMode "title"}}
                 <input
                     type="text"
                     id="tt-guess-artist"
@@ -83,7 +100,6 @@
                     placeholder="Artist"
                     autocomplete="off"
                 />
-                {{end}}
             </div>
             <div id="tt-room-voice" class="tt-room-voice" hx-preserve="true">
                 <button type="button" id="tt-hold-mic" class="btn-primary" onclick="roomHoldMic(event)">
@@ -97,10 +113,10 @@
             <button type="submit" class="btn-primary">
                 <span class="bi bi-lightbulb"></span> Lock guess
             </button>
-            <p class="guess-hint">Optional — 1 token if correct.</p>
+            <p class="guess-hint">Optional — {{.Economy.Tokens .Economy.GuessTokensPerPart}} for the song name, {{.Economy.Tokens .Economy.GuessTokensPerPart}} for the artist.</p>
             <div class="htmx-result"></div>
         </form>
-        {{else if and (ne .GuessMode "off") .HasGuessed}}
+        {{else}}
         <p class="guess-hint">Name guess locked.</p>
         {{end}}
 
@@ -201,6 +217,10 @@
 <div class="deck-stage">
     <div class="platter-container">
         <div class="platter-ring">
+            <svg class="tt-platter-countdown-svg" viewBox="0 0 100 100" aria-hidden="true">
+                <circle class="tt-platter-ring-track" cx="50" cy="50" r="47"></circle>
+                <circle class="tt-platter-ring-fill" cx="50" cy="50" r="47"></circle>
+            </svg>
             <!-- Hangs from a fixed pivot mounted above the platter, swinging
                  sideways onto the record while playing (JS toggles
                  .is-active alongside the record's own .is-spinning, both
@@ -221,11 +241,21 @@
                     <span class="tt-record-label-word">TIMELINE</span>
                 </div>
             </div>
+            <div class="tt-platter-countdown-badge" title="Seconds remaining in clip">
+                <span class="bi bi-stopwatch-fill"></span>
+                <span class="tt-platter-countdown-val">--</span>
+            </div>
         </div>
     </div>
 
     <div class="controls-panel">
         <div>
+            <!-- No separate clip-progress/volume dashboard here: clip
+                 progress is already the countdown ring + badge wrapped
+                 around the turntable above, and volume already lives in the
+                 header (.tt-volume-badge, track-timeline.html) -- a second
+                 copy of each in the exact same view was pure duplication. -->
+
             {{if eq .GameStatus "finished"}}
             <!-- Game over: keep the vinyl, replace the last song's metadata
                  with a per-viewer win/lose banner so the final answer is not
@@ -274,13 +304,34 @@
                     class="btn-secondary"
                     style="display: none"
                     disabled
-                    {{if lt .TokenCount 1}}data-no-tokens="1"{{end}}
+                    data-cost="{{.Economy.ReplayCost}}"
+                    {{if lt .TokenCount .Economy.ReplayCost}}data-no-tokens="1"{{end}}
                     hx-post="/api/track-timeline/{{.LobbyId}}/replay-song"
                     hx-swap="none"
-                    hx-confirm="Spend a token to hear the clip again from the beginning?"
-                    title="{{if lt .TokenCount 1}}You need a token to restart.{{else}}Restart this clip from the beginning, once, for a token{{end}}"
+                    hx-confirm="Spend {{.Economy.Tokens .Economy.ReplayCost}} to hear the clip again from the beginning?"
+                    title="{{if lt .TokenCount .Economy.ReplayCost}}You need {{.Economy.Tokens .Economy.ReplayCost}} to restart.{{else}}Restart this clip from the beginning, once, for {{.Economy.Tokens .Economy.ReplayCost}}{{end}}"
                 >
-                    <span class="bi bi-arrow-counterclockwise"></span> Restart (1)
+                    <span class="bi bi-arrow-counterclockwise"></span> Restart ({{.Economy.ReplayCost}})
+                </button>
+                {{end}}
+                {{if and (eq .RoundPhase "listening") (not .HasPlaced) (ne .PlaybackMode "full")}}
+                <!-- Same gating as Restart (revealed by syncPlaybackUI once the
+                     clip has been heard through or paused), but repeatable:
+                     each buy plays a fresh random slice of the same song.
+                     Hidden entirely when the lobby plays the whole song. -->
+                <button
+                    id="tt-newclip-btn"
+                    class="btn-secondary"
+                    style="display: none"
+                    disabled
+                    data-cost="{{.Economy.NewClipCost}}"
+                    {{if lt .TokenCount .Economy.NewClipCost}}data-no-tokens="1"{{end}}
+                    hx-post="/api/track-timeline/{{.LobbyId}}/new-clip"
+                    hx-swap="none"
+                    hx-confirm="Spend {{.Economy.Tokens .Economy.NewClipCost}} to hear a different part of this song?"
+                    title="{{if lt .TokenCount .Economy.NewClipCost}}You need {{.Economy.Tokens .Economy.NewClipCost}} for a different clip.{{else}}Hear a different part of this song for {{.Economy.Tokens .Economy.NewClipCost}}{{end}}"
+                >
+                    <span class="bi bi-shuffle"></span> New Clip ({{.Economy.NewClipCost}})
                 </button>
                 {{end}}
                 {{if and (eq .RoundPhase "listening") (not .HasPlaced) (or (not .IsRoom) (not .HasGuessed))}}
@@ -296,22 +347,36 @@
                     id="tt-skip-btn"
                     class="btn-secondary"
                     disabled
-                    {{if lt .TokenCount 1}}data-no-tokens="1"{{end}}
+                    data-cost="{{.Economy.SkipCost}}"
+                    {{if lt .TokenCount .Economy.SkipCost}}data-no-tokens="1"{{end}}
                     hx-post="/api/track-timeline/{{.LobbyId}}/skip-card"
                     hx-swap="none"
-                    hx-confirm="Spend a token to skip this song and draw another?"
-                    title="{{if lt .TokenCount 1}}You need a token to skip.{{else}}Play the song first{{end}}"
+                    hx-confirm="Spend {{.Economy.Tokens .Economy.SkipCost}} to skip this song and draw another?"
+                    title="{{if lt .TokenCount .Economy.SkipCost}}You need {{.Economy.Tokens .Economy.SkipCost}} to skip.{{else}}Play the song first{{end}}"
                 >
-                    <span class="bi bi-skip-forward"></span> Skip (1)
+                    <span class="bi bi-skip-forward"></span> Skip ({{.Economy.SkipCost}})
                 </button>
                 {{end}}
             </div>
             {{end}}
+            {{if .CanChallenge}}
+            <!-- Between rounds only, for anyone who still has their challenge:
+                 the server decides (CanChallenge) and the Challenge button goes
+                 as soon as the next song starts. -->
+            <div class="challenge-row">
+                <button
+                    type="button"
+                    id="tt-challenge-btn"
+                    class="btn-secondary"
+                    data-max-tokens="{{.MaxChallengeTokens}}"
+                    onclick="ttOpenChallengeForm()"
+                    title="Think the game got something wrong? Ask the table to vote on what you're owed"
+                >
+                    <span class="bi bi-flag"></span> Challenge
+                </button>
+            </div>
+            {{end}}
 
-            <!-- The whole naming economy is off in this lobby, so nothing to
-                 type into. The server rejects a guess in this mode too; this
-                 just stops offering something that cannot pay out. -->
-            {{if ne .GuessMode "off"}}
             {{if not .HasGuessed}}
             {{if .IsCurrentPlayer}}
             <!-- A real submit button here too, not just the fields bundled into
@@ -339,7 +404,6 @@
                         placeholder="Song name"
                         autocomplete="off"
                     />
-                    {{if ne .GuessMode "title"}}
                     <span class="guess-by">by</span>
                     <input
                         type="text"
@@ -349,7 +413,6 @@
                         placeholder="Artist"
                         autocomplete="off"
                     />
-                    {{end}}
                 </div>
                 {{if .IsRoom}}
                 <div id="tt-room-voice" class="tt-room-voice" hx-preserve="true">
@@ -365,7 +428,7 @@
                 <button type="submit" class="btn-small">
                     <span class="bi bi-lightbulb"></span> {{if .IsRoom}}Lock guess{{else}}Guess{{end}}
                 </button>
-                <p class="guess-hint">Optional — 1 token if correct.{{if .IsRoom}} Speak or type, then lock.{{end}}</p>
+                <p class="guess-hint">Optional — {{.Economy.Tokens .Economy.GuessTokensPerPart}} for the song name, {{.Economy.Tokens .Economy.GuessTokensPerPart}} for the artist.{{if .IsRoom}} Speak or type, then lock.{{end}}</p>
                 <div class="htmx-result"></div>
             </form>
             {{else if not .IsRoom}}
@@ -379,23 +442,20 @@
                      wipes out whatever this player is mid-typing. -->
                 <div id="tt-guess-fields-other" class="guess-fields" hx-preserve="true">
                     <input type="text" id="tt-guess-title-other" name="guessTitle" maxlength="250" placeholder="Song name" autocomplete="off" />
-                    {{if ne .GuessMode "title"}}
                     <span class="guess-by">by</span>
                     <input type="text" id="tt-guess-artist-other" name="guessArtist" maxlength="250" placeholder="Artist" autocomplete="off" />
-                    {{end}}
                 </div>
                 <button type="submit" class="btn-small">
                     <span class="bi bi-lightbulb"></span> Guess
                 </button>
-                <p class="guess-hint">Optional — 1 token if correct.</p>
+                <p class="guess-hint">Optional — {{.Economy.Tokens .Economy.GuessTokensPerPart}} for the song name, {{.Economy.Tokens .Economy.GuessTokensPerPart}} for the artist.</p>
                 <div class="htmx-result"></div>
             </form>
             {{else if not .IsHostDisplay}}
             <p class="guess-hint">Only the player on turn can guess. Watch the TV.</p>
             {{end}}
             {{else}}
-            <div class="guess-spent">You have already guessed this song.</div>
-            {{end}}
+            <div class="guess-spent">{{if .GuessResultText}}{{.GuessResultText}}{{else}}You have already guessed this song.{{end}}</div>
             {{end}}
             {{end}}
         </div>
@@ -413,37 +473,43 @@
                         onchange="ttToggleExactYear()"
                         {{if lt .TokenCount 1}}disabled{{end}}
                     />
-                    Wager tokens on the exact year (double or nothing).
-                    Wrong digits still win the card if the year is in the right range.
+                    <span>
+                        <span class="checkbox-label-title">Wager on the exact year (double or nothing)</span>
+                        <span class="checkbox-label-hint">Guess right and your wager doubles back to you. Wrong digits still win the card if the year lands in the right range — you just lose the wager.</span>
+                    </span>
                 </label>
             </div>
-            <div id="tt-exact-year-row" style="display:none;">
-                <input
-                    type="number"
-                    id="tt-exact-year"
-                    name="year"
-                    min="1000"
-                    max="9999"
-                    step="1"
-                    placeholder="e.g. 1977"
-                    autocomplete="off"
-                    oninput="ttValidateExactYear()"
-                />
-                <label for="tt-year-wager">Wager</label>
-                <input
-                    type="number"
-                    id="tt-year-wager"
-                    name="yearWager"
-                    min="1"
-                    max="{{.TokenCount}}"
-                    value="1"
-                    autocomplete="off"
-                    oninput="ttValidateExactYear()"
-                />
-                <p id="tt-year-wager-error" class="guess-hint field-error" hidden>not enough tokens</p>
+            <div id="tt-exact-year-row" class="exact-year-row" style="display:none;">
+                <div class="exact-year-field">
+                    <label for="tt-exact-year" class="field-label">Exact year</label>
+                    <input
+                        type="number"
+                        id="tt-exact-year"
+                        name="year"
+                        min="1000"
+                        max="9999"
+                        step="1"
+                        placeholder="e.g. 1977"
+                        autocomplete="off"
+                        oninput="ttValidateExactYear()"
+                    />
+                </div>
+                <div class="exact-year-field exact-year-field-narrow">
+                    <label for="tt-year-wager" class="field-label">Wager (tokens)</label>
+                    <input
+                        type="number"
+                        id="tt-year-wager"
+                        name="yearWager"
+                        min="1"
+                        max="{{.TokenCount}}"
+                        value="1"
+                        autocomplete="off"
+                        oninput="ttValidateExactYear()"
+                    />
+                </div>
                 <button
                     id="tt-lock-year"
-                    class="btn-small"
+                    class="btn-small exact-year-submit"
                     disabled
                     hx-post="/api/track-timeline/{{.LobbyId}}/place-card"
                     hx-include="#tt-exact-year, #tt-year-wager, #tt-guess-title, #tt-guess-artist"
@@ -451,8 +517,9 @@
                     hx-confirm="Lock in this year?"
                     title="Wager must be between 1 and your tokens."
                 >
-                    <span class="bi bi-lock"></span> Lock In Year
+                    <span class="bi bi-lock"></span> Lock In Year &amp; Confirm Guess
                 </button>
+                <p id="tt-year-wager-error" class="guess-hint field-error" hidden>Not enough tokens for that wager.</p>
             </div>
         </div>
         {{end}}

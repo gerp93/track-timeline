@@ -35,10 +35,6 @@ type Input struct {
 	// MinMatchPercent is the lobby's coverage bar (60/70/80/90): this
 	// fraction of authored title/artist words must match. Zero means 60.
 	MinMatchPercent int
-	// TitleOnly is title-only lobby mode: the artist is not guessed, so
-	// Claude is not asked about it. Token rules (both / either / title)
-	// stay in the game layer after this returns.
-	TitleOnly bool
 }
 
 // Verdict is the outcome. Title and artist are scored independently so the
@@ -61,6 +57,10 @@ type Verdict struct {
 	// percents in that case. False for the local matcher and for any Claude
 	// attempt that fell back to it.
 	ByAI bool
+	// Raw is the model's unparsed reply, kept only so the Quizmaster Testing
+	// page and the server log can show exactly what Claude said. Empty for the
+	// local matcher.
+	Raw string
 }
 
 // Judge decides whether a guess names the song.
@@ -105,26 +105,46 @@ func Adjudicate(ctx context.Context, in Input) Verdict {
 	return runJudge(ctx, configured, in)
 }
 
-// AdjudicateKind runs the lobby's chosen judge. "claude" uses the Anthropic
-// API when a key is configured; anything else (including a missing key) uses
-// the local word matcher. Errors still fall back to Normalized. A successful
-// Claude call sets Verdict.ByAI so chat can attribute it without percents.
-func AdjudicateKind(ctx context.Context, in Input, kind string) Verdict {
-	if kind == JudgeClaude {
-		if claude, ok := defaultClaudeJudge(); ok {
-			timed, cancel := context.WithTimeout(ctx, judgeTimeout)
-			defer cancel()
-			verdict, err := claude.Judge(timed, in)
-			if err == nil {
-				verdict.ByAI = true
-				return verdict
-			}
-			log.Printf("guess: judge failed (%v); falling back to local matching", err)
-		} else {
-			log.Printf("guess: Claude requested but no API key; using local matching")
+// AdjudicateGuess judges a guess the way every game does: Claude decides
+// whenever the API key is configured and the call succeeds, and the local word
+// matcher is only the fallback for a missing key, an API error, a timeout or an
+// unreadable reply. A successful Claude call sets Verdict.ByAI so chat can
+// attribute it without percents.
+func AdjudicateGuess(ctx context.Context, in Input) Verdict {
+	if claude, ok := defaultClaudeJudge(); ok {
+		timed, cancel := context.WithTimeout(ctx, judgeTimeout)
+		defer cancel()
+		verdict, err := claude.Judge(timed, in)
+		if err == nil {
+			verdict.ByAI = true
+			return withHeuristicFloor(ctx, in, verdict)
 		}
+		log.Printf("guess: judge failed (%v); falling back to local matching", err)
 	}
 	return runJudge(ctx, Normalized{}, in)
+}
+
+// withHeuristicFloor lets Claude add matches the word matcher cannot see
+// (nicknames, sound-alikes, "1000" for "A Thousand") but not veto ones it can:
+// a title or artist the local matcher already accepts stays correct even if
+// the model said no. The matcher is conservative about wrong answers, so this
+// only rescues plainly right guesses, and any disagreement is logged.
+func withHeuristicFloor(ctx context.Context, in Input, claude Verdict) Verdict {
+	local, err := fallback.Judge(ctx, in)
+	if err != nil {
+		return claude
+	}
+	if local.TitleCorrect && !claude.TitleCorrect {
+		log.Printf("guess: Claude rejected a title the local matcher accepts (%q vs %q, model replied %q); keeping it", in.TitleGuess, in.Title, claude.Raw)
+		claude.TitleCorrect = true
+		claude.TitleMatchPercent = local.TitleMatchPercent
+	}
+	if local.ArtistCorrect && !claude.ArtistCorrect {
+		log.Printf("guess: Claude rejected an artist the local matcher accepts (%q vs %q, model replied %q); keeping it", in.ArtistGuess, in.Artist, claude.Raw)
+		claude.ArtistCorrect = true
+		claude.ArtistMatchPercent = local.ArtistMatchPercent
+	}
+	return claude
 }
 
 // AdjudicateClaude calls Claude and returns its error instead of falling back

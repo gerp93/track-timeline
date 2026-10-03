@@ -52,17 +52,54 @@
                     class="bi bi-stopwatch clickable icon-btn"
                     onclick="document.getElementById('turn-timer-dialog').showModal()"
                 ></span>
+                <span
+                    title="Lobby settings"
+                    class="bi bi-sliders clickable icon-btn"
+                    onclick="document.getElementById('lobby-settings-dialog').showModal()"
+                ></span>
+                <span
+                    title="Rules &amp; Examples"
+                    class="bi bi-book clickable icon-btn"
+                    onclick="document.getElementById('rules-dialog').showModal()"
+                ></span>
             </div>
 
             <div class="stats-badges">
-                <span class="badge">First to <strong>{{.Game.CardsToWin}}</strong></span>
-                <span class="badge">Songs left: <strong id="tt-draw-pile-count">{{.DrawPileCount}}</strong></span>
-                <span class="badge tt-deck-tooltip">
-                    Decks
+                <!-- Read-only facts about the game, not controls -- Rules and
+                     Settings already have their own entry points as icons
+                     next to the lobby name (.title-group) and don't need a
+                     second set of buttons here. Flat/borderless (.stat-text)
+                     so they read as information, not as things to click. -->
+                <span class="stat-text" title="First to {{.Game.CardsToWin}} cards wins">
+                    <span class="bi bi-trophy"></span> First to <strong>{{.Game.CardsToWin}}</strong>
+                </span>
+                <span class="stat-text" id="tt-draw-pile-stat" title="{{.DrawPileTooltip}}">
+                    <span class="bi bi-music-note-list"></span> <strong id="tt-draw-pile-count">{{.DrawPileCount}}</strong> songs left
+                </span>
+                <span class="stat-text tt-deck-tooltip" title="Hover for the decks in this game">
+                    <span class="bi bi-collection"></span> Decks
                     <span id="tt-deck-info" class="tt-tooltip-body"></span>
                 </span>
-                <span class="badge" id="tt-turn-timer-stat" {{if eq .TurnTimerSeconds 0}}style="display: none"{{end}}>
-                    Timer: <span id="tt-turn-timer" class="gs-timer"></span>
+                <span class="stat-text" id="tt-turn-timer-stat" {{if eq .TurnTimerSeconds 0}}style="display: none"{{end}}>
+                    <span class="bi bi-stopwatch"></span> <span id="tt-turn-timer" class="gs-timer"></span>
+                </span>
+                <!-- In-game volume control: a real control, so it keeps a
+                     border unlike the read-only facts above. -->
+                <span class="tt-volume-badge" title="In-game audio volume">
+                    <button type="button" class="tt-volume-btn tt-volume-mini-btn" onclick="ttToggleMute()" title="Mute / Unmute">
+                        <span class="tt-volume-icon bi bi-volume-up-fill"></span>
+                    </button>
+                    <input
+                        type="range"
+                        class="tt-volume-slider tt-volume-slider-mini"
+                        min="0"
+                        max="100"
+                        value="100"
+                        oninput="ttSetVolume(this.value)"
+                        title="In-game volume"
+                        aria-label="In-game volume"
+                    />
+                    <span class="tt-volume-val tt-volume-mini-val">100%</span>
                 </span>
                 <!-- Tokens + Buy — filled from the timeline fragment on load/refresh. -->
                 <span id="tt-self-status" class="tt-self-status"></span>
@@ -182,7 +219,168 @@
     </form>
 </dialog>
 
+<dialog id="rules-dialog" class="tt-modal tt-modal-large">
+    <div class="tt-modal-header">
+        <div class="tt-modal-title">
+            <span class="bi bi-book"></span>
+            <h3>How to Play &amp; Rules</h3>
+        </div>
+        <span
+            class="bi bi-x-lg close-button"
+            onclick="document.getElementById('rules-dialog').close()"
+        ></span>
+    </div>
+    <div class="tt-modal-body">
+        {{template "rules-content" .}}
+    </div>
+</dialog>
+
+<dialog id="lobby-settings-dialog" class="tt-modal tt-modal-medium">
+    <div class="tt-modal-header">
+        <div class="tt-modal-title">
+            <span class="bi bi-sliders"></span>
+            <h3>Lobby Startup Settings</h3>
+        </div>
+        <span
+            class="bi bi-x-lg close-button"
+            onclick="document.getElementById('lobby-settings-dialog').close()"
+        ></span>
+    </div>
+    <div class="tt-modal-body">
+        <div class="tt-settings-section">
+            <h4>Lobby Information</h4>
+            <div class="tt-settings-grid">
+                <div class="tt-settings-item">
+                    <span class="tt-settings-label">Lobby Name</span>
+                    <span class="tt-settings-val"><strong>{{.Lobby.Name}}</strong></span>
+                </div>
+                <div class="tt-settings-item">
+                    <span class="tt-settings-label">Access</span>
+                    <span class="tt-settings-val">
+                        {{if .Lobby.HasPassword}}
+                        <span class="badge"><span class="bi bi-lock-fill"></span> Password Protected</span>
+                        {{else}}
+                        <span class="badge"><span class="bi bi-unlock"></span> Public Lobby</span>
+                        {{end}}
+                    </span>
+                </div>
+                <div class="tt-settings-item full-row">
+                    <span class="tt-settings-label">Lobby Message</span>
+                    <span class="tt-settings-val">{{if .Lobby.Message.Valid}}{{.Lobby.Message.String}}{{else}}<em>No message set</em>{{end}}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="tt-settings-section">
+            <h4>Game Rules &amp; Victory</h4>
+            <div class="tt-settings-grid">
+                <div class="tt-settings-item">
+                    <span class="tt-settings-label">Cards to Win</span>
+                    <span class="tt-settings-val"><strong>{{.Game.CardsToWin}}</strong> songs in timeline</span>
+                </div>
+                <div class="tt-settings-item">
+                    <span class="tt-settings-label">Starting Tokens</span>
+                    <span class="tt-settings-val"><strong>{{.Game.StartingTokens}}</strong> tokens</span>
+                </div>
+                <div class="tt-settings-item">
+                    <span class="tt-settings-label">Turn Timer</span>
+                    <span class="tt-settings-val">
+                        {{if gt .TurnTimerSeconds 0}}
+                        <strong>{{.TurnTimerSeconds}}</strong> seconds per turn
+                        {{else}}
+                        <em>Unlimited (No timer)</em>
+                        {{end}}
+                    </span>
+                </div>
+                <div class="tt-settings-item">
+                    <span class="tt-settings-label">Draw Pile Status</span>
+                    <span class="tt-settings-val"><strong>{{.DrawPileCount}}</strong> songs remaining</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="tt-settings-section">
+            <h4>Playback &amp; Song Order</h4>
+            <p class="hint">Anyone in the lobby can change these. A change applies from the next song.</p>
+            <form id="tt-live-settings" hx-put="/api/track-timeline/{{.Lobby.Id}}/settings" hx-target="find .htmx-result">
+                <div class="form-input">
+                    <label for="tt-set-playback">Playback</label>
+                    <select id="tt-set-playback" name="playbackMode" autocomplete="off" onchange="ttSyncLiveClipRow()">
+                        {{range .PlaybackOptions}}
+                        <option value="{{.Value}}"{{if eq .Value $.Game.PlaybackMode}} selected="selected"{{end}}>{{.Label}}</option>
+                        {{end}}
+                    </select>
+
+                    <label for="tt-set-clip" id="tt-set-clip-label">Clip Length (seconds)</label>
+                    <input
+                        type="number"
+                        id="tt-set-clip"
+                        name="clipSeconds"
+                        min="{{.MinClipSeconds}}"
+                        max="{{.MaxClipSeconds}}"
+                        value="{{.Game.ClipSeconds}}"
+                        autocomplete="off"
+                    />
+
+                    <label for="tt-set-fresh">Never-Played Songs First</label>
+                    <select id="tt-set-fresh" name="freshSongsFirst" autocomplete="off">
+                        <option value="0"{{if not .Game.FreshSongsFirst}} selected="selected"{{end}}>No, fully random</option>
+                        <option value="1"{{if .Game.FreshSongsFirst}} selected="selected"{{end}}>Yes, then random once they run out</option>
+                    </select>
+                </div>
+                <div class="htmx-result"></div>
+                <input type="submit" value="Save" />
+            </form>
+        </div>
+
+        <div class="tt-settings-section">
+            <h4>Song Guessing &amp; AI Quizmaster</h4>
+            <div class="tt-settings-grid">
+                <div class="tt-settings-item">
+                    <span class="tt-settings-label">Guess Rewards</span>
+                    <span class="tt-settings-val">{{.Economy.Tokens .Economy.GuessTokensPerPart}} for the song name, {{.Economy.Tokens .Economy.GuessTokensPerPart}} for the artist</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="tt-settings-section">
+            <h4>Decks &amp; Era Filters</h4>
+            <div class="tt-settings-item full-row">
+                <span class="tt-settings-label">Active Decks</span>
+                <div class="tt-settings-val">
+                    {{if .Decks}}
+                    <ul class="tt-settings-deck-list">
+                        {{range .Decks}}
+                        <li>
+                            <strong>{{.Name}}</strong> &mdash; <span class="hint">{{.RemainingCount}} of {{.TotalCount}} songs remaining</span>
+                        </li>
+                        {{end}}
+                    </ul>
+                    {{else}}
+                    <span class="hint">No decks found</span>
+                    {{end}}
+                </div>
+            </div>
+            <div class="tt-settings-item full-row" style="margin-top: 0.5rem;">
+                <span class="tt-settings-label">Era Filters</span>
+                <div class="tt-settings-val">
+                    {{if .YearRanges}}
+                    <div class="tt-era-chips" style="margin-top: 0.25rem;">
+                        {{range .YearRanges}}
+                        <span class="chip">{{.FromYear}}&ndash;{{.ToYear}}</span>
+                        {{end}}
+                    </div>
+                    {{else}}
+                    <span class="hint">All release years allowed (no restrictions)</span>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+    </div>
+</dialog>
+
 <script>
     initTrackTimeline("{{.Lobby.Id}}", {{.TurnTimerSeconds}});
+    ttSyncLiveClipRow();
 </script>
 {{end}}

@@ -132,10 +132,8 @@ func HostTimeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	guessedCount := 0
-	if game.GuessMode != database.GuessModeOff {
-		if guesses, guessErr := database.GetGuesses(game.Id); guessErr == nil {
-			guessedCount = len(guesses)
-		}
+	if guesses, guessErr := database.GetGuesses(game.Id); guessErr == nil {
+		guessedCount = len(guesses)
 	}
 
 	tmpl, err := template.New("timeline.html").Funcs(template.FuncMap{
@@ -158,9 +156,8 @@ func HostTimeline(w http.ResponseWriter, r *http.Request) {
 		TokenCount        int
 		CardsToWin        int
 		InLead            bool
-		BuyCardCost       int
+		Economy           database.Economy
 		CurrentPlayerName string
-		GuessMode         string
 		GuessedCount      int
 		ActivePlayerCount int
 		IsRoom            bool
@@ -172,9 +169,8 @@ func HostTimeline(w http.ResponseWriter, r *http.Request) {
 		GameStatus:        game.GameStatus,
 		RoundPhase:        game.RoundPhase,
 		CardsToWin:        game.CardsToWin,
-		BuyCardCost:       database.BuyCardCost,
+		Economy:           database.CurrentEconomy(),
 		CurrentPlayerName: currentPlayerName,
-		GuessMode:         game.GuessMode,
 		GuessedCount:      guessedCount,
 		ActivePlayerCount: len(timelines),
 		IsRoom:            true,

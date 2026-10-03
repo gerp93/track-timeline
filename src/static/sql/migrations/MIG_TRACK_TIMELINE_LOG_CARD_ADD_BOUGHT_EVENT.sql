@@ -3,4 +3,7 @@
 -- 'bought' in the enum, so this is a no-op; on an existing database it adds
 -- it. MODIFY COLUMN is idempotent on its own -- no guard needed, re-running
 -- it against an enum that already includes 'bought' is a no-op.
-ALTER TABLE TRACK_TIMELINE_LOG_CARD MODIFY COLUMN EVENT_TYPE ENUM('drawn', 'discarded', 'skipped', 'bought') NOT NULL;
+-- It also lists 'dealt' (added later, see MIG_TRACK_TIMELINE_LOG_CARD_ADD_DEALT_EVENT):
+-- this statement re-runs on every start, and narrowing the enum back would fail
+-- as soon as any 'dealt' rows exist.
+ALTER TABLE TRACK_TIMELINE_LOG_CARD MODIFY COLUMN EVENT_TYPE ENUM('drawn', 'discarded', 'skipped', 'bought', 'dealt') NOT NULL;
