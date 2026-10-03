@@ -511,6 +511,13 @@ func announceAndFinish(ctx gameContext, outcome database.RoundOutcome) {
 		ReleaseYear:    outcome.ReleaseYear,
 		WinnerName:     outcome.WinnerName,
 		WonByChallenge: outcome.WonByChallenge,
+
+		TurnPlayerName:    outcome.CurrentPlayerName,
+		TurnPlayerCorrect: outcome.CurrentPlayerCorrect,
+		TurnPlayerRange:   outcome.CurrentPlayerRange,
+	}
+	if outcome.HasExactYearGuess {
+		payload.TurnPlayerExactYear = outcome.ExactYearGuess
 	}
 
 	// Exact-year wager chat was deferred from PlaceCard so stealers never saw

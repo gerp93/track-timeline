@@ -561,17 +561,19 @@ function syncPlaybackUI() {
         }
     }
 
-    // Same earned-by-listening gate as Restart, but never used up: every buy
-    // plays a fresh slice, so it stays on offer for as long as they can pay.
+    // On offer from the moment the song has been started (same gate as Skip),
+    // not only once the clip has been heard through: a different slice is just
+    // as useful halfway through a clip that is not helping. Never used up --
+    // every buy plays a fresh slice, so it stays on offer while they can pay.
     const newClipBtn = document.getElementById("tt-newclip-btn");
     if (newClipBtn) {
         const noTokens = newClipBtn.getAttribute("data-no-tokens") === "1";
-        newClipBtn.style.display = ttClipListenedThisRound ? "" : "none";
-        newClipBtn.disabled = noTokens || !ttClipListenedThisRound;
+        newClipBtn.style.display = ttPlaybackStartedThisRound ? "" : "none";
+        newClipBtn.disabled = noTokens || !ttPlaybackStartedThisRound;
         if (noTokens) {
             newClipBtn.title = "You need " + newClipBtn.getAttribute("data-cost") + " tokens for a different clip.";
-        } else if (!ttClipListenedThisRound) {
-            newClipBtn.title = "Hear the clip through (or pause it) first.";
+        } else if (!ttPlaybackStartedThisRound) {
+            newClipBtn.title = "Play the song first.";
         } else {
             newClipBtn.title = "Hear a different part of this song for " + newClipBtn.getAttribute("data-cost") + " tokens";
         }

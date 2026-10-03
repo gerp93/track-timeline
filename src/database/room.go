@@ -205,6 +205,14 @@ func ValidateGuestDisplayName(name string) (string, error) {
 	return name, nil
 }
 
+// GuestDisplayName is the nickname a guest typed: GuestUserName's inverse,
+// dropping the "·code" suffix that keeps USER.NAME unique. Real account names
+// pass through untouched.
+func GuestDisplayName(userName string) string {
+	name, _, _ := strings.Cut(userName, "·")
+	return name
+}
+
 // GuestUserName builds a unique USER.NAME for a room guest seat. The visible
 // nickname is the part before the middle dot; the suffix keeps USER.NAME unique.
 func GuestUserName(displayName string, roomCode string) string {

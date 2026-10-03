@@ -38,6 +38,14 @@ type resultPayload struct {
 	NextPlayerName string `json:"nextPlayerName,omitempty"`
 	GameOver       bool   `json:"gameOver,omitempty"`
 
+	// The turn player's own attempt, for the phones' brief result popup: who it
+	// was, whether their placement stood, and what they guessed (the slot they
+	// chose, and the exact year if they wagered on one).
+	TurnPlayerName      string `json:"turnPlayerName,omitempty"`
+	TurnPlayerCorrect   bool   `json:"turnPlayerCorrect"`
+	TurnPlayerRange     string `json:"turnPlayerRange,omitempty"`
+	TurnPlayerExactYear int    `json:"turnPlayerExactYear,omitempty"`
+
 	// Game-win YouTube clip (account Win Video). Empty when the winner has
 	// none configured — clients fall back to the normal celebration popup.
 	WinVideoId           string `json:"winVideoId,omitempty"`

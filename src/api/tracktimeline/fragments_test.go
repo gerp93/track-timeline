@@ -539,3 +539,54 @@ func TestCurrentCardChallengeButton(t *testing.T) {
 		t.Error("no Challenge button when the server says one is not possible")
 	}
 }
+
+// Two songs from the same year have nothing to choose between them, so the
+// board offers no slot there — in the online board and the room phone alike.
+func TestTimelineNoSlotBetweenSameYearCards(t *testing.T) {
+	cards := []database.TimelineCard{
+		{ReleaseYear: 1990, Artist: "A", Title: "One", SameYearAsNext: true},
+		{ReleaseYear: 1990, Artist: "B", Title: "Two"},
+		{ReleaseYear: 1995, Artist: "C", Title: "Three"},
+	}
+	for name, room := range map[string]bool{"online": false, "room phone": true} {
+		got := renderTimeline(t, timelineView{
+			IsRoom:     room,
+			GameStatus: database.StatusActive,
+			RoundPhase: database.PhaseListening,
+			CanPlace:   true,
+			Timelines:  []database.PlayerTimeline{{PlayerName: "Alice", IsMe: true, Timeline: cards}},
+		})
+		// Before the first, after the second 1990, after 1995 — not between the 1990s.
+		if n := strings.Count(got, `class="drop-zone"`); n != 3 {
+			t.Errorf("%s: %d slots, want 3 (none between the two 1990 cards): %s", name, n, got)
+		}
+		if strings.Contains(got, `{"position": 1}`) {
+			t.Errorf("%s: offers position 1, between the two 1990 cards: %s", name, got)
+		}
+	}
+}
+
+// Nothing to lock until something is typed or spoken: the room phone's Lock
+// guess button starts hidden (room-phone.js reveals it).
+func TestCurrentCardRoomPhoneLockGuessStartsHidden(t *testing.T) {
+	got := renderCurrentCard(t, currentCardView{
+		CurrentCard:     database.CurrentCard{YouTubeVideoId: "abc123"},
+		GameStatus:      database.StatusActive,
+		RoundPhase:      database.PhaseListening,
+		IsCurrentPlayer: true,
+		IsRoom:          true,
+		TokenCount:      3,
+		Economy:         database.CurrentEconomy(),
+		LobbyId:         uuid.New(),
+	})
+	if !strings.Contains(got, `id="tt-lock-guess" class="btn-primary" hidden`) {
+		t.Fatalf("Lock guess should start hidden: %s", got)
+	}
+	// Initial form: Hold to speak only; Re-record waits for a spoken guess.
+	if !strings.Contains(got, `id="tt-re-record" class="btn-secondary" style="display:none"`) {
+		t.Fatalf("Re-record should start hidden: %s", got)
+	}
+	if strings.Contains(got, `id="tt-hold-mic" class="btn-primary" style="display:none"`) {
+		t.Fatalf("Hold to speak should start visible: %s", got)
+	}
+}
