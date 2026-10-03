@@ -23,12 +23,14 @@ type LeaderboardRow struct {
 // GetLeaderboard ranks every user who has ever won by win count, then by
 // placement accuracy as the tiebreak. A user who has placed cards but never
 // won does not appear — the leaderboard is about winning, not participation.
+// Unapproved users (room guests, see apiRoom.JoinGuest) are left out.
 func GetLeaderboard() ([]LeaderboardRow, error) {
 	sqlString := `
 		SELECT
 			W.USER_ID,
 			COUNT(*) AS WINS
 		FROM TRACK_TIMELINE_LOG_WIN W
+			INNER JOIN USER U ON U.ID = W.USER_ID AND U.IS_APPROVED = 1
 		GROUP BY W.USER_ID
 		ORDER BY WINS DESC
 		LIMIT 50
@@ -90,12 +92,15 @@ type UserStatsRow struct {
 
 // GetUserStatsList returns every user who has placed at least one card or made
 // at least one guess, so a player who has only ever watched still doesn't
-// clutter the list.
+// clutter the list. Unapproved users (room guests) are left out.
 func GetUserStatsList() ([]UserStatsRow, error) {
 	sqlString := `
 		SELECT ID, NAME FROM USER
-		WHERE ID IN (SELECT DISTINCT USER_ID FROM TRACK_TIMELINE_LOG_PLACEMENT)
-			OR ID IN (SELECT DISTINCT USER_ID FROM TRACK_TIMELINE_LOG_TITLE_GUESS)
+		WHERE IS_APPROVED = 1
+			AND (
+				ID IN (SELECT DISTINCT USER_ID FROM TRACK_TIMELINE_LOG_PLACEMENT)
+				OR ID IN (SELECT DISTINCT USER_ID FROM TRACK_TIMELINE_LOG_TITLE_GUESS)
+			)
 		ORDER BY NAME ASC
 	`
 	rows, err := query(sqlString)

@@ -208,6 +208,40 @@ func TestRoomModeEndToEnd(t *testing.T) {
 	if guestUserId == uuid.Nil {
 		t.Fatal("join guest did not set auth cookie")
 	}
+	// A guest plays but is an unapproved account, and stats leave it out.
+	if approved, err := gsDatabase.GetUserIsApproved(guestUserId); err != nil || approved {
+		t.Fatalf("guest approved = %v, %v; want an unapproved account", approved, err)
+	}
+	if err := database.LogWin(guestUserId, 5, 2); err != nil {
+		t.Fatalf("log guest win: %v", err)
+	}
+	guestCardId := uuid.New()
+	if err := database.LogPlacement(guestUserId, guestCardId, 1990, false, true); err != nil {
+		t.Fatalf("log guest placement: %v", err)
+	}
+	// ...but what the guest did still counts toward the card's own stats.
+	if card, err := database.GetCardStats(guestCardId); err != nil || card.Attempts != 1 || card.CorrectPlaces != 1 {
+		t.Fatalf("card stats should still count the guest's placement: %+v, %v", card, err)
+	}
+	if board, err := database.GetLeaderboard(); err != nil {
+		t.Fatalf("GetLeaderboard: %v", err)
+	} else {
+		for _, row := range board {
+			if row.UserId == guestUserId {
+				t.Fatalf("leaderboard lists the guest %q", row.UserName)
+			}
+		}
+	}
+	if list, err := database.GetUserStatsList(); err != nil {
+		t.Fatalf("GetUserStatsList: %v", err)
+	} else {
+		for _, row := range list {
+			if row.UserId == guestUserId {
+				t.Fatalf("user stats list includes the guest %q", row.UserName)
+			}
+		}
+	}
+
 	guestPlayer, err := gsDatabase.GetLobbyUserPlayer(room.LobbyId, guestUserId)
 	if err != nil || guestPlayer.Id == uuid.Nil {
 		t.Fatalf("guest not seated: %v player=%+v", err, guestPlayer)

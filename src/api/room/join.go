@@ -16,6 +16,12 @@ import (
 
 // JoinGuest seats a couch guest: mint or reuse a synthetic USER, set the auth
 // cookie, grant lobby access, and sit them in the lobby.
+//
+// The guest USER is created unapproved on purpose. Approval is only checked by
+// the password login, which a guest never uses (the join sets their session
+// directly), so they play normally; unapproved is what marks the account as a
+// guest. Stats hide unapproved users, and an admin can turn one into a real
+// account later by approving it and resetting its password.
 func JoinGuest(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -46,7 +52,7 @@ func JoinGuest(w http.ResponseWriter, r *http.Request) {
 	userName := database.GuestUserName(displayName, room.Code)
 	userId, err := gsDatabase.GetUserIdByName(userName)
 	if err != nil || userId == uuid.Nil {
-		if err := gsDatabase.CreateUser(userName, randomPassword(), true); err != nil {
+		if err := gsDatabase.CreateUser(userName, randomPassword(), false); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte("Failed to create guest seat."))
 			return
