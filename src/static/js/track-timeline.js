@@ -807,6 +807,9 @@ function stopSong() {
     ttTimerHeldForPlayback = false;
     ttTimerReleasedThisRound = false;
     ttClipReachedPlaying = false;
+    // An explicit stop is not a playhead that merely stopped moving: drop the
+    // movement backstop so the record halts now, not up to 400ms later.
+    ttLastSpinMoved = 0;
     // A round that ends here without a reveal never reaches the "result:"
     // handler's own ttCloseTurnTimerBanner() call, so a banner already shown
     // for the round that just got discarded (e.g. "ran out of time") would
