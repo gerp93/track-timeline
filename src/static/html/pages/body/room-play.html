@@ -11,6 +11,9 @@
       <span class="you">{{.DisplayName}}</span>
       <span class="room-code">{{.Room.Code}}</span>
     </div>
+    <a href="/" class="no-style">
+      <button type="button" class="btn-small"><span class="bi bi-house"></span> Main menu</button>
+    </a>
     <div id="tt-self-status" class="tt-self-status"></div>
     <div id="room-paused-banner" class="room-paused-banner" {{if not .Room.IsPaused}}hidden{{end}}>
       Host display disconnected — paused

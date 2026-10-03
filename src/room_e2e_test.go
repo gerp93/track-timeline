@@ -141,6 +141,18 @@ func TestRoomModeEndToEnd(t *testing.T) {
 		t.Fatalf("room qr: status %d type %q", qrRec.Code, qrRec.Header().Get("Content-Type"))
 	}
 
+	// The host can find the room again from the Lobbies page, and only they can
+	// delete it.
+	mine, err := database.GetRoomsByCreator(hostUserId)
+	if err != nil || len(mine) != 1 || mine[0].Code != code || mine[0].Name != "Room Night "+stamp {
+		t.Fatalf("GetRoomsByCreator = %+v, %v", mine, err)
+	}
+	stranger := authedRequest(t, "POST", "/api/room/"+code+"/delete", nil, uuid.New())
+	stranger.SetPathValue("code", code)
+	if rec := serve(apiRoom.Delete, stranger); rec.Code != http.StatusForbidden {
+		t.Fatalf("delete by a stranger: status %d, want 403", rec.Code)
+	}
+
 	// A signed-out phone can sign in and come back to this room's join page.
 	loginReq := httptest.NewRequest("GET", "/room/"+code+"/login", nil)
 	loginReq.SetPathValue("code", code)

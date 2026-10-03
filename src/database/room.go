@@ -123,6 +123,45 @@ func GetRoomByLobbyId(lobbyId uuid.UUID) (Room, error) {
 	return scanRoom(rows)
 }
 
+// RoomSummary is one of a host's rooms as the Lobbies page lists it, so a host
+// who lost their screen can find the way back in.
+type RoomSummary struct {
+	Code       string
+	Name       string
+	GameStatus string
+}
+
+// GetRoomsByCreator lists the rooms a user created, newest first. Rooms never
+// show in the normal lobby list (they are not joined by browsing), so this is
+// the host's only way back to a screen that was closed or lost its connection.
+func GetRoomsByCreator(userId uuid.UUID) ([]RoomSummary, error) {
+	rows, err := query(`
+		SELECT R.CODE, L.NAME, G.GAME_STATUS
+		FROM TRACK_TIMELINE_ROOM AS R
+			INNER JOIN LOBBY AS L ON L.ID = R.LOBBY_ID
+			INNER JOIN TRACK_TIMELINE_GAME AS G ON G.LOBBY_ID = R.LOBBY_ID
+		WHERE R.CREATOR_USER_ID = ?
+		ORDER BY R.CREATED_ON_DATE DESC
+	`, userId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	rooms := []RoomSummary{}
+	for rows.Next() {
+		var room RoomSummary
+		if err := rows.Scan(&room.Code, &room.Name, &room.GameStatus); err != nil {
+			return nil, err
+		}
+		// The lobby name carries the code ("Living Room [AB12]") so hosts can
+		// tell rooms apart elsewhere; this list shows the code in its own column.
+		room.Name = strings.TrimSuffix(room.Name, " ["+room.Code+"]")
+		rooms = append(rooms, room)
+	}
+	return rooms, nil
+}
+
 // LobbyIsRoom reports whether a lobby is a room-mode session.
 func LobbyIsRoom(lobbyId uuid.UUID) (bool, error) {
 	rows, err := query(`SELECT 1 FROM TRACK_TIMELINE_ROOM WHERE LOBBY_ID = ?`, lobbyId)

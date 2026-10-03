@@ -25,6 +25,12 @@ function connectRoomHostSocket() {
 }
 
 function roomHostOnMessage(message) {
+    // The room was deleted: stop retrying a socket that can never reconnect.
+    if (message === "kick") {
+        roomHostConn.onclose = null;
+        location.href = "/";
+        return;
+    }
     if (message === "refresh" || message === "reload") {
         document.body.dispatchEvent(new Event("room-refresh"));
         return;

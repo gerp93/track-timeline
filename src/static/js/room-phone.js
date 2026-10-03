@@ -143,6 +143,12 @@ function connectRoomPhoneSocket() {
 }
 
 function roomPhoneOnMessage(message) {
+    // The room was deleted: stop retrying a socket that can never reconnect.
+    if (message === "kick") {
+        roomPhoneConn.onclose = null;
+        location.href = "/";
+        return;
+    }
     if (message === "refresh") {
         // Waiting phones have no #tt-current-card/#tt-board yet — htmx.ajax at a
         // missing target throws and spamsthe console when seats join.

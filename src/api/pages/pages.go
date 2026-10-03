@@ -1,6 +1,7 @@
 package apiPages
 
 import (
+	"log"
 	"encoding/json"
 	"html/template"
 	"math"
@@ -418,11 +419,20 @@ func TrackTimelineLobbies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A host who lost their TV screen needs a way back: rooms are not in the
+	// lobby list, so show the ones this user created.
+	rooms, err := database.GetRoomsByCreator(basePageData.User.Id)
+	if err != nil {
+		log.Println(err)
+		rooms = nil
+	}
+
 	type data struct {
 		gsApi.BasePageData
 		Decks       []gsDatabase.Deck
 		Categories  []categoryOption
 		Economy     database.Economy
+		Rooms       []database.RoomSummary
 
 		PlaybackOptions []database.PlaybackOption
 		MinClipSeconds  int
@@ -434,6 +444,7 @@ func TrackTimelineLobbies(w http.ResponseWriter, r *http.Request) {
 		Decks:        decks,
 		Categories:   categoryOptions,
 		Economy:      database.CurrentEconomy(),
+		Rooms:        rooms,
 
 		PlaybackOptions: database.PlaybackOptions(),
 		MinClipSeconds:  database.MinClipSeconds,

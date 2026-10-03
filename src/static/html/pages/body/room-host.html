@@ -14,6 +14,11 @@
       <span class="badge">First to {{.Game.CardsToWin}}</span>
       <span class="badge" id="room-phase">{{.Game.RoundPhase}}</span>
       <span class="badge" id="room-paused" {{if not .Room.IsPaused}}style="display:none"{{end}}>PAUSED</span>
+      {{/* Leaving drops this display's connection, which pauses the room for
+           every phone until the host display is back, hence the confirm. */}}
+      <a href="/" class="no-style" onclick="return confirm('Leave this screen? The game pauses for everyone until a host display is back.')">
+        <button type="button" class="btn-small"><span class="bi bi-house"></span> Main menu</button>
+      </a>
     </div>
   </header>
 
