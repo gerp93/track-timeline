@@ -140,6 +140,7 @@ body:has(.room-host) #body {
 
 /* ---- Host now-playing marquee ---- */
 .room-marquee {
+  position: relative;
   flex: 1;
   width: 100%;
   display: flex;
@@ -148,7 +149,8 @@ body:has(.room-host) #body {
   justify-content: center;
   gap: 0.45rem;
   text-align: center;
-  padding: 1.75rem 2rem;
+  /* Symmetric side room so centered text never runs under the record. */
+  padding: 1.75rem calc(clamp(7rem, 14vw, 12rem) + 4rem);
   background:
     radial-gradient(ellipse at center, color-mix(in srgb, currentColor 14%, transparent), transparent 70%),
     linear-gradient(
@@ -158,6 +160,19 @@ body:has(.room-host) #body {
     );
   border-bottom: 1px solid color-mix(in srgb, currentColor 22%, transparent);
   box-sizing: border-box;
+}
+/* The turntable on the marquee's left edge, vertically centered. The platter,
+   record and tonearm styles are the same ones the online lobby uses. */
+.room-marquee-deck {
+  position: absolute;
+  left: 2.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: clamp(7rem, 14vw, 12rem);
+}
+.room-marquee-deck .platter-ring {
+  width: 100%;
+  height: auto;
 }
 .room-marquee-kicker {
   font-size: 0.85rem;
@@ -203,9 +218,15 @@ body:has(.room-host) #body {
   background: currentColor;
   display: block;
   border-radius: 2px;
+  opacity: 0.4;
+  transform: scaleY(0.3);
+  transform-origin: bottom center;
+  transition: opacity 0.2s ease;
+}
+/* Bars only move while audio is really playing (.is-active, room-host.js). */
+.room-marquee-eq.is-active span {
   animation: room-eq 0.9s ease-in-out infinite;
   opacity: 0.85;
-  transform-origin: bottom center;
 }
 .room-marquee-eq span:nth-child(1) { height: 35%; animation-delay: 0s; }
 .room-marquee-eq span:nth-child(2) { height: 70%; animation-delay: 0.1s; }

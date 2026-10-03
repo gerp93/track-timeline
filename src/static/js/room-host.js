@@ -5,6 +5,7 @@ let roomHostConn = null;
 let roomYtPlayer = null;
 let roomYtReady = false;
 let roomAudioUnlocked = false;
+let roomHostPlaying = false;
 
 function initRoomHost(code, lobbyId) {
     roomHostCode = code;
@@ -134,6 +135,19 @@ function roomHostDismissPopup() {
     document.getElementById("room-popup").hidden = true;
 }
 
+// roomHostApplyPlaying points the record, tonearm and equalizer at
+// roomHostPlaying. The now-playing fragment is re-fetched on every refresh,
+// which replaces those elements, so this also runs after each swap.
+function roomHostApplyPlaying() {
+    document.querySelectorAll(".tt-record").forEach((el) => el.classList.toggle("is-spinning", roomHostPlaying));
+    document.querySelectorAll(".tt-tonearm").forEach((el) => el.classList.toggle("is-active", roomHostPlaying));
+    document.querySelectorAll(".room-marquee-eq").forEach((el) => el.classList.toggle("is-active", roomHostPlaying));
+}
+
+document.addEventListener("htmx:afterSwap", (e) => {
+    if (e.detail && e.detail.target && e.detail.target.id === "tt-current-card") roomHostApplyPlaying();
+});
+
 function roomHostUnlockAudio() {
     roomAudioUnlocked = true;
     const btn = document.getElementById("tt-audio-unlock");
@@ -166,7 +180,17 @@ function roomHostSetupPlayer() {
         height: "1",
         width: "1",
         playerVars: { autoplay: 0, controls: 0, rel: 0 },
-        events: { onReady: () => { roomYtReady = true; } }
+        events: {
+            onReady: () => { roomYtReady = true; },
+            // The record, tonearm and equalizer follow what the player is
+            // really doing, not what the game says should be happening: a song
+            // that is cued but not started (or blocked by the browser until
+            // someone taps to enable sound) must not look like it is playing.
+            onStateChange: (e) => {
+                roomHostPlaying = e.data === YT.PlayerState.PLAYING;
+                roomHostApplyPlaying();
+            }
+        }
     });
     const btn = document.getElementById("tt-audio-unlock");
     if (btn) btn.style.display = "";
