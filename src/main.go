@@ -212,5 +212,13 @@ func main() {
 	// websocket (no middleware wrapper; reads {lobbyId} from the path itself)
 	http.HandleFunc("GET /ws/lobby/{lobbyId}", gsWebsocket.ServeWs)
 
+	// Serve hands a nil handler to net/http, which reads http.DefaultServeMux
+	// when a request arrives, so wrapping it here puts the guest restriction in
+	// front of every route above (including the framework's own).
+	allRoutes := http.DefaultServeMux
+	guarded := http.NewServeMux()
+	guarded.Handle("/", apiRoom.RestrictGuests(allRoutes))
+	http.DefaultServeMux = guarded
+
 	gsBootstrap.Serve("TRACK_TIMELINE")
 }

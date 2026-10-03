@@ -5,7 +5,7 @@
   <h1>Room {{.Room.Code}}</h1>
   <p>Join on this phone. The TV shows the board.</p>
 
-  {{if .LoggedIn}}
+  {{if and .LoggedIn .User.IsApproved}}
   <form hx-post="/api/room/{{.Room.Code}}/join-account" hx-target="find .htmx-result">
     <p>Signed in as <strong>{{.User.Name}}</strong></p>
     <button type="submit">Sit down with this account</button>

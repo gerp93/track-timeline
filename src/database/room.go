@@ -123,26 +123,37 @@ func GetRoomByLobbyId(lobbyId uuid.UUID) (Room, error) {
 	return scanRoom(rows)
 }
 
-// RoomSummary is one of a host's rooms as the Lobbies page lists it, so a host
-// who lost their screen can find the way back in.
+// RoomSummary is one of a user's rooms as the Lobbies page lists it, so someone
+// who left or lost their screen or phone can find the way back in.
 type RoomSummary struct {
 	Code       string
 	Name       string
 	GameStatus string
+	// IsHost: this user created the room and may open its host screen and
+	// delete it. IsPlayer: this user has a seat in it (they may be both).
+	IsHost   bool
+	IsPlayer bool
 }
 
-// GetRoomsByCreator lists the rooms a user created, newest first. Rooms never
-// show in the normal lobby list (they are not joined by browsing), so this is
-// the host's only way back to a screen that was closed or lost its connection.
-func GetRoomsByCreator(userId uuid.UUID) ([]RoomSummary, error) {
+// GetRoomsForUser lists the rooms a user created or has sat down in, newest
+// first. Rooms never show in the normal lobby list (they are joined by code,
+// not by browsing), so this is the way back for a host whose screen closed or
+// a player whose phone page was lost.
+func GetRoomsForUser(userId uuid.UUID) ([]RoomSummary, error) {
 	rows, err := query(`
-		SELECT R.CODE, L.NAME, G.GAME_STATUS
+		SELECT
+			R.CODE,
+			L.NAME,
+			G.GAME_STATUS,
+			R.CREATOR_USER_ID = ? AS IS_HOST,
+			EXISTS(SELECT 1 FROM PLAYER AS P WHERE P.LOBBY_ID = R.LOBBY_ID AND P.USER_ID = ?) AS IS_PLAYER
 		FROM TRACK_TIMELINE_ROOM AS R
 			INNER JOIN LOBBY AS L ON L.ID = R.LOBBY_ID
 			INNER JOIN TRACK_TIMELINE_GAME AS G ON G.LOBBY_ID = R.LOBBY_ID
 		WHERE R.CREATOR_USER_ID = ?
+			OR EXISTS(SELECT 1 FROM PLAYER AS P WHERE P.LOBBY_ID = R.LOBBY_ID AND P.USER_ID = ?)
 		ORDER BY R.CREATED_ON_DATE DESC
-	`, userId)
+	`, userId, userId, userId, userId)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +162,7 @@ func GetRoomsByCreator(userId uuid.UUID) ([]RoomSummary, error) {
 	rooms := []RoomSummary{}
 	for rows.Next() {
 		var room RoomSummary
-		if err := rows.Scan(&room.Code, &room.Name, &room.GameStatus); err != nil {
+		if err := rows.Scan(&room.Code, &room.Name, &room.GameStatus, &room.IsHost, &room.IsPlayer); err != nil {
 			return nil, err
 		}
 		// The lobby name carries the code ("Living Room [AB12]") so hosts can
