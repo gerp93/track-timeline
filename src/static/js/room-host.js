@@ -93,7 +93,7 @@ function roomHostOnMessage(message) {
             }
             if (r.guessTokenGuessText) parts.push("Guessed: “" + r.guessTokenGuessText + "”");
             if (r.bottomMessage) parts.push(r.bottomMessage);
-            roomHostShowPopup(r.gameOver ? "Game over" : "Reveal", parts.join("<br>"));
+            roomHostShowPopup(r.gameOver ? "Game over" : "Reveal", parts.join("<br>"), r.gameOver ? ROOM_POPUP_GAME_OVER_MS : ROOM_POPUP_REVEAL_MS);
         } catch (e) {}
         document.body.dispatchEvent(new Event("room-refresh"));
         return;
@@ -115,13 +115,22 @@ function roomHostAppendLog(text) {
     while (list.children.length > 80) list.removeChild(list.lastChild);
 }
 
-function roomHostShowPopup(title, bodyHtml) {
+// The reveal clears itself: the TV is across the room, nobody is standing at it
+// to click OK. Game over lingers longer since it ends the night.
+const ROOM_POPUP_REVEAL_MS = 8000;
+const ROOM_POPUP_GAME_OVER_MS = 20000;
+let roomPopupTimer = null;
+
+function roomHostShowPopup(title, bodyHtml, durationMs) {
     document.getElementById("room-popup-title").textContent = title;
     document.getElementById("room-popup-body").innerHTML = bodyHtml;
     document.getElementById("room-popup").hidden = false;
+    clearTimeout(roomPopupTimer);
+    roomPopupTimer = setTimeout(roomHostDismissPopup, durationMs || ROOM_POPUP_REVEAL_MS);
 }
 
 function roomHostDismissPopup() {
+    clearTimeout(roomPopupTimer);
     document.getElementById("room-popup").hidden = true;
 }
 

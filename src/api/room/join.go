@@ -115,8 +115,18 @@ func JoinAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func seatUserInRoom(room database.Room, userId uuid.UUID) error {
-	if err := gsDatabase.AddUserLobbyAccess(userId, room.LobbyId); err != nil {
-		return errors.New("Failed to grant room access.")
+	// Granting access twice trips the table's unique constraint, which is what
+	// happens to the room's creator (granted at creation) and to anyone sitting
+	// down a second time. A room is passwordless, so the check is also true for
+	// everyone else and the grant is only a record for the ones who lack it.
+	hasAccess, err := gsDatabase.UserHasLobbyAccess(userId, room.LobbyId)
+	if err != nil {
+		return errors.New("Failed to check room access.")
+	}
+	if !hasAccess {
+		if err := gsDatabase.AddUserLobbyAccess(userId, room.LobbyId); err != nil {
+			return errors.New("Failed to grant room access.")
+		}
 	}
 	if _, err := gsDatabase.AddUserToLobby(room.LobbyId, userId); err != nil {
 		return errors.New("Failed to sit down.")

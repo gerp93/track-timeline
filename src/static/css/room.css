@@ -64,6 +64,18 @@ body:has(.room-host) #body {
   text-align: center;
   font-size: 1rem;
 }
+.room-join-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+/* White quiet zone around the code: scanners need it on a dark theme. */
+.room-join-qr {
+  background: #fff;
+  padding: 10px;
+  border-radius: 6px;
+}
 .room-host > #tt-audio-unlock {
   margin: 8px 16px 0;
   width: calc(100% - 32px);
@@ -235,12 +247,16 @@ body:has(.room-host) #body {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  justify-content: flex-start;
   gap: 8px;
 }
+/* Rows share the height evenly but stop growing at a cassette-and-a-bit: with
+   one or two players an uncapped row stretched every card to the full screen. */
 .room-host .player-card {
   flex: 1 1 0;
   min-height: 0;
-  align-items: stretch;
+  max-height: 9.5rem;
+  align-items: center;
   gap: 0.75rem;
   padding: 0.55rem 0.75rem;
   border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
@@ -269,11 +285,14 @@ body:has(.room-host) #body {
 .room-host .timeline-track {
   flex: 1;
   min-width: 0;
-  align-items: stretch;
+  align-items: center;
   overflow-x: auto;
 }
 .room-host .cassette-card {
-  min-height: 100%;
+  width: 9rem;
+}
+.room-host .cassette-year {
+  font-size: 1.5rem;
 }
 .room-host .song-count {
   align-self: center;
@@ -284,7 +303,7 @@ body:has(.room-host) #body {
 .room-popup {
   position: fixed;
   inset: 0;
-  background: rgba(255,255,255,0.8);
+  background: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -292,11 +311,19 @@ body:has(.room-host) #body {
 }
 .room-popup[hidden] { display: none !important; }
 .room-popup-card {
-  background: #fff;
-  border: 2px solid #222;
-  padding: 1.25rem 1.5rem;
-  max-width: 28rem;
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 2px solid var(--color-text);
+  border-radius: 4px;
+  padding: 1.5rem 2rem;
+  max-width: 36rem;
   text-align: center;
+  font-size: 1.25rem;
+  line-height: 1.5;
+}
+.room-popup-card h2 {
+  margin: 0 0 0.75rem;
+  color: var(--color-accent-blue);
 }
 
 /* ---- Phone controllers ---- */
@@ -464,23 +491,6 @@ body:has(.room-host) #body {
   min-height: 2.75rem;
   font-size: 1.4rem;
 }
-.tt-room-create {
-  max-width: 36rem;
-  margin: 1rem auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.tt-room-create label { display: block; margin-bottom: 8px; }
-.tt-room-create fieldset label,
-.tt-room-create .checkbox-list label { display: block; }
-.tt-room-create .era-row {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-  align-items: center;
-}
-.tt-room-create .era-row input { width: 7rem; }
 .tt-room-voice {
   display: flex;
   flex-wrap: wrap;
