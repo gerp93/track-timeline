@@ -57,6 +57,7 @@
                         <span class="cassette-title">&ldquo;{{$card.Title}}&rdquo;</span>
                     </div>
                 </div>
+                {{if not $card.SameYearAsNext}}
                 <button
                     class="drop-zone"
                     hx-post="/api/track-timeline/{{$root.LobbyId}}/{{if $root.CanSteal}}attempt-steal{{else}}place-card{{end}}"
@@ -65,6 +66,7 @@
                     hx-swap="none"
                     title="Place here"
                 ><span class="bi bi-plus-lg"></span> Place here</button>
+                {{end}}
                 {{end}}
             </div>
         </div>
@@ -134,7 +136,7 @@
                     </div>
                 </div>
 
-                {{if $canAct}}
+                {{if and $canAct (not $card.SameYearAsNext)}}
                 <button
                     class="drop-zone"
                     hx-post="/api/track-timeline/{{$root.LobbyId}}/{{if $root.CanSteal}}attempt-steal{{else}}place-card{{end}}"

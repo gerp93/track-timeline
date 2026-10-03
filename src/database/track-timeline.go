@@ -336,6 +336,10 @@ type TimelineCard struct {
 	// IsLastPlaced marks the most recently won card in the whole game so the
 	// board can highlight it wherever it landed.
 	IsLastPlaced bool
+	// SameYearAsNext is true when the next card on this timeline has the same
+	// release year. There is nothing to choose between two songs from the same
+	// year, so the board offers no slot between them.
+	SameYearAsNext bool
 }
 
 // Player is one seat at the table.
@@ -1044,6 +1048,9 @@ func GetPlayerTimeline(gameId uuid.UUID, playerId uuid.UUID) ([]TimelineCard, er
 			return nil, errors.New("failed to scan row in query results")
 		}
 		result = append(result, card)
+	}
+	for i := 0; i+1 < len(result); i++ {
+		result[i].SameYearAsNext = result[i].ReleaseYear == result[i+1].ReleaseYear
 	}
 
 	return result, nil

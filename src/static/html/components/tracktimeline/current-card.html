@@ -106,11 +106,13 @@
                     <span class="bi bi-mic"></span> Hold to speak
                 </button>
                 <button type="button" id="tt-re-record" class="btn-secondary" style="display:none" onclick="roomHoldMic(event)">
-                    Re-record
+                    <span class="bi bi-mic"></span> Re-record
                 </button>
                 <p id="tt-voice-status" class="guess-hint" hidden></p>
             </div>
-            <button type="submit" class="btn-primary">
+            <!-- Nothing to lock until something is typed or spoken; room-phone.js
+                 un-hides it (roomPhoneSyncGuessUI). -->
+            <button type="submit" id="tt-lock-guess" class="btn-primary" hidden>
                 <span class="bi bi-lightbulb"></span> Lock guess
             </button>
             <p class="guess-hint">Optional — {{.Economy.Tokens .Economy.GuessTokensPerPart}} for the song name, {{.Economy.Tokens .Economy.GuessTokensPerPart}} for the artist.</p>
@@ -315,10 +317,10 @@
                 </button>
                 {{end}}
                 {{if and (eq .RoundPhase "listening") (not .HasPlaced) (ne .PlaybackMode "full")}}
-                <!-- Same gating as Restart (revealed by syncPlaybackUI once the
-                     clip has been heard through or paused), but repeatable:
-                     each buy plays a fresh random slice of the same song.
-                     Hidden entirely when the lobby plays the whole song. -->
+                <!-- Revealed by syncPlaybackUI as soon as the song has been
+                     started (same gate as Skip), and repeatable: each buy plays
+                     a fresh random slice of the same song. Hidden entirely when
+                     the lobby plays the whole song. -->
                 <button
                     id="tt-newclip-btn"
                     class="btn-secondary"

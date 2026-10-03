@@ -155,6 +155,10 @@ function roomPhoneOnMessage(message) {
         if (document.getElementById("tt-current-card") || document.getElementById("tt-board")) {
             refreshGame();
         }
+        // Someone sat down: update the waiting list of who has joined.
+        if (document.getElementById("room-phone-players")) {
+            document.body.dispatchEvent(new Event("room-refresh"));
+        }
         return;
     }
     if (message === "reload") {
@@ -185,6 +189,8 @@ function roomPhoneOnMessage(message) {
         return;
     }
     if (message.startsWith("song:")) {
+        // A new song is starting, so last round's result is stale.
+        roomPhoneDismissResult();
         // Host display plays the clip; phones only unlock listen/skip/place gates.
         roomHostPlaying = true;
         ttPlaybackStartedThisRound = true;
@@ -236,6 +242,7 @@ function roomPhoneOnMessage(message) {
             const payload = JSON.parse(message.slice(7));
             ttCloseStealModal();
             if (payload.bottomMessage) showStatus(payload.bottomMessage);
+            roomPhoneShowResult(payload);
         } catch (e) {}
         roomHostPlaying = false;
         roomExitPlaceMode();
@@ -243,6 +250,68 @@ function roomPhoneOnMessage(message) {
         setTimeout(refreshGame, 300);
         return;
     }
+}
+
+// ---- Brief result popup ----------------------------------------------------
+// The same facts the TV shows after a round, for the phone in your hand: whether
+// the turn player was right, what they guessed, then the song and its year. It
+// clears itself, on a tap, or when the next song starts.
+
+const ROOM_PHONE_RESULT_MS = 5000;
+const ROOM_PHONE_GAME_OVER_MS = 8000;
+let roomPhoneResultTimer = null;
+
+// Guest seats carry a "·code" suffix to keep their account names unique.
+function roomPhoneCleanName(name) {
+    return String(name || "").split("·")[0];
+}
+
+function roomPhoneDismissResult() {
+    clearTimeout(roomPhoneResultTimer);
+    const el = document.getElementById("room-phone-result");
+    if (el) el.remove();
+}
+
+function roomPhoneShowResult(p) {
+    roomPhoneDismissResult();
+    if (!p || !p.title) return;
+
+    const turn = roomPhoneCleanName(p.turnPlayerName);
+    const mine = turn !== "" && turn === roomPhoneCleanName(window.roomPhoneMe);
+    const possessive = mine ? "Your" : turn + "'s";
+
+    const lines = [];
+    const add = (cls, text) => lines.push({ cls: cls, text: text });
+    if (turn) {
+        add(p.turnPlayerCorrect ? "rpr-verdict is-right" : "rpr-verdict is-wrong", p.turnPlayerCorrect ? "Right!" : "Wrong");
+        const guesses = [];
+        if (p.turnPlayerRange) guesses.push("placed in " + p.turnPlayerRange);
+        if (p.turnPlayerExactYear) {
+            guesses.push("exact year " + p.turnPlayerExactYear + (p.turnPlayerExactYear === p.releaseYear ? " (nailed it)" : " (missed)"));
+        }
+        if (guesses.length) add("rpr-guess", possessive + " guess: " + guesses.join(", "));
+    }
+    if (p.type === "won" && p.wonByChallenge && p.winnerName) add("rpr-note", roomPhoneCleanName(p.winnerName) + " stole it!");
+    if (p.releaseYear) add("rpr-year", String(p.releaseYear));
+    add("rpr-artist", p.artist);
+    add("rpr-song", "“" + p.title + "”");
+    if (p.gameOver && p.winnerName) add("rpr-note", roomPhoneCleanName(p.winnerName) + " wins!");
+
+    const overlay = document.createElement("div");
+    overlay.id = "room-phone-result";
+    overlay.className = "room-phone-result";
+    const card = document.createElement("div");
+    card.className = "room-phone-result-card";
+    lines.forEach((line) => {
+        const div = document.createElement("div");
+        div.className = line.cls;
+        div.textContent = line.text;
+        card.appendChild(div);
+    });
+    overlay.appendChild(card);
+    overlay.addEventListener("click", roomPhoneDismissResult);
+    document.body.appendChild(overlay);
+    roomPhoneResultTimer = setTimeout(roomPhoneDismissResult, p.gameOver ? ROOM_PHONE_GAME_OVER_MS : ROOM_PHONE_RESULT_MS);
 }
 
 // ---- Room voice guess (Web Speech API → editable fields → Lock guess) ------
@@ -259,6 +328,43 @@ function roomSetVoiceStatus(text, show) {
     if (!el) return;
     el.textContent = text || "";
     el.hidden = !show;
+}
+
+// What the guess form shows depends on whether anything has been entered:
+// Lock guess only once there is something to lock, and exactly one of Hold to
+// speak / Re-record (Re-record once a spoken guess has filled the boxes).
+let roomVoiceRecorded = false;
+
+function roomPhoneSyncGuessUI() {
+    const title = document.getElementById("tt-guess-title");
+    const artist = document.getElementById("tt-guess-artist");
+    const hasText = !!((title && title.value.trim()) || (artist && artist.value.trim()));
+    if (!hasText) roomVoiceRecorded = false;
+
+    const lock = document.getElementById("tt-lock-guess");
+    if (lock) lock.hidden = !hasText;
+    const hold = document.getElementById("tt-hold-mic");
+    const reRecord = document.getElementById("tt-re-record");
+    if (hold) hold.style.display = roomVoiceRecorded ? "none" : "";
+    if (reRecord) reRecord.style.display = roomVoiceRecorded ? "" : "none";
+}
+
+document.addEventListener("input", function (e) {
+    if (e.target && (e.target.id === "tt-guess-title" || e.target.id === "tt-guess-artist")) {
+        roomPhoneSyncGuessUI();
+    }
+});
+document.addEventListener("htmx:afterSwap", function (e) {
+    if (e.detail && e.detail.target && e.detail.target.id === "tt-current-card") roomPhoneSyncGuessUI();
+});
+
+// roomSetMicLabel puts the listening/idle label on whichever mic button is
+// showing (Hold to speak, or Re-record once a guess was spoken).
+function roomSetMicLabel(listening) {
+    const hold = document.getElementById("tt-hold-mic");
+    const reRecord = document.getElementById("tt-re-record");
+    if (hold) hold.innerHTML = listening ? "Listening…" : '<span class="bi bi-mic"></span> Hold to speak';
+    if (reRecord) reRecord.innerHTML = listening ? "Listening…" : '<span class="bi bi-mic"></span> Re-record';
 }
 
 function roomApplyHeardText(transcript) {
@@ -282,8 +388,8 @@ function roomApplyHeardText(transcript) {
         title.value = heard;
     }
 
-    const reRecord = document.getElementById("tt-re-record");
-    if (reRecord) reRecord.style.display = "";
+    roomVoiceRecorded = true;
+    roomPhoneSyncGuessUI();
     roomSetVoiceStatus("Edit if needed, then Lock guess.", true);
 }
 
@@ -309,8 +415,7 @@ function roomHoldMic(event) {
     let finalText = "";
     roomSpeechListening = true;
     roomSetVoiceStatus("Listening… release when done.", true);
-    const mic = document.getElementById("tt-hold-mic");
-    if (mic) mic.textContent = "Listening…";
+    roomSetMicLabel(true);
 
     roomSpeechRecognition.onresult = function (ev) {
         let interim = "";
@@ -327,13 +432,13 @@ function roomHoldMic(event) {
 
     roomSpeechRecognition.onerror = function () {
         roomSpeechListening = false;
-        if (mic) mic.innerHTML = '<span class="bi bi-mic"></span> Hold to speak';
+        roomSetMicLabel(false);
         roomSetVoiceStatus("Could not hear that — try again or type.", true);
     };
 
     roomSpeechRecognition.onend = function () {
         roomSpeechListening = false;
-        if (mic) mic.innerHTML = '<span class="bi bi-mic"></span> Hold to speak';
+        roomSetMicLabel(false);
         if (finalText.trim()) {
             roomApplyHeardText(finalText.trim());
         } else {

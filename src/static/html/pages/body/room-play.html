@@ -42,6 +42,11 @@
   <button type="button" class="btn-primary room-phone-cta" onclick="ttStartGame()">
     Start game
   </button>
+  {{/* Who has sat down so far, so the table can confirm before anyone starts. */}}
+  <div id="room-phone-players"
+       class="room-phone-players"
+       hx-get="/api/room/{{.Room.Code}}/players"
+       hx-trigger="load, room-refresh from:body"></div>
   {{else if eq .Game.GameStatus "finished"}}
   <button type="button"
           class="btn-primary room-phone-cta"
@@ -62,6 +67,7 @@
 <script>
   {{/* html/template JS-escapes string args; do not wrap with printf %q or the
        value keeps literal quotes and /ws/room/"CODE" 404s. */}}
+  window.roomPhoneMe = {{.DisplayName}};
   initRoomPhone({{.Room.Code}}, {{.LobbyId.String}});
 </script>
 {{end}}

@@ -802,6 +802,10 @@ type RoundOutcome struct {
 	YearWager         int
 	ExactYearPlayer   string
 
+	// CurrentPlayerRange is where the turn player put the song ("1989–2002",
+	// "before 1970"), for the result popup. Empty when they never placed.
+	CurrentPlayerRange string
+
 	// Populated on a successful steal so chat can show both year windows
 	// alongside the real year.
 	OriginalPlayerName string
@@ -868,6 +872,9 @@ func resolveRound(gameId uuid.UUID, winnerPlayerId uuid.UUID, winnerName string,
 		outcome.ExactYearCorrect = outcome.ExactYearGuess == card.ReleaseYear
 		outcome.YearWager = placement.YearWager
 		outcome.ExactYearPlayer = placement.PlayerName
+	}
+	if placement, err := GetPlacement(gameId); err == nil && placement.Id != uuid.Nil {
+		outcome.CurrentPlayerRange = placement.YearRange.Format()
 	}
 
 	if game.CurrentPlayerId.Valid {

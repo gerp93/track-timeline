@@ -355,6 +355,40 @@ body:has(.room-host) #body {
 }
 
 /* ---- Phone controllers ---- */
+.room-phone [hidden] { display: none !important; }
+.room-phone-result {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.72);
+  cursor: pointer;
+}
+.room-phone-result-card {
+  width: 100%;
+  max-width: 24rem;
+  box-sizing: border-box;
+  padding: 1.5rem 1.25rem;
+  border: 2px solid var(--color-text);
+  border-radius: 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.rpr-verdict { font-size: 2rem; font-weight: 800; }
+.rpr-verdict.is-right { color: var(--color-accent-green); }
+.rpr-verdict.is-wrong { color: var(--color-accent-red); }
+.rpr-guess, .rpr-note { font-size: 1.05rem; }
+.rpr-note { color: var(--color-accent-blue); font-weight: 700; }
+.rpr-year { font-size: 3rem; font-weight: 800; line-height: 1.1; margin-top: 0.5rem; }
+.rpr-artist { font-size: 1.35rem; font-weight: 700; }
+.rpr-song { font-size: 1.15rem; }
 .room-phone {
   max-width: none;
   width: 100%;
@@ -460,6 +494,32 @@ body:has(.room-host) #body {
   min-height: 3.5rem;
   font-size: 1.25rem;
   box-sizing: border-box;
+}
+/* .btn-primary is flex: 2 for the online deck; in this column it would grow to
+   fill the screen, so the call-to-action keeps its own height. */
+.room-phone > .room-phone-cta {
+  flex: 0 0 auto;
+}
+.room-phone-players {
+  padding: 0 12px;
+}
+.room-phone-players-title {
+  margin: 0.5rem 0;
+  font-size: 1.05rem;
+}
+.room-phone-players-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 1.15rem;
+}
+.room-phone-players-list li {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+}
+.room-phone-players-you {
+  opacity: 0.7;
+  font-size: 0.9rem;
 }
 .room-phone .room-phone-guess-year {
   min-height: 4rem;

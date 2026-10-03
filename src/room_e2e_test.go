@@ -336,6 +336,18 @@ func TestRoomModeEndToEnd(t *testing.T) {
 		t.Fatalf("join account: status %d body %q", joinAccRec.Code, joinAccRec.Body.String())
 	}
 
+	// Waiting phones list who has joined: nicknames without the guest suffix,
+	// and a marker on the viewer's own seat.
+	playersReq := authedRequest(t, "GET", "/api/room/"+code+"/players", nil, guestUserId)
+	playersReq.SetPathValue("code", code)
+	playersRec := serve(apiRoom.Players, playersReq)
+	playersBody := playersRec.Body.String()
+	if playersRec.Code != http.StatusOK || !strings.Contains(playersBody, "<li>Sam <span") ||
+		!strings.Contains(playersBody, "(you)") || strings.Contains(playersBody, "Sam·") ||
+		!strings.Contains(playersBody, accountName) {
+		t.Fatalf("players list: status %d body %q", playersRec.Code, playersBody)
+	}
+
 	// Sitting down again as the same account (a second tap, a reconnect, or the
 	// room's creator, who already holds access) must work, not fail silently.
 	reSit := authedRequest(t, "POST", "/api/room/"+code+"/join-account", nil, seatUserId)

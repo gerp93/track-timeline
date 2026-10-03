@@ -156,6 +156,7 @@ func main() {
 	http.Handle("GET /room/{code}/play", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.PlayPage)))
 	http.Handle("GET /api/room/{code}/qr.png", http.HandlerFunc(apiRoom.QRCode))
 	http.Handle("POST /api/room/{code}/delete", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.Delete)))
+	http.Handle("GET /api/room/{code}/players", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.Players)))
 	http.Handle("POST /api/room/{code}/join-guest", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.JoinGuest)))
 	http.Handle("POST /api/room/{code}/join-account", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.JoinAccount)))
 	http.Handle("GET /api/room/{code}/host/current-card", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.HostCurrentCard)))
