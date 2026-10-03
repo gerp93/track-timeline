@@ -64,6 +64,7 @@ body:has(.room-host) #body {
   text-align: center;
   font-size: 1rem;
 }
+.room-join-hint[hidden] { display: none; }
 .room-join-hint {
   display: flex;
   flex-direction: column;

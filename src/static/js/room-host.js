@@ -144,8 +144,19 @@ function roomHostApplyPlaying() {
     document.querySelectorAll(".room-marquee-eq").forEach((el) => el.classList.toggle("is-active", roomHostPlaying));
 }
 
+// The join QR is for the lobby, not the game: it shows while the game waits to
+// start and disappears once it is running (and returns if the game is reset).
+function roomHostSyncJoinHint() {
+    const marquee = document.querySelector(".room-marquee");
+    const hint = document.getElementById("room-join-hint");
+    if (marquee && hint) hint.hidden = marquee.dataset.status !== "waiting";
+}
+
 document.addEventListener("htmx:afterSwap", (e) => {
-    if (e.detail && e.detail.target && e.detail.target.id === "tt-current-card") roomHostApplyPlaying();
+    if (e.detail && e.detail.target && e.detail.target.id === "tt-current-card") {
+        roomHostApplyPlaying();
+        roomHostSyncJoinHint();
+    }
 });
 
 function roomHostUnlockAudio() {

@@ -1,6 +1,6 @@
 {{/* Host TV now-playing marquee — no turn controls. The record sits off to
      the side and spins only while audio is really playing (room-host.js). */}}
-<div class="room-marquee {{if eq .GameStatus "active"}}is-live{{end}} {{if .Revealed}}is-reveal{{end}}" data-phase="{{.RoundPhase}}">
+<div class="room-marquee {{if eq .GameStatus "active"}}is-live{{end}} {{if .Revealed}}is-reveal{{end}}" data-phase="{{.RoundPhase}}" data-status="{{.GameStatus}}">
   {{if ne .GameStatus "waiting"}}
   <div class="room-marquee-deck" aria-hidden="true">
     <div class="platter-ring">

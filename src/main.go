@@ -150,8 +150,6 @@ func main() {
 
 	// room mode (seatless host TV + phone seats). Join/play are public so
 	// guests can sit without an account; create requires login via policy.
-	// Room setup lives in the New Game dialog now; keep old bookmarks working.
-	http.Handle("GET /room/create", http.RedirectHandler("/track-timeline/lobbies?new=room", http.StatusSeeOther))
 	http.Handle("GET /room/{code}", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.JoinPage)))
 	http.Handle("GET /room/{code}/login", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.LoginPage)))
 	http.Handle("GET /room/{code}/host", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.HostPage)))

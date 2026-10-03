@@ -355,13 +355,6 @@
         document.getElementById("lobbyCreateSubmit").value = isRoom ? "Create Room" : "Create Game";
     }
 
-    // "Host a Room" on the home page lands here with the dialog already open.
-    if (new URLSearchParams(window.location.search).get("new") === "room") {
-        document.getElementById("lobbyMode").value = "room";
-        ttToggleLobbyMode();
-        document.getElementById("lobby-create-dialog").showModal();
-    }
-
     function ttDoRecalcCount() {
         const form = document.getElementById("lobby-create-form");
         const estimate = document.getElementById("tt-count-estimate");
