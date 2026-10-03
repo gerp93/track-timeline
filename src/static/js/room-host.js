@@ -64,6 +64,9 @@ function roomHostOnMessage(message) {
         return;
     }
     if (message.startsWith("song:")) {
+        // A new song is starting, so the last round's reveal is stale: clear it
+        // now rather than leaving it over the screen until its timer runs out.
+        roomHostDismissPopup();
         try { roomHostPlaySong(JSON.parse(message.slice(5))); } catch (e) {}
         return;
     }

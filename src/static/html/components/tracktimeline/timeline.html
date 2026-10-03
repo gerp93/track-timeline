@@ -47,7 +47,7 @@
                     hx-include="#tt-guess-title, #tt-guess-artist"
                     hx-swap="none"
                     title="Place before everything"
-                >+</button>
+                ><span class="bi bi-plus-lg"></span> Place here</button>
 
                 {{range $index, $card := .Timeline}}
                 <div class="cassette-card {{if $card.IsLastPlaced}}is-last-placed{{end}}">
@@ -64,7 +64,7 @@
                     hx-include="#tt-guess-title, #tt-guess-artist"
                     hx-swap="none"
                     title="Place here"
-                >+</button>
+                ><span class="bi bi-plus-lg"></span> Place here</button>
                 {{end}}
             </div>
         </div>

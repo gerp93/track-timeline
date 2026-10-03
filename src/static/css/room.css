@@ -486,13 +486,106 @@ body:has(.room-host) #body {
 .room-phone-board.is-deferred {
   display: none !important;
 }
+/* ---- Place screen: a full-height, scrolling vertical timeline ----
+   Players are here for a few seconds to choose where a song goes, so the screen
+   is only that: Back and the exact-year toggle on top, then the timeline filling
+   the rest, oldest at the top, with a slot between every pair of cards. */
+.room-phone.is-placing {
+  height: calc(100dvh - (2 * var(--top-bar-padding)) - var(--top-bar-height) - 2rem);
+  min-height: 0;
+  overflow: hidden;
+  gap: 8px;
+}
+.room-phone.is-placing .room-phone-header,
+.room-phone.is-placing .room-place-hint,
+.room-phone.is-placing .room-phone-board .board-banner,
+.room-phone.is-placing .room-phone-board .player-name {
+  display: none;
+}
+.room-phone.is-placing .room-phone-card {
+  flex: 0 0 auto;
+}
+.room-place-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.room-place-top > button {
+  width: auto;
+  min-height: 2.75rem;
+  font-size: 1.05rem;
+  padding: 0 1rem;
+}
+.room-place-top .checkbox-label {
+  font-size: 1.05rem;
+}
+.room-place-tokens {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  text-align: center;
+}
 .room-phone.is-placing #tt-board,
 .room-phone.is-placing .room-phone-board {
-  margin-top: auto;
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: block;
+  margin-top: 0;
+}
+.room-phone.is-placing .room-phone-board .timeline-section,
+.room-phone.is-placing .room-phone-board .player-card {
+  display: block;
+  margin: 0;
+  padding: 0;
+}
+.room-phone.is-placing .room-phone-board .timeline-track {
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 8px;
+  overflow: visible;
+  padding-bottom: 1rem;
+}
+.room-phone.is-placing .room-phone-board .cassette-card {
+  width: 100%;
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+}
+.room-phone.is-placing .room-phone-board .cassette-year {
+  align-self: center;
+  flex: 0 0 auto;
+  min-width: 4.5rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 1.6rem;
+}
+.room-phone.is-placing .room-phone-board .cassette-label {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3rem 0.5rem;
+}
+.room-phone.is-placing .room-phone-board .cassette-artist,
+.room-phone.is-placing .room-phone-board .cassette-title {
+  font-size: 0.95rem;
+}
+.room-phone.is-placing .room-phone-board .drop-zone {
+  width: 100%;
+  height: 3.25rem;
+  flex: 0 0 auto;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-size: 1.05rem;
+  opacity: 0.9;
 }
 .room-phone-board .board-banner {
   font-size: 1.05rem;

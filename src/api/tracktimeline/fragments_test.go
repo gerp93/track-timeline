@@ -269,6 +269,8 @@ func TestCurrentCardRoomPhoneTurnOmitsTurntable(t *testing.T) {
 		HasGuessed:      false,
 		IsRoom:          true,
 		IsHostDisplay:   false,
+		TokenCount:      5,
+		Economy:         database.CurrentEconomy(),
 		LobbyId:         uuid.New(),
 	})
 	if strings.Contains(got, "tt-record") || strings.Contains(got, "tt-visualizer") {
@@ -285,6 +287,12 @@ func TestCurrentCardRoomPhoneTurnOmitsTurntable(t *testing.T) {
 	}
 	if !strings.Contains(got, `id="room-phone-place"`) {
 		t.Fatalf("room phone turn UI missing place panel: %s", got)
+	}
+	if !strings.Contains(got, "You have 5 tokens to wager.") {
+		t.Fatalf("room phone place panel should show the tokens available to wager: %s", got)
+	}
+	if !strings.Contains(got, `class="room-place-top"`) || strings.Contains(got, "room-place-hint") {
+		t.Fatalf("room phone place panel should be Back + exact-year toggle only: %s", got)
 	}
 	if !strings.Contains(got, "Exact-year wager") {
 		t.Fatalf("room phone place panel missing exact-year wager: %s", got)
@@ -335,6 +343,9 @@ func TestTimelineRoomPhoneOwnOnlyWhenPlacing(t *testing.T) {
 	})
 	if !strings.Contains(placing, "Your timeline") {
 		t.Fatalf("room phone placing view missing own timeline: %s", placing)
+	}
+	if !strings.Contains(placing, "Place here") {
+		t.Fatalf("room phone placing view slots should be labelled: %s", placing)
 	}
 	if !strings.Contains(placing, "drop-zone") {
 		t.Fatalf("room phone placing view missing drop zones: %s", placing)

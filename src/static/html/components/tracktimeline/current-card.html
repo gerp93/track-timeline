@@ -136,11 +136,10 @@
 
     {{if and (eq .RoundPhase "listening") (not .HasPlaced)}}
     <div id="room-phone-place" class="room-phone-place" hidden>
-        <button type="button" class="btn-secondary" onclick="roomExitPlaceMode()">
-            Back
-        </button>
-        <p class="room-place-hint">Tap a slot on your timeline, or lock an exact year.</p>
-        <div class="options-group">
+        <div class="room-place-top">
+            <button type="button" class="btn-secondary" onclick="roomExitPlaceMode()">
+                <span class="bi bi-chevron-left"></span> Back
+            </button>
             <label
                 class="checkbox-label{{if lt .TokenCount 1}} is-disabled{{end}}"
                 {{if lt .TokenCount 1}}title="Need 1 token to wager."{{end}}
@@ -177,6 +176,7 @@
                 oninput="ttValidateExactYear()"
                 aria-label="Wager"
             />
+            <p class="room-place-tokens">You have {{.Economy.Tokens .TokenCount}} to wager.</p>
             <p id="tt-year-wager-error" class="guess-hint field-error" hidden>not enough tokens</p>
             <button
                 id="tt-lock-year"
