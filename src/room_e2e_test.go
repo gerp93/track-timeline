@@ -143,9 +143,10 @@ func TestRoomModeEndToEnd(t *testing.T) {
 
 	// The host can find the room again from the Lobbies page, and only they can
 	// delete it.
-	mine, err := database.GetRoomsByCreator(hostUserId)
-	if err != nil || len(mine) != 1 || mine[0].Code != code || mine[0].Name != "Room Night "+stamp {
-		t.Fatalf("GetRoomsByCreator = %+v, %v", mine, err)
+	mine, err := database.GetRoomsForUser(hostUserId)
+	if err != nil || len(mine) != 1 || mine[0].Code != code || mine[0].Name != "Room Night "+stamp ||
+		!mine[0].IsHost || mine[0].IsPlayer {
+		t.Fatalf("GetRoomsForUser(host) = %+v, %v", mine, err)
 	}
 	stranger := authedRequest(t, "POST", "/api/room/"+code+"/delete", nil, uuid.New())
 	stranger.SetPathValue("code", code)
@@ -208,6 +209,79 @@ func TestRoomModeEndToEnd(t *testing.T) {
 	if guestUserId == uuid.Nil {
 		t.Fatal("join guest did not set auth cookie")
 	}
+	// A guest session is confined to its own room: the game, its websocket,
+	// sign-out and choosing a theme. Nothing else on the site.
+	reached := false
+	guarded := apiRoom.RestrictGuests(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached = true }))
+	asGuest := func(method, target string) *httptest.ResponseRecorder {
+		reached = false
+		req := authedRequest(t, method, target, nil, guestUserId)
+		req.AddCookie(guestNight)
+		rec := httptest.NewRecorder()
+		guarded.ServeHTTP(rec, req)
+		return rec
+	}
+	ownLobby := room.LobbyId.String()
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/room/" + code + "/play"},
+		{"GET", "/api/room/" + code + "/qr.png"},
+		{"GET", "/api/track-timeline/" + ownLobby + "/current-card"},
+		{"POST", "/api/track-timeline/" + ownLobby + "/place-card"},
+		{"GET", "/ws/lobby/" + ownLobby},
+		{"PUT", "/api/user/" + guestUserId.String() + "/color-theme"},
+		{"GET", "/api/user/" + uuid.New().String() + "/win-gif"},
+		{"POST", "/api/user/logout"},
+		{"GET", "/static/css/room.css"},
+	} {
+		if asGuest(c.method, c.path); !reached {
+			t.Errorf("guest %s %s was refused, want it allowed", c.method, c.path)
+		}
+	}
+	for _, c := range []struct {
+		method, path string
+		wantStatus   int
+	}{
+		{"GET", "/", http.StatusSeeOther},
+		{"GET", "/track-timeline/lobbies", http.StatusSeeOther},
+		{"GET", "/track-timeline/" + ownLobby, http.StatusSeeOther},
+		{"GET", "/decks", http.StatusSeeOther},
+		{"GET", "/account", http.StatusSeeOther},
+		{"GET", "/stats", http.StatusSeeOther},
+		{"POST", "/api/track-timeline/create", http.StatusForbidden},
+		{"POST", "/api/track-timeline/" + uuid.New().String() + "/start", http.StatusForbidden},
+		{"POST", "/api/track-timeline/search", http.StatusForbidden},
+		{"POST", "/api/deck/create", http.StatusForbidden},
+		{"POST", "/api/card/create", http.StatusForbidden},
+		{"POST", "/api/access/lobby/" + uuid.New().String(), http.StatusForbidden},
+		{"PUT", "/api/user/" + guestUserId.String() + "/password", http.StatusForbidden},
+		{"PUT", "/api/user/" + guestUserId.String() + "/win-gif", http.StatusForbidden},
+		{"DELETE", "/api/user/" + guestUserId.String() + "/win-gif", http.StatusForbidden},
+		{"PUT", "/api/user/" + guestUserId.String() + "/name", http.StatusForbidden},
+		{"DELETE", "/api/user/" + guestUserId.String(), http.StatusForbidden},
+		{"GET", "/ws/lobby/" + uuid.New().String(), http.StatusForbidden},
+	} {
+		rec := asGuest(c.method, c.path)
+		if reached || rec.Code != c.wantStatus {
+			t.Errorf("guest %s %s: reached=%v status=%d, want refused with %d", c.method, c.path, reached, rec.Code, c.wantStatus)
+		}
+		if c.wantStatus == http.StatusSeeOther && rec.Header().Get("Location") != "/room/"+code+"/play" {
+			t.Errorf("guest %s %s redirected to %q, want their room", c.method, c.path, rec.Header().Get("Location"))
+		}
+	}
+	// A real account is never touched by the restriction.
+	reached = false
+	realReq := authedRequest(t, "POST", "/api/track-timeline/create", nil, hostUserId)
+	guarded.ServeHTTP(httptest.NewRecorder(), realReq)
+	if !reached {
+		t.Error("restriction blocked a real account")
+	}
+
+	// A seated player can find the room again, as a player but not a host.
+	if theirs, err := database.GetRoomsForUser(guestUserId); err != nil || len(theirs) != 1 ||
+		theirs[0].Code != code || theirs[0].IsHost || !theirs[0].IsPlayer {
+		t.Fatalf("GetRoomsForUser(guest) = %+v, %v", theirs, err)
+	}
+
 	// A guest plays but is an unapproved account, and stats leave it out.
 	if approved, err := gsDatabase.GetUserIsApproved(guestUserId); err != nil || approved {
 		t.Fatalf("guest approved = %v, %v; want an unapproved account", approved, err)

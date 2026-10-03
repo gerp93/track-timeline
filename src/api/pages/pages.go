@@ -419,9 +419,9 @@ func TrackTimelineLobbies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A host who lost their TV screen needs a way back: rooms are not in the
-	// lobby list, so show the ones this user created.
-	rooms, err := database.GetRoomsByCreator(basePageData.User.Id)
+	// Rooms are not in the lobby list, so a host who lost their TV screen, or a
+	// player who lost their phone page, needs them listed to get back in.
+	rooms, err := database.GetRoomsForUser(basePageData.User.Id)
 	if err != nil {
 		log.Println(err)
 		rooms = nil

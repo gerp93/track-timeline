@@ -11,9 +11,23 @@
       <span class="you">{{.DisplayName}}</span>
       <span class="room-code">{{.Room.Code}}</span>
     </div>
+    {{if .User.IsApproved}}
     <a href="/" class="no-style">
       <button type="button" class="btn-small"><span class="bi bi-house"></span> Main menu</button>
     </a>
+    {{end}}
+    <form hx-put="/api/user/{{.User.Id}}/color-theme" hx-target="find .htmx-result" hx-trigger="change" class="room-phone-theme">
+      <select name="colorTheme" required autocomplete="off" aria-label="Theme">
+        {{range .ThemeGroups}}
+        <optgroup label="{{.Name}}">
+          {{range .Themes}}
+          <option value="{{.Value}}" {{if or (and (not $.User.ColorTheme.Valid) (eq .Value "dark-theme")) (eq $.User.ColorTheme.String .Value)}}selected{{end}}>{{.Label}}</option>
+          {{end}}
+        </optgroup>
+        {{end}}
+      </select>
+      <div class="htmx-result"></div>
+    </form>
     <div id="tt-self-status" class="tt-self-status"></div>
     <div id="room-paused-banner" class="room-paused-banner" {{if not .Room.IsPaused}}hidden{{end}}>
       Host display disconnected — paused

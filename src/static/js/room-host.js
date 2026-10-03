@@ -6,6 +6,10 @@ let roomYtPlayer = null;
 let roomYtReady = false;
 let roomAudioUnlocked = false;
 let roomHostPlaying = false;
+// What the game wants right now (a song was started or resumed and not since
+// stopped), as opposed to roomHostPlaying, which is what the player is doing.
+let roomHostWantPlaying = false;
+let roomAudioCheckTimer = null;
 
 function initRoomHost(code, lobbyId) {
     roomHostCode = code;
@@ -60,15 +64,21 @@ function roomHostOnMessage(message) {
         return;
     }
     if (message.startsWith("song:")) {
+        // A new song is starting, so the last round's reveal is stale: clear it
+        // now rather than leaving it over the screen until its timer runs out.
+        roomHostDismissPopup();
         try { roomHostPlaySong(JSON.parse(message.slice(5))); } catch (e) {}
         return;
     }
     if (message === "songStop" || message === "songPause") {
+        roomHostWantPlaying = false;
         try { if (roomYtPlayer) roomYtPlayer.pauseVideo(); } catch (e) {}
         return;
     }
     if (message === "songResume") {
+        roomHostWantPlaying = true;
         try { if (roomYtPlayer) roomYtPlayer.playVideo(); } catch (e) {}
+        roomHostWatchForBlockedAudio();
         return;
     }
     if (message.startsWith("steal:")) {
@@ -123,9 +133,10 @@ function roomHostAppendLog(text) {
 }
 
 // The reveal clears itself: the TV is across the room, nobody is standing at it
-// to click OK. Game over lingers longer since it ends the night.
-const ROOM_POPUP_REVEAL_MS = 8000;
-const ROOM_POPUP_GAME_OVER_MS = 20000;
+// to click OK. Game over lingers a little longer since it ends the night. A tap
+// anywhere on the popup dismisses it early.
+const ROOM_POPUP_REVEAL_MS = 5000;
+const ROOM_POPUP_GAME_OVER_MS = 8000;
 let roomPopupTimer = null;
 
 function roomHostShowPopup(title, bodyHtml, durationMs) {
@@ -165,13 +176,33 @@ document.addEventListener("htmx:afterSwap", (e) => {
     }
 });
 
+function roomHostSetAudioPrompt(show) {
+    const btn = document.getElementById("tt-audio-unlock");
+    if (btn) btn.style.display = show ? "" : "none";
+}
+
+// The "tap to enable sound" prompt is only for a browser that refused to start
+// the audio on its own. Whether it will is not knowable up front (it depends on
+// the browser's autoplay policy and the site's engagement history), so the
+// prompt stays hidden until a song was asked to play and, a few seconds later,
+// the player still is not playing. Audio that starts by itself never shows it.
+function roomHostWatchForBlockedAudio() {
+    clearTimeout(roomAudioCheckTimer);
+    roomAudioCheckTimer = setTimeout(() => {
+        if (roomHostWantPlaying && !roomHostPlaying) roomHostSetAudioPrompt(true);
+    }, 3000);
+}
+
 function roomHostUnlockAudio() {
     roomAudioUnlocked = true;
-    const btn = document.getElementById("tt-audio-unlock");
-    if (btn) btn.style.display = "none";
-    if (roomYtPlayer) {
-        try { roomYtPlayer.playVideo(); roomYtPlayer.pauseVideo(); } catch (e) {}
-    }
+    roomHostSetAudioPrompt(false);
+    if (!roomYtPlayer) return;
+    try {
+        // This tap is the user gesture the browser wanted. If a song is meant to
+        // be playing, start it now; otherwise just prime the player.
+        roomYtPlayer.playVideo();
+        if (!roomHostWantPlaying) roomYtPlayer.pauseVideo();
+    } catch (e) {}
 }
 
 function loadRoomYouTubeApi() {
@@ -205,20 +236,26 @@ function roomHostSetupPlayer() {
             // someone taps to enable sound) must not look like it is playing.
             onStateChange: (e) => {
                 roomHostPlaying = e.data === YT.PlayerState.PLAYING;
+                if (roomHostPlaying) {
+                    // Sound is working, so there is nothing to enable.
+                    roomAudioUnlocked = true;
+                    clearTimeout(roomAudioCheckTimer);
+                    roomHostSetAudioPrompt(false);
+                }
                 roomHostApplyPlaying();
             }
         }
     });
-    const btn = document.getElementById("tt-audio-unlock");
-    if (btn) btn.style.display = "";
 }
 
 function roomHostPlaySong(song) {
     if (!roomYtReady || !roomYtPlayer) return;
     const opts = { videoId: song.videoId, startSeconds: song.startSeconds || 0 };
     if (song.endSeconds) opts.endSeconds = song.endSeconds;
+    roomHostWantPlaying = true;
     try {
         roomYtPlayer.loadVideoById(opts);
         if (roomAudioUnlocked) roomYtPlayer.playVideo();
     } catch (e) {}
+    roomHostWatchForBlockedAudio();
 }

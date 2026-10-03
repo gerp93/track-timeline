@@ -12,7 +12,7 @@
 
 {{if .Rooms}}
 <!-- Rooms (one shared screen, phones as controllers) are not browsable like
-     lobbies, so the host's own are listed here to get back to the screen. -->
+     lobbies, so the ones you host or have sat down in are listed here. -->
 <h3>Your rooms</h3>
 <table>
     <thead>
@@ -30,6 +30,10 @@
             <td><code>{{.Code}}</code></td>
             <td>{{if eq .GameStatus "active"}}In progress{{else if eq .GameStatus "finished"}}Finished{{else}}Waiting{{end}}</td>
             <td>
+                {{if .IsPlayer}}
+                <a href="/room/{{.Code}}/play"><button class="btn-small">Rejoin on this phone</button></a>
+                {{end}}
+                {{if .IsHost}}
                 <a href="/room/{{.Code}}/host"><button class="btn-small">Open host screen</button></a>
                 <button
                     type="button"
@@ -41,6 +45,7 @@
                 >
                     <span class="bi bi-trash"></span>
                 </button>
+                {{end}}
             </td>
         </tr>
         {{end}}

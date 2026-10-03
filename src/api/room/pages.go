@@ -67,6 +67,11 @@ func LoginPage(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("No room with that code."))
 		return
 	}
+	// A guest session counts as logged in, and /login turns logged-in visitors
+	// away, so end it first; the guest can still sit down again with their cookie.
+	if _, isGuest, _ := guestRoom(r); isGuest {
+		gsAuth.RemoveUserId(w)
+	}
 	gsAuth.SetRedirectUrl(w, "/room/"+room.Code)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
@@ -183,6 +188,7 @@ func PlayPage(w http.ResponseWriter, r *http.Request) {
 		Game        database.Game
 		LobbyId     uuid.UUID
 		DisplayName string
+		ThemeGroups []gsApi.ThemeGroup
 	}
 	_ = tmpl.ExecuteTemplate(w, "base", data{
 		BasePageData: base,
@@ -190,5 +196,6 @@ func PlayPage(w http.ResponseWriter, r *http.Request) {
 		Game:         game,
 		LobbyId:      room.LobbyId,
 		DisplayName:  displayName,
+		ThemeGroups:  gsApi.ThemeGroups,
 	})
 }
