@@ -10,6 +10,45 @@
     </div>
 </div>
 
+{{if .Rooms}}
+<!-- Rooms (one shared screen, phones as controllers) are not browsable like
+     lobbies, so the host's own are listed here to get back to the screen. -->
+<h3>Your rooms</h3>
+<table>
+    <thead>
+        <tr>
+            <th>Room</th>
+            <th>Code</th>
+            <th>Status</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Rooms}}
+        <tr>
+            <td>{{.Name}}</td>
+            <td><code>{{.Code}}</code></td>
+            <td>{{if eq .GameStatus "active"}}In progress{{else if eq .GameStatus "finished"}}Finished{{else}}Waiting{{end}}</td>
+            <td>
+                <a href="/room/{{.Code}}/host"><button class="btn-small">Open host screen</button></a>
+                <button
+                    type="button"
+                    class="btn-small btn-delete-lobby"
+                    hx-post="/api/room/{{.Code}}/delete"
+                    hx-swap="none"
+                    hx-confirm="Delete room {{.Code}}? Everyone is dropped and this cannot be undone."
+                    title="Delete this room"
+                >
+                    <span class="bi bi-trash"></span>
+                </button>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+<h3>Lobbies</h3>
+{{end}}
+
 <form id="lobby-search-form" hx-post="/api/track-timeline/search" hx-target="#lobby-rows" hx-trigger="load, submit">
     <span>
         <label for="lobbySearch">Search</label>
@@ -353,13 +392,6 @@
             access.querySelectorAll("input").forEach(function (input) { input.value = ""; });
         }
         document.getElementById("lobbyCreateSubmit").value = isRoom ? "Create Room" : "Create Game";
-    }
-
-    // "Host a Room" on the home page lands here with the dialog already open.
-    if (new URLSearchParams(window.location.search).get("new") === "room") {
-        document.getElementById("lobbyMode").value = "room";
-        ttToggleLobbyMode();
-        document.getElementById("lobby-create-dialog").showModal();
     }
 
     function ttDoRecalcCount() {

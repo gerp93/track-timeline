@@ -14,15 +14,20 @@
       <span class="badge">First to {{.Game.CardsToWin}}</span>
       <span class="badge" id="room-phase">{{.Game.RoundPhase}}</span>
       <span class="badge" id="room-paused" {{if not .Room.IsPaused}}style="display:none"{{end}}>PAUSED</span>
+      {{/* Leaving drops this display's connection, which pauses the room for
+           every phone until the host display is back, hence the confirm. */}}
+      <a href="/" class="no-style" onclick="return confirm('Leave this screen? The game pauses for everyone until a host display is back.')">
+        <button type="button" class="btn-small"><span class="bi bi-house"></span> Main menu</button>
+      </a>
     </div>
   </header>
 
-  {{if eq .Game.GameStatus "waiting"}}
-  <div class="room-join-hint">
+  {{/* Only while the game is waiting to start; room-host.js hides it for
+       good once the marquee reports anything else. */}}
+  <div id="room-join-hint" class="room-join-hint" {{if ne .Game.GameStatus "waiting"}}hidden{{end}}>
     <img class="room-join-qr" src="/api/room/{{.Room.Code}}/qr.png" alt="QR code to join this room" width="220" height="220" />
     <div>Scan to join, or open <code>{{.JoinURL}}</code></div>
   </div>
-  {{end}}
 
   <div id="tt-youtube-holder" aria-hidden="true">
     <div id="tt-youtube-player"></div>
