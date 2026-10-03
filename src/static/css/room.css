@@ -284,7 +284,7 @@ body:has(.room-host) #body {
 .room-popup {
   position: fixed;
   inset: 0;
-  background: rgba(255,255,255,0.8);
+  background: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -292,11 +292,19 @@ body:has(.room-host) #body {
 }
 .room-popup[hidden] { display: none !important; }
 .room-popup-card {
-  background: #fff;
-  border: 2px solid #222;
-  padding: 1.25rem 1.5rem;
-  max-width: 28rem;
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 2px solid var(--color-text);
+  border-radius: 4px;
+  padding: 1.5rem 2rem;
+  max-width: 36rem;
   text-align: center;
+  font-size: 1.25rem;
+  line-height: 1.5;
+}
+.room-popup-card h2 {
+  margin: 0 0 0.75rem;
+  color: var(--color-accent-blue);
 }
 
 /* ---- Phone controllers ---- */
