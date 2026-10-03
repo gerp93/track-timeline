@@ -465,12 +465,24 @@ window.onYouTubeIframeAPIReady = function () {
 // coming from what is already buffered, and YouTube reports that as a state of
 // its own, not PLAYING). Without the second case the record stopped on every
 // rebuffer while the song carried on.
+//
+// The third case is the backstop for a state report that never arrives or
+// reads wrong: if the playhead moved since the last look, audio is coming out,
+// whatever getPlayerState says.
+let ttLastSpinTime = -1;
+let ttLastSpinMoved = 0;
 function ttIsSpinning() {
     if (!ttPlayer || !ttPlayerReady) return false;
     try {
         const state = ttPlayer.getPlayerState();
+        const now = ttPlayer.getCurrentTime();
+        if (now !== ttLastSpinTime) {
+            if (ttLastSpinTime >= 0 && now > ttLastSpinTime) ttLastSpinMoved = Date.now();
+            ttLastSpinTime = now;
+        }
         if (state === YT.PlayerState.PLAYING) return true;
-        return state === YT.PlayerState.BUFFERING && ttClipReachedPlaying && !ttClipFinished;
+        if (state === YT.PlayerState.BUFFERING && ttClipReachedPlaying && !ttClipFinished) return true;
+        return !ttClipFinished && state !== YT.PlayerState.PAUSED && Date.now() - ttLastSpinMoved < 400;
     } catch (e) {
         return false;
     }
@@ -795,6 +807,9 @@ function stopSong() {
     ttTimerHeldForPlayback = false;
     ttTimerReleasedThisRound = false;
     ttClipReachedPlaying = false;
+    // An explicit stop is not a playhead that merely stopped moving: drop the
+    // movement backstop so the record halts now, not up to 400ms later.
+    ttLastSpinMoved = 0;
     // A round that ends here without a reveal never reaches the "result:"
     // handler's own ttCloseTurnTimerBanner() call, so a banner already shown
     // for the round that just got discarded (e.g. "ran out of time") would
