@@ -69,6 +69,7 @@ func TestRoomModeEndToEnd(t *testing.T) {
 	}
 
 	form := url.Values{}
+	form.Set("mode", "room")
 	form.Set("name", "Room Night "+stamp)
 	form.Set("cardsToWin", "5")
 	form.Set("startingTokens", "2")
@@ -76,7 +77,7 @@ func TestRoomModeEndToEnd(t *testing.T) {
 	form.Set("clipSeconds", "20")
 	form.Add("deckId", deckId.String())
 
-	createRec := serve(apiRoom.Create, authedRequest(t, "POST", "/api/room/create", form, hostUserId))
+	createRec := serve(apiTrackTimeline.Create, authedRequest(t, "POST", "/api/track-timeline/create", form, hostUserId))
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create room: status %d body %q", createRec.Code, createRec.Body.String())
 	}
@@ -129,6 +130,15 @@ func TestRoomModeEndToEnd(t *testing.T) {
 		if lob.Id == room.LobbyId {
 			t.Fatalf("SearchLobbies returned room lobby %s", lob.Id)
 		}
+	}
+
+	// The host display shows a scannable QR of the join link.
+	qrReq := httptest.NewRequest("GET", "/api/room/"+code+"/qr.png", nil)
+	qrReq.SetPathValue("code", code)
+	qrRec := serve(apiRoom.QRCode, qrReq)
+	if qrRec.Code != http.StatusOK || qrRec.Header().Get("Content-Type") != "image/png" ||
+		!strings.HasPrefix(qrRec.Body.String(), "\x89PNG") {
+		t.Fatalf("room qr: status %d type %q", qrRec.Code, qrRec.Header().Get("Content-Type"))
 	}
 
 	// A signed-out phone can sign in and come back to this room's join page.
@@ -204,6 +214,14 @@ func TestRoomModeEndToEnd(t *testing.T) {
 	joinAccRec := serve(apiRoom.JoinAccount, joinAcc)
 	if joinAccRec.Code != http.StatusOK {
 		t.Fatalf("join account: status %d body %q", joinAccRec.Code, joinAccRec.Body.String())
+	}
+
+	// Sitting down again as the same account (a second tap, a reconnect, or the
+	// room's creator, who already holds access) must work, not fail silently.
+	reSit := authedRequest(t, "POST", "/api/room/"+code+"/join-account", nil, seatUserId)
+	reSit.SetPathValue("code", code)
+	if reSitRec := serve(apiRoom.JoinAccount, reSit); reSitRec.Code != http.StatusOK {
+		t.Fatalf("join account again: status %d body %q", reSitRec.Code, reSitRec.Body.String())
 	}
 
 	mux := http.NewServeMux()

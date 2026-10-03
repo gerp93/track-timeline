@@ -3,13 +3,9 @@ package apiRoom
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 
-	gsApi "github.com/gerp93/gameshell-framework/api"
-	gsDatabase "github.com/gerp93/gameshell-framework/database"
 	"github.com/google/uuid"
 
 	"github.com/gerp93/track-timeline/database"
@@ -18,192 +14,45 @@ import (
 const hostCookieName = "TRACK-TIMELINE-ROOM-HOST"
 const guestNightCookieName = "TRACK-TIMELINE-ROOM-GUEST"
 
-// Create starts a room-mode session: lobby + game + room row + host cookie,
-// then redirects the creator's browser to the seatless host display. The
-// creator still joins a seat from their phone separately.
-func Create(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("Failed to parse form."))
-		return
-	}
-
-	userId := gsApi.GetUserId(r)
-	if userId == uuid.Nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte("Log in to host a room."))
-		return
-	}
-
-	name := strings.TrimSpace(r.FormValue("name"))
-	if name == "" {
-		name = "Room Night"
-	}
-
-	cardsToWin, err := strconv.Atoi(strings.TrimSpace(r.FormValue("cardsToWin")))
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("Cards to win must be a whole number."))
-		return
-	}
-
-	startingTokens := 2
-	if raw := strings.TrimSpace(r.FormValue("startingTokens")); raw != "" {
-		startingTokens, err = strconv.Atoi(raw)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte("Starting tokens must be a whole number."))
-			return
-		}
-	}
-	if err := database.ValidateStartingTokens(startingTokens); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(capitalize(err.Error())))
-		return
-	}
-
-	playbackMode := strings.TrimSpace(r.FormValue("playbackMode"))
-	if playbackMode == "" {
-		playbackMode = database.PlaybackSample
-	}
-	if err := database.ValidatePlaybackMode(playbackMode); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(capitalize(err.Error())))
-		return
-	}
-
-	// A select on the form ("1" = never-played songs first); anything else is
-	// the plain random pile.
-	freshSongsFirst := strings.TrimSpace(r.FormValue("freshSongsFirst")) == "1"
-
-	clipSeconds := 30
-	if raw := strings.TrimSpace(r.FormValue("clipSeconds")); raw != "" {
-		clipSeconds, err = strconv.Atoi(raw)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte("Clip length must be a whole number of seconds."))
-			return
-		}
-	}
-	if err := database.ValidateClipSeconds(clipSeconds); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(capitalize(err.Error())))
-		return
-	}
-
-	deckIds, message := parseDeckIds(r.Form["deckId"], userId)
-	if message != "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(message))
-		return
-	}
-
-	ranges, message := parseYearRanges(r.Form["fromYear"], r.Form["toYear"])
-	if message != "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(message))
-		return
-	}
-
-	excluded, message := parseUUIDList(r.Form["excludedCategoryId"])
-	if message != "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(message))
-		return
-	}
-
-	total, err := database.CountCardsInDecksForRanges(deckIds, ranges, excluded)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to count matching songs."))
-		return
-	}
-	if err := database.ValidateCardsToWin(cardsToWin, total); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(capitalize(err.Error()) + "."))
-		return
-	}
-
+// MintCode returns a room code that no existing room is using.
+func MintCode() (string, error) {
 	code, err := database.NewRoomCode()
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to mint a room code."))
-		return
+		return "", err
 	}
 	for attempt := 0; attempt < 5; attempt++ {
 		if _, err := database.GetRoomByCode(code); err != nil {
 			break
 		}
-		code, err = database.NewRoomCode()
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte("Failed to mint a room code."))
-			return
+		if code, err = database.NewRoomCode(); err != nil {
+			return "", err
 		}
 	}
+	return code, nil
+}
 
+// Finish turns a freshly built lobby into a room: it records the room row and
+// host token, sets the host cookie, and sends the creator's browser to the
+// seatless host display. The creator still joins a seat from their phone
+// separately. It writes its own error response and returns false on failure,
+// leaving the caller to clean up the lobby it built.
+func Finish(w http.ResponseWriter, lobbyId uuid.UUID, userId uuid.UUID, code string) bool {
 	hostToken, err := database.NewHostToken()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to mint a host token."))
-		return
+		return false
 	}
-
-	lobbyName := fmt.Sprintf("%s [%s]", name, code)
-	lobbyId, err := database.CreateLobby(lobbyName, "Room mode", "")
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to create lobby."))
-		return
-	}
-
-	gameId, err := database.CreateGame(lobbyId, cardsToWin, startingTokens, freshSongsFirst, playbackMode, clipSeconds)
-	if err != nil {
-		_ = gsDatabase.DeleteLobby(lobbyId)
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to create game."))
-		return
-	}
-
-	for _, yearRange := range ranges {
-		if err := database.AddYearRange(gameId, yearRange.FromYear, yearRange.ToYear); err != nil {
-			_ = gsDatabase.DeleteLobby(lobbyId)
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte("Failed to save era filter."))
-			return
-		}
-	}
-
-	if err := database.InitializeDrawPile(gameId, deckIds, excluded); err != nil {
-		_ = gsDatabase.DeleteLobby(lobbyId)
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to build the draw pile."))
-		return
-	}
-	if err := database.ApplyYearRangeFilter(gameId); err != nil {
-		_ = gsDatabase.DeleteLobby(lobbyId)
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to apply era filters."))
-		return
-	}
-
-	if err := gsDatabase.AddUserLobbyAccess(userId, lobbyId); err != nil {
-		_ = gsDatabase.DeleteLobby(lobbyId)
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to grant lobby access."))
-		return
-	}
-
 	if _, err := database.CreateRoom(lobbyId, userId, code, hostToken); err != nil {
-		_ = gsDatabase.DeleteLobby(lobbyId)
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to create room."))
-		return
+		return false
 	}
 
 	setHostCookie(w, code, hostToken)
 	w.Header().Add("HX-Redirect", "/room/"+code+"/host")
 	w.WriteHeader(http.StatusCreated)
+	return true
 }
 
 func setHostCookie(w http.ResponseWriter, code string, token string) {
@@ -265,71 +114,6 @@ func capitalize(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
-}
-
-func parseDeckIds(values []string, userId uuid.UUID) ([]uuid.UUID, string) {
-	if len(values) == 0 {
-		return nil, "Select at least one deck."
-	}
-	deckIds := make([]uuid.UUID, 0, len(values))
-	for _, value := range values {
-		deckId, err := uuid.Parse(strings.TrimSpace(value))
-		if err != nil {
-			return nil, "Invalid deck."
-		}
-		ok, err := gsDatabase.UserHasDeckAccess(userId, deckId)
-		if err != nil {
-			return nil, "Failed to check deck access."
-		}
-		if !ok {
-			return nil, "You do not have access to one of the selected decks."
-		}
-		deckIds = append(deckIds, deckId)
-	}
-	return deckIds, ""
-}
-
-func parseYearRanges(fromValues []string, toValues []string) ([]database.YearRange, string) {
-	if len(fromValues) != len(toValues) {
-		return nil, "Era filters are incomplete."
-	}
-	ranges := make([]database.YearRange, 0, len(fromValues))
-	for i := range fromValues {
-		fromRaw := strings.TrimSpace(fromValues[i])
-		toRaw := strings.TrimSpace(toValues[i])
-		if fromRaw == "" && toRaw == "" {
-			continue
-		}
-		fromYear, err := strconv.Atoi(fromRaw)
-		if err != nil {
-			return nil, "Era start year is invalid."
-		}
-		toYear, err := strconv.Atoi(toRaw)
-		if err != nil {
-			return nil, "Era end year is invalid."
-		}
-		if fromYear > toYear {
-			return nil, "Era start must be before end."
-		}
-		ranges = append(ranges, database.YearRange{FromYear: fromYear, ToYear: toYear})
-	}
-	return ranges, ""
-}
-
-func parseUUIDList(values []string) ([]uuid.UUID, string) {
-	ids := make([]uuid.UUID, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		id, err := uuid.Parse(value)
-		if err != nil {
-			return nil, "Invalid genre filter."
-		}
-		ids = append(ids, id)
-	}
-	return ids, ""
 }
 
 func randomPassword() string {

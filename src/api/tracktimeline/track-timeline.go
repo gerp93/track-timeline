@@ -334,11 +334,19 @@ func Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// "room" is the in-person mode: one shared screen shows the board and
+	// everyone plays from a phone. Every setting below is shared with the
+	// online mode; only the lobby's identity and where the creator lands differ.
+	isRoom := r.FormValue("mode") == "room"
+
 	name := strings.TrimSpace(r.FormValue("name"))
 	if name == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("A lobby name is required."))
-		return
+		if !isRoom {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("A lobby name is required."))
+			return
+		}
+		name = "Room Night"
 	}
 
 	cardsToWin, err := strconv.Atoi(strings.TrimSpace(r.FormValue("cardsToWin")))
@@ -427,12 +435,34 @@ func Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lobbyId, err := database.CreateLobby(name, strings.TrimSpace(r.FormValue("message")), r.FormValue("password"))
+	// A room is joined by code from phones that cannot type a password, and its
+	// lobby never appears in the lobby list, so it takes neither a password nor
+	// a message; the code goes in the name so the creator can tell rooms apart.
+	message, password, roomCode := strings.TrimSpace(r.FormValue("message")), r.FormValue("password"), ""
+	if isRoom {
+		roomCode, err = apiRoom.MintCode()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to mint a room code."))
+			return
+		}
+		name, message, password = fmt.Sprintf("%s [%s]", name, roomCode), "Room mode", ""
+	}
+
+	lobbyId, err := database.CreateLobby(name, message, password)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to create lobby."))
 		return
 	}
+	// Anything that fails from here on would leave a lobby with a half-built
+	// game that nobody can use, so take it back out.
+	created := false
+	defer func() {
+		if !created {
+			_ = gsDatabase.DeleteLobby(lobbyId)
+		}
+	}()
 
 	gameId, err := database.CreateGame(lobbyId, cardsToWin, startingTokens, freshSongsFirst, playbackMode, clipSeconds)
 	if err != nil {
@@ -466,6 +496,12 @@ func Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if isRoom {
+		created = apiRoom.Finish(w, lobbyId, userId, roomCode)
+		return
+	}
+
+	created = true
 	w.Header().Add("HX-Redirect", "/track-timeline/"+lobbyId.String())
 	w.WriteHeader(http.StatusCreated)
 }

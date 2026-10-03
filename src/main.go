@@ -41,7 +41,6 @@ func main() {
 		LoginPathPrefixes: []string{
 			"/deck",
 			"/track-timeline",
-			"/room/create",
 			"/stats",
 		},
 		AdminPaths: []string{"/users", "/categories", "/videos", "/guess-test", "/status"},
@@ -151,12 +150,13 @@ func main() {
 
 	// room mode (seatless host TV + phone seats). Join/play are public so
 	// guests can sit without an account; create requires login via policy.
-	http.Handle("GET /room/create", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.CreatePage)))
+	// Room setup lives in the New Game dialog now; keep old bookmarks working.
+	http.Handle("GET /room/create", http.RedirectHandler("/track-timeline/lobbies?new=room", http.StatusSeeOther))
 	http.Handle("GET /room/{code}", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.JoinPage)))
 	http.Handle("GET /room/{code}/login", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.LoginPage)))
 	http.Handle("GET /room/{code}/host", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.HostPage)))
 	http.Handle("GET /room/{code}/play", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.PlayPage)))
-	http.Handle("POST /api/room/create", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.Create)))
+	http.Handle("GET /api/room/{code}/qr.png", http.HandlerFunc(apiRoom.QRCode))
 	http.Handle("POST /api/room/{code}/join-guest", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.JoinGuest)))
 	http.Handle("POST /api/room/{code}/join-account", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.JoinAccount)))
 	http.Handle("GET /api/room/{code}/host/current-card", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.HostCurrentCard)))

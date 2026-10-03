@@ -6,9 +6,10 @@
   <p>Join on this phone. The TV shows the board.</p>
 
   {{if .LoggedIn}}
-  <form hx-post="/api/room/{{.Room.Code}}/join-account" hx-swap="none">
+  <form hx-post="/api/room/{{.Room.Code}}/join-account" hx-target="find .htmx-result">
     <p>Signed in as <strong>{{.User.Name}}</strong></p>
     <button type="submit">Sit down with this account</button>
+    <div class="htmx-result"></div>
   </form>
   <hr />
   <p>Or join as a guest name for this room:</p>
@@ -18,12 +19,13 @@
   <p>Or join as a guest name for this room:</p>
   {{end}}
 
-  <form hx-post="/api/room/{{.Room.Code}}/join-guest" hx-swap="none">
+  <form hx-post="/api/room/{{.Room.Code}}/join-guest" hx-target="find .htmx-result">
     <label>
       Display name
       <input name="name" maxlength="24" required placeholder="Sam" autocomplete="nickname" />
     </label>
     <button type="submit">Sit down as guest</button>
+    <div class="htmx-result"></div>
   </form>
 </div>
 {{end}}

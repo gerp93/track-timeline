@@ -64,6 +64,18 @@ body:has(.room-host) #body {
   text-align: center;
   font-size: 1rem;
 }
+.room-join-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+/* White quiet zone around the code: scanners need it on a dark theme. */
+.room-join-qr {
+  background: #fff;
+  padding: 10px;
+  border-radius: 6px;
+}
 .room-host > #tt-audio-unlock {
   margin: 8px 16px 0;
   width: calc(100% - 32px);
@@ -479,23 +491,6 @@ body:has(.room-host) #body {
   min-height: 2.75rem;
   font-size: 1.4rem;
 }
-.tt-room-create {
-  max-width: 36rem;
-  margin: 1rem auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.tt-room-create label { display: block; margin-bottom: 8px; }
-.tt-room-create fieldset label,
-.tt-room-create .checkbox-list label { display: block; }
-.tt-room-create .era-row {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-  align-items: center;
-}
-.tt-room-create .era-row input { width: 7rem; }
 .tt-room-voice {
   display: flex;
   flex-wrap: wrap;

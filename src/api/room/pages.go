@@ -25,39 +25,6 @@ func parseChrome(bodyPattern string) (*template.Template, error) {
 	return t.ParseFS(static.StaticFiles, bodyPattern)
 }
 
-// CreatePage is the logged-in "host a room" setup form.
-func CreatePage(w http.ResponseWriter, r *http.Request) {
-	base := gsApi.GetBasePageData(r)
-	base.PageTitle = "Host a Room"
-
-	decks, err := gsDatabase.GetReadableDecks(base.User.Id)
-	if err != nil {
-		decks = nil
-	}
-	categories, err := database.GetCategories()
-	if err != nil {
-		categories = nil
-	}
-
-	tmpl, err := parseChrome("html/pages/body/room-create.html")
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to parse page template."))
-		return
-	}
-
-	type data struct {
-		gsApi.BasePageData
-		Decks       []gsDatabase.Deck
-		Categories  []database.Category
-	}
-	_ = tmpl.ExecuteTemplate(w, "base", data{
-		BasePageData: base,
-		Decks:        decks,
-		Categories:   categories,
-	})
-}
-
 // JoinPage is the public phone landing: guest name or account join.
 func JoinPage(w http.ResponseWriter, r *http.Request) {
 	base := gsApi.GetBasePageData(r)
@@ -145,10 +112,11 @@ func HostPage(w http.ResponseWriter, r *http.Request) {
 
 	type data struct {
 		gsApi.BasePageData
-		Room database.Room
-		Game database.Game
+		Room    database.Room
+		Game    database.Game
+		JoinURL string
 	}
-	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: base, Room: room, Game: game})
+	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: base, Room: room, Game: game, JoinURL: joinURL(r, room.Code)})
 }
 
 // PlayPage is the phone controller for a seated player.

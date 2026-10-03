@@ -19,7 +19,8 @@
 
   {{if eq .Game.GameStatus "waiting"}}
   <div class="room-join-hint">
-    Phones join at <code>/room/{{.Room.Code}}</code>
+    <img class="room-join-qr" src="/api/room/{{.Room.Code}}/qr.png" alt="QR code to join this room" width="220" height="220" />
+    <div>Scan to join, or open <code>{{.JoinURL}}</code></div>
   </div>
   {{end}}
 

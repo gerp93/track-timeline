@@ -51,7 +51,13 @@
 
     <form id="lobby-create-form" hx-post="/api/track-timeline/create" hx-target="find .htmx-result">
         <div class="form-input">
-            <label for="lobbyName">Lobby Name</label>
+            <label for="lobbyMode">Play Style</label>
+            <select id="lobbyMode" name="mode" autocomplete="off" onchange="ttToggleLobbyMode()">
+                <option value="online" selected="selected">Online: everyone on their own device</option>
+                <option value="room">In person: shared screen, phones as controllers</option>
+            </select>
+
+            <label for="lobbyName" id="lobbyNameLabel">Lobby Name</label>
             <input
                 type="text"
                 id="lobbyName"
@@ -111,7 +117,7 @@
             />
         </div>
 
-        <details>
+        <details id="lobbyAccessOptions">
             <summary>Lobby message and password</summary>
             <div class="form-input">
                 <label for="lobbyMessageNew">Message</label>
@@ -228,7 +234,7 @@
         <p id="tt-count-estimate" class="hint">Select a deck to see how many songs match.</p>
 
         <div class="htmx-result"></div>
-        <input type="submit" value="Create Game" />
+        <input type="submit" id="lobbyCreateSubmit" value="Create Game" />
     </form>
 </dialog>
 
@@ -330,6 +336,30 @@
         var showClip = mode !== "full";
         document.getElementById("clipSeconds").style.display = showClip ? "" : "none";
         document.getElementById("clipSecondsLabel").style.display = showClip ? "" : "none";
+    }
+
+    // An in-person room is joined by code from phones and never listed, so it
+    // has no password or message, and its name is optional (the room code is
+    // what people actually use to find it).
+    function ttToggleLobbyMode() {
+        var isRoom = document.getElementById("lobbyMode").value === "room";
+        var name = document.getElementById("lobbyName");
+        document.getElementById("lobbyNameLabel").textContent = isRoom ? "Room Name" : "Lobby Name";
+        name.required = !isRoom;
+        name.placeholder = isRoom ? "Living Room Night" : "Friday Night";
+        var access = document.getElementById("lobbyAccessOptions");
+        access.style.display = isRoom ? "none" : "";
+        if (isRoom) {
+            access.querySelectorAll("input").forEach(function (input) { input.value = ""; });
+        }
+        document.getElementById("lobbyCreateSubmit").value = isRoom ? "Create Room" : "Create Game";
+    }
+
+    // "Host a Room" on the home page lands here with the dialog already open.
+    if (new URLSearchParams(window.location.search).get("new") === "room") {
+        document.getElementById("lobbyMode").value = "room";
+        ttToggleLobbyMode();
+        document.getElementById("lobby-create-dialog").showModal();
     }
 
     function ttDoRecalcCount() {
