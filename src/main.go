@@ -153,6 +153,7 @@ func main() {
 	// guests can sit without an account; create requires login via policy.
 	http.Handle("GET /room/create", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.CreatePage)))
 	http.Handle("GET /room/{code}", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.JoinPage)))
+	http.Handle("GET /room/{code}/login", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.LoginPage)))
 	http.Handle("GET /room/{code}/host", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.HostPage)))
 	http.Handle("GET /room/{code}/play", gsApi.MiddlewareForPages(http.HandlerFunc(apiRoom.PlayPage)))
 	http.Handle("POST /api/room/create", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiRoom.Create)))

@@ -89,6 +89,21 @@ func JoinPage(w http.ResponseWriter, r *http.Request) {
 	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: base, Room: room})
 }
 
+// LoginPage sends a phone that is not signed in to the normal login page and
+// brings it back to this room's join page afterwards, where the signed-in
+// account can sit down. The join page itself stays public so guests can join.
+func LoginPage(w http.ResponseWriter, r *http.Request) {
+	code := strings.ToUpper(strings.TrimSpace(r.PathValue("code")))
+	room, err := database.GetRoomByCode(code)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("No room with that code."))
+		return
+	}
+	gsAuth.SetRedirectUrl(w, "/room/"+room.Code)
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
 // HostPage is the seatless TV/laptop display.
 func HostPage(w http.ResponseWriter, r *http.Request) {
 	base := gsApi.GetBasePageData(r)

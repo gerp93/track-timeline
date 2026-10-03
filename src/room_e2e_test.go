@@ -131,6 +131,23 @@ func TestRoomModeEndToEnd(t *testing.T) {
 		}
 	}
 
+	// A signed-out phone can sign in and come back to this room's join page.
+	loginReq := httptest.NewRequest("GET", "/room/"+code+"/login", nil)
+	loginReq.SetPathValue("code", code)
+	loginRec := serve(apiRoom.LoginPage, loginReq)
+	if loginRec.Code != http.StatusSeeOther || loginRec.Header().Get("Location") != "/login" {
+		t.Fatalf("room login: status %d location %q", loginRec.Code, loginRec.Header().Get("Location"))
+	}
+	var loginBack string
+	for _, c := range loginRec.Result().Cookies() {
+		if strings.Contains(strings.ToLower(c.Name), "redirect") {
+			loginBack = c.Value
+		}
+	}
+	if loginBack != "/room/"+code {
+		t.Fatalf("room login return-to = %q, want /room/%s", loginBack, code)
+	}
+
 	guestForm := url.Values{}
 	guestForm.Set("name", "Sam")
 	guestReq := httptest.NewRequest("POST", "/api/room/"+code+"/join-guest", strings.NewReader(guestForm.Encode()))

@@ -12,6 +12,10 @@
   </form>
   <hr />
   <p>Or join as a guest name for this room:</p>
+  {{else}}
+  <a href="/room/{{.Room.Code}}/login"><button type="button">Log in with your account</button></a>
+  <hr />
+  <p>Or join as a guest name for this room:</p>
   {{end}}
 
   <form hx-post="/api/room/{{.Room.Code}}/join-guest" hx-swap="none">
