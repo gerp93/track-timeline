@@ -465,12 +465,24 @@ window.onYouTubeIframeAPIReady = function () {
 // coming from what is already buffered, and YouTube reports that as a state of
 // its own, not PLAYING). Without the second case the record stopped on every
 // rebuffer while the song carried on.
+//
+// The third case is the backstop for a state report that never arrives or
+// reads wrong: if the playhead moved since the last look, audio is coming out,
+// whatever getPlayerState says.
+let ttLastSpinTime = -1;
+let ttLastSpinMoved = 0;
 function ttIsSpinning() {
     if (!ttPlayer || !ttPlayerReady) return false;
     try {
         const state = ttPlayer.getPlayerState();
+        const now = ttPlayer.getCurrentTime();
+        if (now !== ttLastSpinTime) {
+            if (ttLastSpinTime >= 0 && now > ttLastSpinTime) ttLastSpinMoved = Date.now();
+            ttLastSpinTime = now;
+        }
         if (state === YT.PlayerState.PLAYING) return true;
-        return state === YT.PlayerState.BUFFERING && ttClipReachedPlaying && !ttClipFinished;
+        if (state === YT.PlayerState.BUFFERING && ttClipReachedPlaying && !ttClipFinished) return true;
+        return !ttClipFinished && state !== YT.PlayerState.PAUSED && Date.now() - ttLastSpinMoved < 400;
     } catch (e) {
         return false;
     }
