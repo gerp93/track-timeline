@@ -235,12 +235,16 @@ body:has(.room-host) #body {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  justify-content: flex-start;
   gap: 8px;
 }
+/* Rows share the height evenly but stop growing at a cassette-and-a-bit: with
+   one or two players an uncapped row stretched every card to the full screen. */
 .room-host .player-card {
   flex: 1 1 0;
   min-height: 0;
-  align-items: stretch;
+  max-height: 9.5rem;
+  align-items: center;
   gap: 0.75rem;
   padding: 0.55rem 0.75rem;
   border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
@@ -269,11 +273,14 @@ body:has(.room-host) #body {
 .room-host .timeline-track {
   flex: 1;
   min-width: 0;
-  align-items: stretch;
+  align-items: center;
   overflow-x: auto;
 }
 .room-host .cassette-card {
-  min-height: 100%;
+  width: 9rem;
+}
+.room-host .cassette-year {
+  font-size: 1.5rem;
 }
 .room-host .song-count {
   align-self: center;
