@@ -355,9 +355,11 @@
     animation: tt-record-spin 2.2s linear infinite;
 }
 
+/* Counter-clockwise, the way a real record turns when viewed from above
+   (CSS rotates positive degrees clockwise, hence the negative end angle). */
 @keyframes tt-record-spin {
     from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    to { transform: rotate(-360deg); }
 }
 
 .tt-record-label {
@@ -1692,4 +1694,74 @@
     z-index: 1;
 }
 
+/* ---------------------------------------------------------------- challenge */
 
+.challenge-row {
+    display: flex;
+    justify-content: center;
+    margin-top: 0.5rem;
+}
+
+.tt-challenge-backdrop {
+    cursor: default;
+}
+
+.tt-challenge-popup {
+    max-width: min(32rem, 90vw);
+    padding: 1.5rem 2rem;
+}
+
+.tt-challenge-hint {
+    margin: 0.5rem 0 0.75rem;
+    font-size: 0.9rem;
+    opacity: 0.8;
+}
+
+.tt-challenge-reason {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+}
+
+.tt-challenge-kinds {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    margin: 0.75rem 0 0.25rem;
+}
+
+.tt-challenge-kind {
+    cursor: pointer;
+}
+
+.tt-challenge-tokens {
+    margin-top: 0.5rem;
+}
+
+.tt-challenge-tokens input {
+    width: 4rem;
+}
+
+.tt-challenge-error {
+    min-height: 1.2rem;
+    margin-top: 0.5rem;
+    color: #e5534b;
+    font-size: 0.9rem;
+}
+
+.tt-challenge-reason-text {
+    margin: 0.5rem 0;
+    font-size: 1rem;
+    overflow-wrap: anywhere;
+}
+
+.tt-challenge-claim {
+    font-weight: bold;
+}
+
+.tt-challenge-status,
+.tt-challenge-note {
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+    opacity: 0.85;
+}

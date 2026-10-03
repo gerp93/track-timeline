@@ -191,6 +191,33 @@ which just passes a missed card to the next player with no cost. Here:
 - One guess and one placement/challenge per player per round — enforced by
   `HasGuessed` and the placement table's unique constraint, respectively.
 
+## Challenges (a vote, not a steal)
+
+Not to be confused with the steal above. A **challenge** is a player saying the
+game wronged them (the AI judge, a glitch, a mismatched video, a bad year) and
+asking the table to pay them: a free card or 1–`MaxChallengeTokens` tokens. All
+the rules live in `database/challenge.go`; the HTTP side is
+`api/tracktimeline/challenge.go`.
+
+- **Only between rounds.** `TRACK_TIMELINE_GAME.BETWEEN_ROUNDS` is set when the
+  turn advances (`AdvanceToNextPlayer`) and cleared by `PlaySong`. The server
+  can't otherwise tell that a new song has started.
+- **One open at a time, and it freezes the game.** `OPEN_GAME_ID`'s unique
+  constraint enforces the first; every handler that changes the game calls
+  `challengeInProgress` straight after `loadContext` to enforce the second. A
+  new gameplay handler must do the same.
+- **Votes.** Everyone active but the challenger votes once. A strict majority of
+  them upholds it (`ChallengeVerdict`); it's rejected as soon as a majority is
+  impossible, and at `ChallengeVoteWindow` anything not upheld is rejected, so
+  an absent player can't freeze the game. Like the steal countdown, clients get
+  the time left (`remainingMs`), never an absolute deadline.
+- **Baseball rule.** Each player keeps their challenge while theirs are upheld;
+  a *rejected* one uses it up for the game. That is derived from the rows
+  (`PlayerHasChallengeLeft`), not stored. Withdrawing and a void (an upheld card
+  that would now be the winning card) cost nothing.
+- **A card claim is a free draw from the pile** (`GrantChallengeCard`), not a
+  specific song, and is refused when it would reach `CardsToWin`.
+
 ## Metadata hiding
 
 `database.CurrentCard` has no `Title`/`Artist`/`ReleaseYear` field at all —
@@ -282,9 +309,11 @@ boundary. See "Real-time" below for the same caveat applied to the DOM.
 ## Real-time (websocket) pattern
 
 Messages over the socket are **short control strings, not structured
-payloads**, except `result:` and `song:`, whose payloads are JSON. Control
+payloads**, except `result:`, `song:`, `steal:`, `stealTurn:`, `challenge:` and `challengeEnd:`,
+whose payloads are JSON. Control
 strings: `refresh`, `reload`, `result:<json>`, `song:<json>`, `songStop`,
-`status:<text>`, `chat:...`, `alert:...`, `lobbyMessage:<text>`, `kick`. The
+`status:<text>`, `steal:<json>`, `stealTurn:<json>`, `challenge:<json>`,
+`challengeEnd:<json>`, `chat:...`, `alert:...`, `lobbyMessage:<text>`, `kick`. The
 server broadcasts a hint and the browser (`src/static/js/track-timeline.js`)
 reacts by re-fetching the relevant HTML fragment via `htmx.ajax`/`fetch` from
 `/api/track-timeline/{lobbyId}/...` routes, or by driving the YouTube IFrame

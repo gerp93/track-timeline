@@ -37,6 +37,7 @@ func TestRulesAndSettingsTemplates(t *testing.T) {
 		Game             database.Game
 		Decks            []database.DeckInfo
 		DrawPileCount    int
+		DrawPileTooltip  string
 		YearRanges       []database.YearRange
 		TurnTimerSeconds int
 		WinnerName       string
@@ -69,6 +70,7 @@ func TestRulesAndSettingsTemplates(t *testing.T) {
 			{Name: "90s Hits", TotalCount: 100, RemainingCount: 80},
 		},
 		DrawPileCount: 200,
+		DrawPileTooltip: "200 songs remaining: 150 new, 50 repeated",
 		YearRanges: []database.YearRange{
 			{FromYear: 1970, ToYear: 1999},
 		},

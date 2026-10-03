@@ -16,19 +16,22 @@ import (
 // template — kept local so a field rename in the handler breaks this test.
 type currentCardView struct {
 	database.CurrentCard
-	Answer          database.CurrentCardAnswer
-	Revealed        bool
-	LobbyId         uuid.UUID
-	GameStatus      string
-	RoundPhase      string
-	IsCurrentPlayer bool
-	IsWinner        bool
-	HasPlaced       bool
-	HasGuessed      bool
-	GuessResultText string
-	ReplayUsed      bool
-	TokenCount      int
-	Economy         database.Economy
+	Answer             database.CurrentCardAnswer
+	Revealed           bool
+	LobbyId            uuid.UUID
+	GameStatus         string
+	RoundPhase         string
+	IsCurrentPlayer    bool
+	IsWinner           bool
+	HasPlaced          bool
+	HasGuessed         bool
+	GuessResultText    string
+	ReplayUsed         bool
+	PlaybackMode       string
+	CanChallenge       bool
+	MaxChallengeTokens int
+	TokenCount         int
+	Economy            database.Economy
 }
 
 func renderCurrentCard(t *testing.T, data currentCardView) string {
@@ -256,12 +259,12 @@ func TestTimelineBoardBannerNamesCurrentPlayerAndGuessCount(t *testing.T) {
 // disabled with an explicit reason when the viewer is the strict leader.
 func TestTimelineBuyButtonCostAndLeadRestriction(t *testing.T) {
 	notLeader := renderTimeline(t, timelineView{
-		GameStatus:  database.StatusActive,
-		RoundPhase:  database.PhaseListening,
-		Economy:     database.Economy{BuyCardCost: 3},
-		InLead:      false,
-		CardsToWin:  10,
-		Timelines:   []database.PlayerTimeline{{PlayerName: "Alice", TokenCount: 6, IsMe: true}},
+		GameStatus: database.StatusActive,
+		RoundPhase: database.PhaseListening,
+		Economy:    database.Economy{BuyCardCost: 3},
+		InLead:     false,
+		CardsToWin: 10,
+		Timelines:  []database.PlayerTimeline{{PlayerName: "Alice", TokenCount: 6, IsMe: true}},
 	})
 	if !strings.Contains(notLeader, "Buy (3)") {
 		t.Errorf("Buy button does not show BuyCardCost: %s", notLeader)
@@ -274,14 +277,14 @@ func TestTimelineBuyButtonCostAndLeadRestriction(t *testing.T) {
 	}
 
 	leader := renderTimeline(t, timelineView{
-		GameStatus:  database.StatusActive,
-		RoundPhase:  database.PhaseListening,
-		Economy:     database.Economy{BuyCardCost: 3},
-		InLead:      true,
-		CardsToWin:  10,
-		Timelines:   []database.PlayerTimeline{{PlayerName: "Alice", TokenCount: 6, IsMe: true}},
+		GameStatus: database.StatusActive,
+		RoundPhase: database.PhaseListening,
+		Economy:    database.Economy{BuyCardCost: 3},
+		InLead:     true,
+		CardsToWin: 10,
+		Timelines:  []database.PlayerTimeline{{PlayerName: "Alice", TokenCount: 6, IsMe: true}},
 	})
-	if !strings.Contains(leader, "You can't buy while you're in the lead") {
+	if !strings.Contains(leader, "You can't buy while you're in or tied for the lead") {
 		t.Errorf("Buy button missing in-the-lead tooltip: %s", leader)
 	}
 	if !strings.Contains(leader, "disabled") {
@@ -331,5 +334,76 @@ func TestCurrentCardAlwaysOffersBothGuessBoxes(t *testing.T) {
 		if !strings.Contains(got, `name="guessTitle"`) || !strings.Contains(got, `name="guessArtist"`) {
 			t.Errorf("%s should be offered both the song name and artist boxes: %s", name, got)
 		}
+	}
+}
+
+// New Clip is offered to the player on turn while they are still listening,
+// priced from the economy — and not at all when the lobby plays the whole song,
+// where there is no other part to pick.
+func TestCurrentCardNewClipButton(t *testing.T) {
+	base := currentCardView{
+		CurrentCard:     database.CurrentCard{YouTubeVideoId: "abc123"},
+		LobbyId:         uuid.New(),
+		GameStatus:      database.StatusActive,
+		RoundPhase:      database.PhaseListening,
+		IsCurrentPlayer: true,
+		PlaybackMode:    database.PlaybackSample,
+		TokenCount:      5,
+		Economy:         database.CurrentEconomy(),
+	}
+
+	got := renderCurrentCard(t, base)
+	if !strings.Contains(got, `id="tt-newclip-btn"`) {
+		t.Fatalf("expected a New Clip button for the player on turn: %s", got)
+	}
+	if !strings.Contains(got, "New Clip (2)") || !strings.Contains(got, "/new-clip") {
+		t.Errorf("New Clip button should show its price and post to /new-clip: %s", got)
+	}
+
+	whole := base
+	whole.PlaybackMode = database.PlaybackFull
+	if strings.Contains(renderCurrentCard(t, whole), "tt-newclip-btn") {
+		t.Error("a whole-song lobby has no other clip to pick, so no New Clip button")
+	}
+
+	placed := base
+	placed.HasPlaced = true
+	if strings.Contains(renderCurrentCard(t, placed), "tt-newclip-btn") {
+		t.Error("New Clip must not be offered once a placement is locked in")
+	}
+}
+
+// Everyone — not just the player on turn — gets the Challenge button between
+// rounds; it is absent whenever the server says a challenge is not possible.
+func TestCurrentCardChallengeButton(t *testing.T) {
+	base := currentCardView{
+		CurrentCard:        database.CurrentCard{YouTubeVideoId: "abc123"},
+		LobbyId:            uuid.New(),
+		GameStatus:         database.StatusActive,
+		RoundPhase:         database.PhaseListening,
+		IsCurrentPlayer:    false,
+		CanChallenge:       true,
+		MaxChallengeTokens: database.MaxChallengeTokens,
+		Economy:            database.CurrentEconomy(),
+	}
+
+	got := renderCurrentCard(t, base)
+	if !strings.Contains(got, `id="tt-challenge-btn"`) {
+		t.Fatalf("a player who is not on turn should still get the Challenge button: %s", got)
+	}
+	if !strings.Contains(got, `data-max-tokens="10"`) {
+		t.Errorf("the button should carry the token cap for the form: %s", got)
+	}
+
+	onTurn := base
+	onTurn.IsCurrentPlayer = true
+	if !strings.Contains(renderCurrentCard(t, onTurn), `id="tt-challenge-btn"`) {
+		t.Error("the player on turn should get the Challenge button too")
+	}
+
+	notAllowed := base
+	notAllowed.CanChallenge = false
+	if strings.Contains(renderCurrentCard(t, notAllowed), "tt-challenge-btn") {
+		t.Error("no Challenge button when the server says one is not possible")
 	}
 }

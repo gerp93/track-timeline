@@ -52,6 +52,7 @@ function initTrackTimeline(lobbyId, turnTimerSeconds) {
     // the board is swapped in.
     document.body.addEventListener("htmx:afterSwap", (event) => {
         if (event.detail.target && event.detail.target.id === "tt-board") {
+            ttLoadChallengeOnce();
             ttSyncSelfStatus();
             syncPlaybackUI();
             restartTurnTimer();
@@ -108,6 +109,7 @@ function handleMessage(message) {
             console.error("[TrackTimeline] bad song payload:", e);
             return;
         }
+        ttEndChallengeWindow();
         playSong(payload.videoId, payload.startSeconds || 0, payload.endSeconds || 0);
         return;
     }
@@ -135,6 +137,32 @@ function handleMessage(message) {
         }
         handleStealTurn(payload);
         refreshGame();
+        return;
+    }
+
+    if (message.startsWith("challenge:")) {
+        let payload;
+        try {
+            payload = JSON.parse(message.substring("challenge:".length));
+        } catch (e) {
+            console.error("[TrackTimeline] bad challenge payload:", e);
+            return;
+        }
+        ttShowChallengeVote(payload);
+        return;
+    }
+
+    if (message.startsWith("challengeEnd:")) {
+        let payload;
+        try {
+            payload = JSON.parse(message.substring("challengeEnd:".length));
+        } catch (e) {
+            console.error("[TrackTimeline] bad challengeEnd payload:", e);
+            return;
+        }
+        ttChallengeMyVote = { id: "", vote: "" };
+        ttCloseChallengeModal();
+        showStatus(payload.message);
         return;
     }
 
@@ -300,9 +328,13 @@ function refreshGame() {
 
     const pile = document.getElementById("tt-draw-pile-count");
     if (pile) {
-        fetch(base + "/draw-pile-count", { cache: "no-store" })
-            .then((r) => r.text())
-            .then((count) => { pile.textContent = count; })
+        fetch(base + "/draw-pile", { cache: "no-store" })
+            .then((r) => r.json())
+            .then((info) => {
+                pile.textContent = info.count;
+                const stat = document.getElementById("tt-draw-pile-stat");
+                if (stat) stat.title = info.tooltip;
+            })
             .catch(() => {});
     }
 }
@@ -405,7 +437,11 @@ window.onYouTubeIframeAPIReady = function () {
                     ttStopClipProgressTimer();
                     ttUpdateClipProgress();
                 }
-                if (event.data === YT.PlayerState.ENDED) {
+                // ttClipReachedPlaying is false from stopSong until the next
+                // clip really plays, so an ENDED that lags in from a song that
+                // was just skipped or discarded is ignored here. Without that,
+                // it marked the NEXT song finished and left Play disabled.
+                if (event.data === YT.PlayerState.ENDED && ttClipReachedPlaying) {
                     // The clip ran its full length. Play must not silently
                     // restart it from the top after this — hearing it again
                     // is what the paid restart is for.
@@ -424,6 +460,39 @@ window.onYouTubeIframeAPIReady = function () {
     });
 };
 
+// ttIsSpinning is whether the record should be turning right now: the clip is
+// really playing, or the player is only briefly BUFFERING mid-clip (audio keeps
+// coming from what is already buffered, and YouTube reports that as a state of
+// its own, not PLAYING). Without the second case the record stopped on every
+// rebuffer while the song carried on.
+function ttIsSpinning() {
+    if (!ttPlayer || !ttPlayerReady) return false;
+    try {
+        const state = ttPlayer.getPlayerState();
+        if (state === YT.PlayerState.PLAYING) return true;
+        return state === YT.PlayerState.BUFFERING && ttClipReachedPlaying && !ttClipFinished;
+    } catch (e) {
+        return false;
+    }
+}
+
+// ttApplySpin points the record, tonearm and visualizer at ttIsSpinning. Run
+// from syncPlaybackUI AND on every clip-progress tick, so a state change or
+// fragment swap that was missed or arrived out of order corrects itself within
+// a tenth of a second instead of leaving the record stopped under live audio.
+function ttApplySpin() {
+    const spinning = ttIsSpinning();
+    document.querySelectorAll(".tt-record").forEach((el) => {
+        el.classList.toggle("is-spinning", spinning);
+    });
+    document.querySelectorAll(".tt-visualizer").forEach((el) => {
+        el.classList.toggle("is-active", spinning);
+    });
+    document.querySelectorAll(".tt-tonearm").forEach((el) => {
+        el.classList.toggle("is-active", spinning);
+    });
+}
+
 // syncPlaybackUI re-applies the playing/paused state to every
 // playback-reactive element on the page, based on the YouTube player's real
 // current state. Needed both after a state change and after the current-card
@@ -439,15 +508,7 @@ function syncPlaybackUI() {
             // Nothing useful to do if the player went away mid-check.
         }
     }
-    document.querySelectorAll(".tt-record").forEach((el) => {
-        el.classList.toggle("is-spinning", playing);
-    });
-    document.querySelectorAll(".tt-visualizer").forEach((el) => {
-        el.classList.toggle("is-active", playing);
-    });
-    document.querySelectorAll(".tt-tonearm").forEach((el) => {
-        el.classList.toggle("is-active", playing);
-    });
+    ttApplySpin();
 
     ttUpdateClipProgress();
     ttApplyVolumeUI();
@@ -482,6 +543,22 @@ function syncPlaybackUI() {
             replayBtn.title = "Hear the clip through (or pause it) before restarting.";
         } else {
             replayBtn.title = "Restart this clip from the beginning, once, for " + replayBtn.getAttribute("data-cost") + " tokens";
+        }
+    }
+
+    // Same earned-by-listening gate as Restart, but never used up: every buy
+    // plays a fresh slice, so it stays on offer for as long as they can pay.
+    const newClipBtn = document.getElementById("tt-newclip-btn");
+    if (newClipBtn) {
+        const noTokens = newClipBtn.getAttribute("data-no-tokens") === "1";
+        newClipBtn.style.display = ttClipListenedThisRound ? "" : "none";
+        newClipBtn.disabled = noTokens || !ttClipListenedThisRound;
+        if (noTokens) {
+            newClipBtn.title = "You need " + newClipBtn.getAttribute("data-cost") + " tokens for a different clip.";
+        } else if (!ttClipListenedThisRound) {
+            newClipBtn.title = "Hear the clip through (or pause it) first.";
+        } else {
+            newClipBtn.title = "Hear a different part of this song for " + newClipBtn.getAttribute("data-cost") + " tokens";
         }
     }
 
@@ -670,6 +747,13 @@ function playSong(videoId, startSeconds, endSeconds) {
         ttStartListenGate();
     }
 
+    // Re-apply the buttons now rather than waiting for the player's PLAYING
+    // event: clearing ttClipFinished above is what re-enables Play after a
+    // Restart or New Clip, and if the video is slow to start (or autoplay is
+    // blocked) that event may be a long time coming, leaving Play disabled
+    // with nothing playing.
+    syncPlaybackUI();
+
     try {
         // endSeconds is the IFrame API's own clip support: it stops there and
         // fires ENDED, which is what releases the turn timer. 0/undefined
@@ -816,7 +900,7 @@ let ttPlaybackStartedThisRound = false;
 // Client-side only, same trust model this file already uses for "Play the
 // song first" (ttPlaybackStartedThisRound has no server-side check either):
 // a good-faith courtesy, not an anti-cheat boundary.
-const TT_MIN_LISTEN_MS = 30000;
+const TT_MIN_LISTEN_MS = 20000;
 let ttListenGateDeadlineMs = 0;
 let ttListenGateInterval = null;
 
@@ -1287,11 +1371,11 @@ function showWinVideoModal(payload, onDone) {
 // -------------------------------------------------------------- steal modal
 //
 // Unlike the turn timer (each client starts its own independent local
-// countdown on receipt), the steal countdown is server-authoritative: the
-// deadline in the payload is a fixed instant computed by the server, and
-// every client renders the same remaining time by recomputing
-// deadlineMs - Date.now() each tick, rather than each starting its own timer
-// from a duration. The server enforces the deadline itself (a scheduled
+// countdown on receipt), the steal countdown's length is server-authoritative:
+// the payload carries the time left (remainingMs), and each client counts
+// down from receipt using only its own clock's elapsed time — never an
+// absolute server timestamp, which a skewed client clock would misread. The
+// server enforces the deadline itself (a scheduled
 // time.AfterFunc) regardless of what any client does — this modal is display
 // only, never the actual authority on when the phase ends.
 
@@ -1402,6 +1486,15 @@ function ttShowStealModal(opts) {
     ttStealInterval = setInterval(tick, 100);
 }
 
+// ttLocalDeadline turns a steal payload into a deadline on THIS browser's
+// clock: now plus the time the server says is left. The server never sends an
+// absolute timestamp, because comparing one to Date.now() breaks for any client
+// whose clock is skewed from the server's (a fast clock shows the window as
+// already over).
+function ttLocalDeadline(payload) {
+    return Date.now() + payload.remainingMs;
+}
+
 // handleStealJoin shows the join-window modal. The turn player cannot steal
 // their own placement, so they see the countdown with no Steal button — "am
 // I the turn player" is read off the already-rendered board (the same
@@ -1425,7 +1518,7 @@ function handleStealJoin(payload) {
     ttShowStealModal({
         heading: "Steal it?",
         hint: hint,
-        deadlineMs: payload.deadlineMs,
+        deadlineMs: ttLocalDeadline(payload),
         showJoinButton: !amCurrentPlayer,
     });
 }
@@ -1444,10 +1537,257 @@ function handleStealTurn(payload) {
     ttShowStealModal({
         heading: amStealer ? "Your turn to steal!" : payload.stealerName + " is attempting to steal it",
         hint: amStealer ? "Place it on your own timeline before time runs out." : "",
-        deadlineMs: payload.deadlineMs,
+        deadlineMs: ttLocalDeadline(payload),
         showJoinButton: false,
         blocking: !amStealer,
     });
+}
+
+// ---------------------------------------------------------------- challenge
+//
+// A challenge is a player saying the game wronged them and asking the table to
+// vote on what they are owed (see api/tracktimeline/challenge.go). The form and
+// the vote are both full-screen dialogs: while one is open nothing else in the
+// game can happen, and the server enforces that too, so this is only the
+// face of it. The vote countdown runs on the time-left the server sends, never
+// an absolute timestamp, so a player's clock cannot break it.
+
+let ttChallengeInterval = null;
+let ttChallengeMyVote = { id: "", vote: "" };
+let ttChallengeLoaded = false;
+
+function ttChallengeEl(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text !== undefined) el.textContent = text;
+    return el;
+}
+
+function ttCloseChallengeModal() {
+    if (ttChallengeInterval) {
+        clearInterval(ttChallengeInterval);
+        ttChallengeInterval = null;
+    }
+    const existing = document.getElementById("tt-challenge-modal");
+    if (existing) existing.remove();
+}
+
+// ttEndChallengeWindow runs when the next song starts: the Challenge button goes
+// and an unsent form is dropped (the server would refuse it now anyway).
+function ttEndChallengeWindow() {
+    const button = document.getElementById("tt-challenge-btn");
+    if (button) {
+        const row = button.closest(".challenge-row");
+        if (row) row.remove();
+    }
+    const modal = document.getElementById("tt-challenge-modal");
+    if (modal && modal.dataset.mode === "form") ttCloseChallengeModal();
+}
+
+function ttLoadChallengeOnce() {
+    if (ttChallengeLoaded || !ttLobbyId) return;
+    ttChallengeLoaded = true;
+    fetch("/api/track-timeline/" + ttLobbyId + "/challenge", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((info) => {
+            if (!info.open || !info.challenge) return;
+            if (info.myVote) ttChallengeMyVote = { id: info.challenge.id, vote: info.myVote };
+            ttShowChallengeVote(info.challenge);
+        })
+        .catch((e) => console.error("[TrackTimeline] challenge load failed:", e));
+}
+
+function ttOpenChallengeForm() {
+    const openButton = document.getElementById("tt-challenge-btn");
+    const maxTokens = (openButton && parseInt(openButton.getAttribute("data-max-tokens"), 10)) || 10;
+
+    ttCloseChallengeModal();
+
+    const backdrop = ttChallengeEl("div", "tt-popup-backdrop tt-challenge-backdrop");
+    backdrop.id = "tt-challenge-modal";
+    backdrop.dataset.mode = "form";
+    const popup = ttChallengeEl("div", "tt-popup tt-challenge-popup");
+
+    popup.appendChild(ttChallengeEl("div", "tt-popup-artist", "Challenge"));
+    popup.appendChild(ttChallengeEl("div", "tt-challenge-hint",
+        "Think the game got something wrong? Say what, and what you're owed. If most of the others agree, you get it. " +
+        "If they don't, you're out of challenges for this game."));
+
+    const reason = ttChallengeEl("textarea", "tt-challenge-reason");
+    reason.rows = 3;
+    reason.maxLength = 300;
+    reason.placeholder = "What went wrong? (e.g. the AI judge marked my right answer wrong)";
+    popup.appendChild(reason);
+
+    const kindRow = ttChallengeEl("div", "tt-challenge-kinds");
+    const makeRadio = (value, label, checked) => {
+        const wrap = ttChallengeEl("label", "tt-challenge-kind");
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = "tt-challenge-kind";
+        input.value = value;
+        input.checked = checked;
+        wrap.appendChild(input);
+        wrap.appendChild(document.createTextNode(" " + label));
+        kindRow.appendChild(wrap);
+        return input;
+    };
+    const cardRadio = makeRadio("card", "A free card", true);
+    const tokensRadio = makeRadio("tokens", "Tokens", false);
+    popup.appendChild(kindRow);
+
+    const tokensRow = ttChallengeEl("div", "tt-challenge-tokens");
+    tokensRow.style.display = "none";
+    tokensRow.appendChild(document.createTextNode("How many? "));
+    const tokens = document.createElement("input");
+    tokens.type = "number";
+    tokens.min = "1";
+    tokens.max = String(maxTokens);
+    tokens.value = "1";
+    tokensRow.appendChild(tokens);
+    tokensRow.appendChild(document.createTextNode(" (up to " + maxTokens + ")"));
+    popup.appendChild(tokensRow);
+
+    const sync = () => { tokensRow.style.display = tokensRadio.checked ? "" : "none"; };
+    cardRadio.addEventListener("change", sync);
+    tokensRadio.addEventListener("change", sync);
+
+    const error = ttChallengeEl("div", "tt-challenge-error");
+    popup.appendChild(error);
+
+    const actions = ttChallengeEl("div", "tt-confirm-actions");
+    const submit = ttChallengeEl("button", "btn-small", "Submit challenge");
+    submit.type = "button";
+    const cancel = ttChallengeEl("button", "btn-small btn-secondary", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", ttCloseChallengeModal);
+    submit.addEventListener("click", () => {
+        error.textContent = "";
+        submit.disabled = true;
+        const body = new URLSearchParams({
+            kind: tokensRadio.checked ? "tokens" : "card",
+            tokens: tokens.value,
+            reason: reason.value,
+        });
+        fetch("/api/track-timeline/" + ttLobbyId + "/challenge", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: body,
+        })
+            .then((r) => r.text().then((text) => ({ ok: r.ok, text: text })))
+            .then((result) => {
+                if (!result.ok) {
+                    error.textContent = result.text;
+                    submit.disabled = false;
+                    return;
+                }
+                // The server's challenge: broadcast has usually already swapped
+                // this form for the vote by now; only close the form itself.
+                const modal = document.getElementById("tt-challenge-modal");
+                if (modal && modal.dataset.mode === "form") ttCloseChallengeModal();
+            })
+            .catch((e) => {
+                console.error("[TrackTimeline] challenge failed:", e);
+                error.textContent = "Could not send the challenge.";
+                submit.disabled = false;
+            });
+    });
+    actions.appendChild(submit);
+    actions.appendChild(cancel);
+    popup.appendChild(actions);
+
+    backdrop.appendChild(popup);
+    document.body.appendChild(backdrop);
+    reason.focus();
+}
+
+function ttPostChallengeAction(path, form) {
+    return fetch("/api/track-timeline/" + ttLobbyId + "/challenge/" + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(form || {}),
+    }).then((r) => r.text().then((text) => ({ ok: r.ok, text: text })));
+}
+
+function ttShowChallengeVote(payload) {
+    ttCloseChallengeModal();
+
+    const myRow = document.querySelector("#tt-board .player-card.is-me");
+    const myPlayerId = myRow ? myRow.dataset.playerId : null;
+    const isChallenger = !!(myPlayerId && payload.challengerId === myPlayerId);
+    const myVote = ttChallengeMyVote.id === payload.id ? ttChallengeMyVote.vote : "";
+
+    const backdrop = ttChallengeEl("div", "tt-popup-backdrop tt-challenge-backdrop");
+    backdrop.id = "tt-challenge-modal";
+    backdrop.dataset.mode = "vote";
+    const popup = ttChallengeEl("div", "tt-popup tt-challenge-popup");
+
+    popup.appendChild(ttChallengeEl("div", "tt-popup-artist",
+        isChallenger ? "Your challenge" : payload.challengerName + " is challenging"));
+    popup.appendChild(ttChallengeEl("div", "tt-challenge-reason-text", "“" + payload.reason + "”"));
+    popup.appendChild(ttChallengeEl("div", "tt-challenge-claim",
+        "Wants: " + (payload.kind === "card"
+            ? "a free card"
+            : payload.tokens + (payload.tokens === 1 ? " token" : " tokens"))));
+
+    const ring = ttCreateCountdownRing();
+    popup.appendChild(ring.element);
+    popup.appendChild(ttChallengeEl("div", "tt-challenge-status",
+        payload.voted + " of " + payload.eligible + " voted"));
+
+    const actions = ttChallengeEl("div", "tt-confirm-actions");
+    const note = ttChallengeEl("div", "tt-challenge-note");
+    if (isChallenger) {
+        note.textContent = "Waiting for the table to vote…";
+        const withdraw = ttChallengeEl("button", "btn-small btn-secondary", "Withdraw");
+        withdraw.type = "button";
+        withdraw.addEventListener("click", () => {
+            withdraw.disabled = true;
+            ttPostChallengeAction("withdraw").then((r) => { if (!r.ok) note.textContent = r.text; });
+        });
+        actions.appendChild(withdraw);
+    } else if (myVote) {
+        note.textContent = "You voted " + myVote + ". Waiting for the others…";
+    } else {
+        const agreeButton = ttChallengeEl("button", "btn-small", "Agree");
+        agreeButton.type = "button";
+        const disagreeButton = ttChallengeEl("button", "btn-small btn-secondary", "Disagree");
+        disagreeButton.type = "button";
+        const cast = (agree) => {
+            agreeButton.disabled = true;
+            disagreeButton.disabled = true;
+            ttPostChallengeAction("vote", { agree: agree ? "1" : "0" }).then((r) => {
+                if (r.ok) {
+                    ttChallengeMyVote = { id: payload.id, vote: agree ? "agree" : "disagree" };
+                    note.textContent = "Vote recorded. Waiting for the others…";
+                } else {
+                    note.textContent = r.text;
+                }
+            });
+        };
+        agreeButton.addEventListener("click", () => cast(true));
+        disagreeButton.addEventListener("click", () => cast(false));
+        actions.appendChild(agreeButton);
+        actions.appendChild(disagreeButton);
+    }
+    popup.appendChild(actions);
+    popup.appendChild(note);
+
+    backdrop.appendChild(popup);
+    document.body.appendChild(backdrop);
+
+    const deadline = Date.now() + payload.remainingMs;
+    const total = Math.max(payload.windowMs || 0, payload.remainingMs, 1000);
+    const tick = () => {
+        const remaining = deadline - Date.now();
+        ring.update(Math.max(0, remaining), total);
+        if (remaining <= 0 && ttChallengeInterval) {
+            clearInterval(ttChallengeInterval);
+            ttChallengeInterval = null;
+        }
+    };
+    tick();
+    ttChallengeInterval = setInterval(tick, 100);
 }
 
 // ttToggleExactYear swaps the timeline's normal +-slot placement buttons for
@@ -1668,6 +2008,7 @@ function ttFinishClipProgress() {
 }
 
 function ttUpdateClipProgress() {
+    ttApplySpin();
     let isPlaying = false;
     let currentTime = 0;
     if (ttPlayer && ttPlayerReady) {

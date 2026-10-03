@@ -12,7 +12,7 @@
         hx-post="/api/track-timeline/{{$root.LobbyId}}/buy-card"
         hx-swap="none"
         hx-confirm="Spend {{$root.Economy.BuyCardCost}} tokens to draw a fresh song and place it on your timeline automatically, with no listen and no guess?"
-        title="{{if $root.InLead}}You can't buy while you're in the lead{{else if $oneFromWin}}You can't buy when you're one song from winning{{else}}Buy a card: draw a fresh song from the pile and place it automatically for {{$root.Economy.BuyCardCost}} tokens, any time{{end}}"
+        title="{{if $root.InLead}}You can't buy while you're in or tied for the lead{{else if $oneFromWin}}You can't buy when you're one song from winning{{else}}Buy a card: draw a fresh song from the pile and place it automatically for {{$root.Economy.BuyCardCost}} tokens, any time{{end}}"
         {{if or (ne $root.RoundPhase "listening") (lt .TokenCount $root.Economy.BuyCardCost) $oneFromWin $root.InLead}}disabled{{end}}
     >
         <span class="bi bi-cart"></span> Buy ({{$root.Economy.BuyCardCost}})

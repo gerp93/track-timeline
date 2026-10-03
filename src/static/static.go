@@ -27,6 +27,8 @@ var SQLFiles = []string{
 	"sql/tables/TRACK_TIMELINE_PLAYER_TOKEN.sql",
 	"sql/tables/TRACK_TIMELINE_PLACEMENT.sql",
 	"sql/tables/TRACK_TIMELINE_TITLE_GUESS.sql",
+	"sql/tables/TRACK_TIMELINE_CHALLENGE.sql",
+	"sql/tables/TRACK_TIMELINE_CHALLENGE_VOTE.sql",
 
 	// append-only gameplay logs (no FKs by design; they feed the stats pages
 	// and must outlive the lobby/game rows, which cascade away on disconnect)
@@ -65,6 +67,7 @@ var SQLFiles = []string{
 	"sql/migrations/MIG_CARD_YOUTUBE_VIDEO_ID_NULLABLE.sql",
 	"sql/migrations/MIG_AUDIT_CARD_YOUTUBE_VIDEO_ID_NULLABLE.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_TITLE_GUESS_ADD_JUDGED_BY_AI.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_BETWEEN_ROUNDS.sql",
 
 	// triggers
 	"sql/triggers/TR_AUDIT_CARD_DELETE.sql",
