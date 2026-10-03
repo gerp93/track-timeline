@@ -1,0 +1,25 @@
+{{define "body"}}
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<link rel="stylesheet" href="/static/css/room.css" />
+<div class="room-phone">
+  <h1>Room {{.Room.Code}}</h1>
+  <p>Join on this phone. The TV shows the board.</p>
+
+  {{if .LoggedIn}}
+  <form hx-post="/api/room/{{.Room.Code}}/join-account" hx-swap="none">
+    <p>Signed in as <strong>{{.User.Name}}</strong></p>
+    <button type="submit">Sit down with this account</button>
+  </form>
+  <hr />
+  <p>Or join as a guest name for this room:</p>
+  {{end}}
+
+  <form hx-post="/api/room/{{.Room.Code}}/join-guest" hx-swap="none">
+    <label>
+      Display name
+      <input name="name" maxlength="24" required placeholder="Sam" autocomplete="nickname" />
+    </label>
+    <button type="submit">Sit down as guest</button>
+  </form>
+</div>
+{{end}}

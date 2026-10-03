@@ -22,6 +22,58 @@
     {{end}}
 </template>
 
+{{if and .IsRoom (not .IsHostDisplay)}}
+{{/* Room phone: own timeline only while placing or stealing. TV shows everyone. */}}
+<div class="board room-phone-board">
+    {{if or .CanPlace .CanSteal}}
+    <div class="board-banner">
+        {{if .CanSteal}}
+        Steal — tap where it goes on your timeline.
+        {{else}}
+        Tap where this song goes on your timeline.
+        {{end}}
+    </div>
+    <div class="timeline-section">
+        {{range .Timelines}}
+        {{if .IsMe}}
+        {{$player := .}}
+        <div class="player-card is-me {{if .IsCurrent}}is-current{{end}}" data-player-id="{{.PlayerId}}">
+            <span class="player-name">Your timeline</span>
+            <div class="timeline-track">
+                <button
+                    class="drop-zone"
+                    hx-post="/api/track-timeline/{{$root.LobbyId}}/{{if $root.CanSteal}}attempt-steal{{else}}place-card{{end}}"
+                    hx-vals='{"position": 0}'
+                    hx-include="#tt-guess-title, #tt-guess-artist"
+                    hx-swap="none"
+                    title="Place before everything"
+                >+</button>
+
+                {{range $index, $card := .Timeline}}
+                <div class="cassette-card {{if $card.IsLastPlaced}}is-last-placed{{end}}">
+                    <div class="cassette-year">{{$card.ReleaseYear}}</div>
+                    <div class="cassette-label">
+                        <span class="cassette-artist">{{$card.Artist}}</span>
+                        <span class="cassette-title">&ldquo;{{$card.Title}}&rdquo;</span>
+                    </div>
+                </div>
+                <button
+                    class="drop-zone"
+                    hx-post="/api/track-timeline/{{$root.LobbyId}}/{{if $root.CanSteal}}attempt-steal{{else}}place-card{{end}}"
+                    hx-vals='{"position": {{add $index 1}}}'
+                    hx-include="#tt-guess-title, #tt-guess-artist"
+                    hx-swap="none"
+                    title="Place here"
+                >+</button>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+        {{end}}
+    </div>
+    {{end}}
+</div>
+{{else}}
 <div class="board">
     {{if eq .GameStatus "active"}}
     <div class="board-banner">
@@ -106,3 +158,4 @@
         {{end}}
     </div>
 </div>
+{{end}}

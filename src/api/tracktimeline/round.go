@@ -15,6 +15,7 @@ import (
 	gsWebsocket "github.com/gerp93/gameshell-framework/websocket"
 	"github.com/google/uuid"
 
+	apiRoom "github.com/gerp93/track-timeline/api/room"
 	"github.com/gerp93/track-timeline/database"
 	"github.com/gerp93/track-timeline/guess"
 )
@@ -140,6 +141,24 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Room mode publishes the placement on the TV as soon as it locks in —
+	// the whole couch is watching one board, so hiding the slot would just
+	// look like the phone ate the tap. Remote lobbies still keep it private
+	// until reveal so stealers cannot copy the slot.
+	if isRoom, roomErr := database.LobbyIsRoom(ctx.LobbyId); roomErr == nil && isRoom {
+		if usedExactYear {
+			announce(ctx.LobbyId, fmt.Sprintf(
+				"<blue>%s</> locked in exact year <blue>%d</>",
+				esc(ctx.Player.Name), exactYearGuess,
+			))
+		} else {
+			announce(ctx.LobbyId, fmt.Sprintf(
+				"<blue>%s</> placed in <blue>%s</>",
+				esc(ctx.Player.Name), esc(yearRange.Format()),
+			))
+		}
+	}
+
 	// Exact-year wager settle is private to the placer. Digits right or wrong
 	// does not change whether steal opens — that is decided solely by
 	// AnyEligibleToSteal below, same as an ordinary slot lock-in. Lobby chat
@@ -171,6 +190,7 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 	// through a steal window would hand stealers more listening time than the
 	// player on turn got.
 	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "songStop")
+	apiRoom.MirrorBroadcast(ctx.LobbyId, "songStop")
 
 	// Judged and logged for stats immediately, but deliberately not acted on
 	// or revealed yet if anyone could steal: see the steal.go doc comment for
@@ -197,6 +217,7 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 					exactYearGuess, tokensWonLost(yearWager))
 			}
 			gsWebsocket.PlayerBroadcast(ctx.Player.Id, msg)
+			apiRoom.MirrorPlayerBroadcast(ctx.LobbyId, ctx.Player.Id, msg)
 		} else {
 			msg := fmt.Sprintf("alert:Guessed %d, was %d — %s.",
 				exactYearGuess, card.ReleaseYear, tokensWonLost(-yearWager))
@@ -205,6 +226,7 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 					exactYearGuess, card.ReleaseYear, tokensWonLost(-yearWager))
 			}
 			gsWebsocket.PlayerBroadcast(ctx.Player.Id, msg)
+			apiRoom.MirrorPlayerBroadcast(ctx.LobbyId, ctx.Player.Id, msg)
 		}
 	}
 
@@ -638,6 +660,7 @@ func finishRound(ctx gameContext, payload resultPayload) {
 		payload.WinVideoId, payload.WinVideoStartSeconds = winVideoFor(winnerUserId)
 		sendResult(ctx.LobbyId, payload)
 		gsWebsocket.LobbyBroadcast(ctx.LobbyId, "reload")
+		apiRoom.MirrorBroadcast(ctx.LobbyId, "reload")
 		return
 	}
 
@@ -648,6 +671,7 @@ func finishRound(ctx gameContext, payload resultPayload) {
 		sendResult(ctx.LobbyId, payload)
 		announce(ctx.LobbyId, "<red>The draw pile is empty</> — no more songs to play")
 		gsWebsocket.LobbyBroadcast(ctx.LobbyId, "reload")
+		apiRoom.MirrorBroadcast(ctx.LobbyId, "reload")
 		return
 	}
 
@@ -685,6 +709,17 @@ func SubmitGuess(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("The song has already been revealed."))
 		return
+	}
+
+	// Room mode: only the player on turn may guess. Remote lobbies keep the
+	// free-for-all race; the TV already shows one shared board, so letting
+	// every phone guess would drown the night in parallel attempts.
+	if isRoom, roomErr := database.LobbyIsRoom(ctx.LobbyId); roomErr == nil && isRoom {
+		if !ctx.Game.CurrentPlayerId.Valid || ctx.Game.CurrentPlayerId.UUID != ctx.Player.Id {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("Only the player on turn can guess in room mode."))
+			return
+		}
 	}
 
 	title, artist, guessText := guessFields(r)
@@ -804,6 +839,13 @@ func submitGuessForPlayer(httpCtx context.Context, ctx gameContext, card databas
 		private += " " + verdict.Explanation
 	}
 	gsWebsocket.PlayerBroadcast(ctx.Player.Id, "alert:"+private)
+	apiRoom.MirrorPlayerBroadcast(ctx.LobbyId, ctx.Player.Id, "alert:"+private)
+
+	// Room TV log: someone locked a guess — never the words or the verdict.
+	if isRoom, roomErr := database.LobbyIsRoom(ctx.LobbyId); roomErr == nil && isRoom {
+		announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> locked a guess", esc(ctx.Player.Name)))
+		refresh(ctx.LobbyId)
+	}
 }
 
 // describeVerdict builds the message private to the guesser: describeVerdictPublic's
@@ -990,6 +1032,7 @@ func ReportDeadVideo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "songStop")
+	apiRoom.MirrorBroadcast(ctx.LobbyId, "songStop")
 	announce(ctx.LobbyId, "<red>That song's video would not play</> — swapped for another, no token spent")
 	sendStatus(ctx.LobbyId, "That video is unavailable — a new song has been drawn.")
 	refresh(ctx.LobbyId)
@@ -1023,6 +1066,16 @@ func SkipCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Room mode: locking a title/artist guess commits you to this song — skip
+	// would otherwise let someone name it then fish for an easier card.
+	if isRoom, roomErr := database.LobbyIsRoom(ctx.LobbyId); roomErr == nil && isRoom {
+		if guessed, guessErr := database.HasGuessed(ctx.Game.Id, ctx.Player.Id); guessErr == nil && guessed {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("You locked in a guess — skip is disabled for this song."))
+			return
+		}
+	}
+
 	tokens, err := database.GetPlayerTokens(ctx.Game.Id, ctx.Player.Id)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -1051,6 +1104,7 @@ func SkipCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "songStop")
+	apiRoom.MirrorBroadcast(ctx.LobbyId, "songStop")
 	skipLine := fmt.Sprintf("<blue>%s</> %s to skip a song", esc(ctx.Player.Name), tokensSpent(database.SkipCost))
 	if skippedErr == nil && skipped.CardId != uuid.Nil {
 		skipLine += fmt.Sprintf(": “%s” by %s (%d)", esc(skipped.Title), esc(skipped.Artist), skipped.ReleaseYear)
@@ -1094,6 +1148,7 @@ func TimeoutPass(w http.ResponseWriter, r *http.Request) {
 		// The player on turn never committed, so there is nothing to judge and
 		// nobody can win the card. Discard it and move on.
 		gsWebsocket.LobbyBroadcast(ctx.LobbyId, "songStop")
+		apiRoom.MirrorBroadcast(ctx.LobbyId, "songStop")
 		announce(ctx.LobbyId, fmt.Sprintf("<red>%s</> ran out of time", esc(ctx.Player.Name)))
 		if card, err := database.GetCurrentCard(ctx.Game.Id); err == nil && card.CardId != uuid.Nil {
 			if logErr := database.LogCardEvent(card.CardId, database.CardEventDiscarded); logErr != nil {
@@ -1110,6 +1165,7 @@ func TimeoutPass(w http.ResponseWriter, r *http.Request) {
 			log.Println(err)
 			announce(ctx.LobbyId, "<red>The draw pile is empty</> — no more songs to play")
 			gsWebsocket.LobbyBroadcast(ctx.LobbyId, "reload")
+			apiRoom.MirrorBroadcast(ctx.LobbyId, "reload")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("Out of songs."))
 			return
@@ -1142,6 +1198,7 @@ func SetLobbyMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "lobbyMessage:"+message)
+	apiRoom.MirrorBroadcast(ctx.LobbyId, "lobbyMessage:"+message)
 	if message == "" {
 		announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> cleared the lobby message", esc(ctx.Player.Name)))
 	} else {
