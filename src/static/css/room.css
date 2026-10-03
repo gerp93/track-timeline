@@ -330,6 +330,7 @@ body:has(.room-host) #body {
   align-items: center;
   justify-content: center;
   z-index: 50;
+  cursor: pointer;
 }
 .room-popup[hidden] { display: none !important; }
 .room-popup-card {
@@ -342,6 +343,11 @@ body:has(.room-host) #body {
   text-align: center;
   font-size: 1.25rem;
   line-height: 1.5;
+}
+.room-popup-hint {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  opacity: 0.6;
 }
 .room-popup-card h2 {
   margin: 0 0 0.75rem;

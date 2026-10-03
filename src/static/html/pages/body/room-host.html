@@ -55,11 +55,11 @@
     </aside>
   </div>
 
-  <div id="room-popup" class="room-popup" hidden>
+  <div id="room-popup" class="room-popup" hidden onclick="roomHostDismissPopup()">
     <div class="room-popup-card">
       <h2 id="room-popup-title"></h2>
       <div id="room-popup-body"></div>
-      <button type="button" onclick="roomHostDismissPopup()">OK</button>
+      <div class="room-popup-hint">Tap to dismiss</div>
     </div>
   </div>
 </div>

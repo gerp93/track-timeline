@@ -123,9 +123,10 @@ function roomHostAppendLog(text) {
 }
 
 // The reveal clears itself: the TV is across the room, nobody is standing at it
-// to click OK. Game over lingers longer since it ends the night.
-const ROOM_POPUP_REVEAL_MS = 8000;
-const ROOM_POPUP_GAME_OVER_MS = 20000;
+// to click OK. Game over lingers a little longer since it ends the night. A tap
+// anywhere on the popup dismisses it early.
+const ROOM_POPUP_REVEAL_MS = 5000;
+const ROOM_POPUP_GAME_OVER_MS = 8000;
 let roomPopupTimer = null;
 
 function roomHostShowPopup(title, bodyHtml, durationMs) {
