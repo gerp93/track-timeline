@@ -4,7 +4,7 @@ go 1.24
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.69.0
-	github.com/gerp93/gameshell-framework v0.20.1-0.20260911125020-41cc8efa76f5
+	github.com/gerp93/gameshell-framework v0.20.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
