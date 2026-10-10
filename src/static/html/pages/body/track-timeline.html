@@ -8,8 +8,8 @@
 
 <!--
     The whole page is one fixed-height grid — the game area on top scrolls
-    internally if it overflows, and chat is a fixed-height row pinned to the
-    bottom, same layout timeline-trivia uses. #content/#body (framework's
+    internally if it overflows, and chat is pinned to the bottom with a
+    minimum height, growing upward to fill any spare room. #content/#body (framework's
     base.html) already carve the viewport down to the space below the top
     bar, so height:100% here is enough — no magic-number calc needed.
 -->
