@@ -191,6 +191,7 @@ func main() {
 	http.Handle("POST /api/track-timeline/{lobbyId}/claim-steal", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.ClaimSteal)))
 	http.Handle("POST /api/track-timeline/{lobbyId}/attempt-steal", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.AttemptSteal)))
 	http.Handle("POST /api/track-timeline/{lobbyId}/guess", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.SubmitGuess)))
+	http.Handle("POST /api/track-timeline/{lobbyId}/guess-draft", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.SaveGuessDraft)))
 	http.Handle("POST /api/track-timeline/{lobbyId}/skip-card", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.SkipCard)))
 	http.Handle("POST /api/track-timeline/{lobbyId}/challenge", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.OpenChallenge)))
 	http.Handle("POST /api/track-timeline/{lobbyId}/challenge/vote", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.VoteChallenge)))

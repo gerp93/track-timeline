@@ -132,8 +132,8 @@ func HostTimeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	guessedCount := 0
-	if guesses, guessErr := database.GetGuesses(game.Id); guessErr == nil {
-		guessedCount = len(guesses)
+	if locked, guessErr := database.CountLockedGuesses(game.Id); guessErr == nil {
+		guessedCount = locked
 	}
 
 	tmpl, err := template.New("timeline.html").Funcs(template.FuncMap{

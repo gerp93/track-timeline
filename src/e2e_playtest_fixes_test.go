@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -724,7 +725,7 @@ func TestChallengeCardClaimAndWithdraw(t *testing.T) {
 // TestGuessTokenEveryoneWhoQualifiesGetsOne guards the current guess-token
 // rule: there is no race for a single token among the players who guess
 // correctly (turn player included) — every one of them earns their own
-// token the moment their guess is judged, regardless of submit order.
+// tokens when the round's guesses are judged, regardless of submit order.
 func TestGuessTokenEveryoneWhoQualifiesGetsOne(t *testing.T) {
 	gameId, lobbyId, _, players, srv := newPlaytestFixesGame(t, "guesseveryone", 20, 10, 6)
 	defer closePlaytestFixesGame(players, srv)
@@ -750,8 +751,8 @@ func TestGuessTokenEveryoneWhoQualifiesGetsOne(t *testing.T) {
 		}
 	}
 
-	// A non-turn player guesses fully correctly first, and is paid at once --
-	// not at reveal.
+	// A non-turn player guesses fully correctly first. Nothing is judged as it
+	// arrives, so it pays nothing yet.
 	rec := serve(apiTrackTimeline.SubmitGuess, authedRequest(t, "POST",
 		"/api/track-timeline/"+lobbyId.String()+"/guess",
 		url.Values{"guessTitle": {card.Title}, "guessArtist": {card.Artist}}, others[0].userId))
@@ -759,8 +760,8 @@ func TestGuessTokenEveryoneWhoQualifiesGetsOne(t *testing.T) {
 		t.Fatalf("non-turn guess: %d %s", rec.Code, rec.Body.String())
 	}
 	maxGuess := database.CurrentEconomy().MaxGuessTokens
-	if tokens, err := database.GetPlayerTokens(gameId, others[0].playerId); err != nil || tokens != maxGuess {
-		t.Fatalf("expected the correct guess to pay %d tokens immediately, got %d (%v)", maxGuess, tokens, err)
+	if tokens, err := database.GetPlayerTokens(gameId, others[0].playerId); err != nil || tokens != 0 {
+		t.Fatalf("a guess must not be judged or paid until the round ends, got %d tokens (%v)", tokens, err)
 	}
 
 	preTokens, err := database.GetPlayerTokens(gameId, current.playerId)
@@ -790,10 +791,11 @@ func TestGuessTokenEveryoneWhoQualifiesGetsOne(t *testing.T) {
 	if err != nil || postTokens != preTokens+maxGuess {
 		t.Errorf("expected the turn player to earn %d tokens for their own perfect guess, got %d -> %d (%v)", maxGuess, preTokens, postTokens, err)
 	}
-	// others[0] now holds enough to steal, so a steal window is open and their
-	// balance is untouched: the earlier guess was paid once, not again here.
+	// Nobody held a token, so nobody could steal and the round resolved on the
+	// placement: the earlier non-turn guess is paid exactly once, with the turn
+	// player's, in the same pass (no race, no double pay).
 	if otherTokens, err := database.GetPlayerTokens(gameId, others[0].playerId); err != nil || otherTokens != maxGuess {
-		t.Errorf("expected the earlier non-turn guess to still hold exactly what it earned (no race, no double pay), got %d (%v)", otherTokens, err)
+		t.Errorf("expected the earlier non-turn guess to be paid %d when the round resolved, got %d (%v)", maxGuess, otherTokens, err)
 	}
 }
 
@@ -1009,8 +1011,8 @@ func TestCreateLobbyPassesFreshSongsFirstSetting(t *testing.T) {
 
 // TestGuessPaysEachPartOnItsOwn guards the token rule: the right title and the
 // right artist are worth GuessTokensPerPart each, scored independently and paid
-// the moment the guess is judged, so half a guess pays half and a wrong one pays
-// nothing.
+// when the round's guesses are judged, so half a guess pays half and a wrong one
+// pays nothing.
 func TestGuessPaysEachPartOnItsOwn(t *testing.T) {
 	gameId, lobbyId, _, players, srv := newPlaytestFixesGame(t, "guesspart", 20, 10, 0)
 	defer closePlaytestFixesGame(players, srv)
@@ -1027,34 +1029,54 @@ func TestGuessPaysEachPartOnItsOwn(t *testing.T) {
 		t.Fatalf("current card: %v", err)
 	}
 
-	guess := func(p *player, title, artist string) int {
+	tokens := func(p *player) int {
 		t.Helper()
-		before, err := database.GetPlayerTokens(gameId, p.playerId)
+		n, err := database.GetPlayerTokens(gameId, p.playerId)
 		if err != nil {
-			t.Fatalf("tokens before: %v", err)
+			t.Fatalf("tokens: %v", err)
 		}
+		return n
+	}
+	guess := func(p *player, title, artist string) {
+		t.Helper()
 		rec := serve(apiTrackTimeline.SubmitGuess, authedRequest(t, "POST",
 			"/api/track-timeline/"+lobbyId.String()+"/guess",
 			url.Values{"guessTitle": {title}, "guessArtist": {artist}}, p.userId))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("submit guess: %d %s", rec.Code, rec.Body.String())
 		}
-		after, err := database.GetPlayerTokens(gameId, p.playerId)
-		if err != nil {
-			t.Fatalf("tokens after: %v", err)
+	}
+
+	guess(others[0], card.Title, "nobody at all")
+	guess(others[1], "zzz qqq", card.Artist)
+	guess(current, "zzz qqq", "nobody at all")
+	for _, p := range []*player{others[0], others[1], current} {
+		if got := tokens(p); got != 0 {
+			t.Fatalf("a guess must not pay before the round ends, %s holds %d", p.name, got)
 		}
-		return after - before
+	}
+
+	if err := database.JudgeRoundGuesses(gameId); err != nil {
+		t.Fatalf("judge: %v", err)
 	}
 
 	per := database.GuessTokensPerPart
-	if got := guess(others[0], card.Title, "nobody at all"); got != per {
+	if got := tokens(others[0]); got != per {
 		t.Errorf("only the title right should pay %d, paid %d", per, got)
 	}
-	if got := guess(others[1], "zzz qqq", card.Artist); got != per {
+	if got := tokens(others[1]); got != per {
 		t.Errorf("only the artist right should pay %d, paid %d", per, got)
 	}
-	if got := guess(current, "zzz qqq", "nobody at all"); got != 0 {
+	if got := tokens(current); got != 0 {
 		t.Errorf("a wrong guess should pay nothing, paid %d", got)
+	}
+
+	// Judging again (the other half of a race to end the round) pays nothing more.
+	if err := database.JudgeRoundGuesses(gameId); err != nil {
+		t.Fatalf("second judge: %v", err)
+	}
+	if got := tokens(others[0]); got != per {
+		t.Errorf("judging twice must not pay twice, got %d", got)
 	}
 }
 
@@ -1323,5 +1345,290 @@ func TestChangingSettingsMidGame(t *testing.T) {
 	}
 	if current().ClipSeconds != 20 {
 		t.Error("an outsider's refused request changed the clip length")
+	}
+}
+
+// TestSkippedSongGuessesAreJudgedWithTheRound guards the rule that a skip does
+// not throw guesses away: a round can span several songs, a guess stays against
+// the song it was typed for, and everything is judged and paid together when the
+// round ends -- including a draft the player never pressed Guess on, and a guess
+// that reached the server a beat after the skip.
+func TestSkippedSongGuessesAreJudgedWithTheRound(t *testing.T) {
+	gameId, lobbyId, _, players, srv := newPlaytestFixesGame(t, "skipguess", 20, 10, 10)
+	defer closePlaytestFixesGame(players, srv)
+
+	current := gamePlayerByUserId(players, mustCurrentPlayerUserId(t, gameId))
+	var others []*player
+	for _, p := range players {
+		if p != current {
+			others = append(others, p)
+		}
+	}
+	skipped, err := database.GetCurrentCardAnswer(gameId)
+	if err != nil || skipped.CardId == uuid.Nil {
+		t.Fatalf("current card: %v", err)
+	}
+	post := func(h http.HandlerFunc, path string, p *player, form url.Values) *httptest.ResponseRecorder {
+		t.Helper()
+		return serve(h, authedRequest(t, "POST", "/api/track-timeline/"+lobbyId.String()+"/"+path, form, p.userId))
+	}
+	tokens := func(p *player) int {
+		t.Helper()
+		n, err := database.GetPlayerTokens(gameId, p.playerId)
+		if err != nil {
+			t.Fatalf("tokens: %v", err)
+		}
+		return n
+	}
+
+	// others[0] locks in a perfect guess; others[1] has only typed the title and
+	// never pressed Guess -- the browser saved it as a draft.
+	rec := post(apiTrackTimeline.SubmitGuess, "guess", others[0], url.Values{
+		"cardId": {skipped.CardId.String()}, "guessTitle": {skipped.Title}, "guessArtist": {skipped.Artist},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("lock guess: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = post(apiTrackTimeline.SaveGuessDraft, "guess-draft", others[1], url.Values{
+		"cardId": {skipped.CardId.String()}, "guessTitle": {skipped.Title},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save draft: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// The player on turn skips.
+	rec = post(apiTrackTimeline.SkipCard, "skip-card", current, url.Values{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("skip: %d %s", rec.Code, rec.Body.String())
+	}
+	next, err := database.GetCurrentCardAnswer(gameId)
+	if err != nil || next.CardId == uuid.Nil || next.CardId == skipped.CardId {
+		t.Fatalf("expected a different song after the skip: %v", err)
+	}
+	if tokens(others[0]) != 10 || tokens(others[1]) != 10 {
+		t.Errorf("a skip must not judge or pay anything yet, got %d and %d", tokens(others[0]), tokens(others[1]))
+	}
+
+	// others[1] presses Enter a moment after the skip, on boxes they typed for
+	// the old song: the form still carries the old song's id, so it is filed
+	// there, not against the new one -- and can be told so.
+	rec = post(apiTrackTimeline.SubmitGuess, "guess", others[1], url.Values{
+		"cardId": {skipped.CardId.String()}, "guessTitle": {skipped.Title}, "guessArtist": {skipped.Artist},
+	})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "skipped") {
+		t.Fatalf("a guess for the skipped song should still count and say so, got %d %q", rec.Code, rec.Body.String())
+	}
+	if guessed, err := database.HasGuessed(gameId, others[1].playerId); err != nil || guessed {
+		t.Errorf("a guess on the skipped song must not use up the guess on the new one (%v, %v)", guessed, err)
+	}
+
+	// A made-up song is refused, and nothing is stored for it.
+	rec = post(apiTrackTimeline.SubmitGuess, "guess", others[1], url.Values{
+		"cardId": {uuid.NewString()}, "guessTitle": {"anything"},
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("a guess for a song that is not part of this round should be refused, got %d", rec.Code)
+	}
+
+	// The new song gets its own guess, here a wrong one.
+	rec = post(apiTrackTimeline.SubmitGuess, "guess", others[0], url.Values{
+		"cardId": {next.CardId.String()}, "guessTitle": {"zzz qqq"}, "guessArtist": {"nobody at all"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("guess on the new song: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// End the round: nobody holds a token, so a correct placement resolves it.
+	for _, p := range players {
+		if err := database.SetPlayerTokens(gameId, p.playerId, 0); err != nil {
+			t.Fatalf("zero tokens: %v", err)
+		}
+	}
+	timeline, err := database.GetPlayerTimeline(gameId, current.playerId)
+	if err != nil {
+		t.Fatalf("timeline: %v", err)
+	}
+	rec = post(apiTrackTimeline.PlaceCard, "place-card", current, url.Values{
+		"position": {fmt.Sprint(correctPosition(timeline, next.ReleaseYear))},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("place: %d %s", rec.Code, rec.Body.String())
+	}
+
+	per := database.GuessTokensPerPart
+	if got := tokens(others[0]); got != 2*per {
+		t.Errorf("a perfect guess on the skipped song should pay %d when the round ends, paid %d", 2*per, got)
+	}
+	if got := tokens(others[1]); got != 2*per {
+		t.Errorf("the guess that landed after the skip should pay %d, paid %d", 2*per, got)
+	}
+	if got := tokens(current); got != 0 {
+		t.Errorf("nothing was guessed by the player on turn, got %d", got)
+	}
+
+	// The round is over: its songs are no longer part of any round.
+	if inRound, err := database.IsRoundCard(gameId, skipped.CardId); err != nil || inRound {
+		t.Errorf("the skipped song should leave the round once it ends (%v, %v)", inRound, err)
+	}
+	if guesses, err := database.GetGuesses(gameId); err != nil || len(guesses) != 0 {
+		t.Errorf("the round's guesses should be cleared once it ends, got %d (%v)", len(guesses), err)
+	}
+	rec = post(apiTrackTimeline.SubmitGuess, "guess", others[0], url.Values{
+		"cardId": {skipped.CardId.String()}, "guessTitle": {skipped.Title},
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("a guess for a song from a finished round should be refused, got %d", rec.Code)
+	}
+}
+
+// A song whose video would not play never really played, so guesses made on it
+// are dropped rather than judged; an ordinary skip keeps them.
+func TestDeadVideoDropsGuessesButASkipKeepsThem(t *testing.T) {
+	gameId, _, _, players, srv := newPlaytestFixesGame(t, "deadguess", 20, 10, 10)
+	defer closePlaytestFixesGame(players, srv)
+
+	voter := players[0]
+	first, err := database.GetCurrentCard(gameId)
+	if err != nil {
+		t.Fatalf("current card: %v", err)
+	}
+
+	if err := database.SaveGuess(gameId, voter.playerId, first.CardId, "a title", "", false); err != nil {
+		t.Fatalf("save draft: %v", err)
+	}
+	if err := database.SkipCurrentCard(gameId, false); err != nil {
+		t.Fatalf("dead-video skip: %v", err)
+	}
+	if guesses, err := database.GetGuesses(gameId); err != nil || len(guesses) != 0 {
+		t.Errorf("guesses on a dead video should be dropped, got %d (%v)", len(guesses), err)
+	}
+	if inRound, _ := database.IsRoundCard(gameId, first.CardId); inRound {
+		t.Error("a dead video must not stay part of the round")
+	}
+
+	second, err := database.GetCurrentCard(gameId)
+	if err != nil {
+		t.Fatalf("current card: %v", err)
+	}
+	if err := database.SaveGuess(gameId, voter.playerId, second.CardId, "a title", "an artist", false); err != nil {
+		t.Fatalf("save draft: %v", err)
+	}
+	if err := database.SkipCurrentCard(gameId, true); err != nil {
+		t.Fatalf("skip: %v", err)
+	}
+	guesses, err := database.GetGuesses(gameId)
+	if err != nil || len(guesses) != 1 {
+		t.Fatalf("an ordinary skip should keep the guess, got %d (%v)", len(guesses), err)
+	}
+	if guesses[0].CardId != second.CardId || guesses[0].IsCurrentSong || guesses[0].Locked {
+		t.Errorf("the kept guess should be an unlocked draft against the skipped song: %+v", guesses[0])
+	}
+	if inRound, _ := database.IsRoundCard(gameId, second.CardId); !inRound {
+		t.Error("a skipped song should stay part of the round so its guesses are still accepted")
+	}
+}
+
+// A draft is replaced as the player keeps typing, an empty one removes it, and
+// once locked a late draft can no longer rewrite it.
+func TestGuessDraftsReplaceUntilLocked(t *testing.T) {
+	gameId, _, _, players, srv := newPlaytestFixesGame(t, "draftlock", 20, 10, 10)
+	defer closePlaytestFixesGame(players, srv)
+
+	p := players[0]
+	card, err := database.GetCurrentCard(gameId)
+	if err != nil {
+		t.Fatalf("current card: %v", err)
+	}
+	read := func() (database.Guess, bool) {
+		t.Helper()
+		g, ok, err := database.GetPlayerGuess(gameId, p.playerId)
+		if err != nil {
+			t.Fatalf("read guess: %v", err)
+		}
+		return g, ok
+	}
+
+	for _, typed := range []string{"z", "zom", "zombie"} {
+		if err := database.SaveGuess(gameId, p.playerId, card.CardId, typed, "", false); err != nil {
+			t.Fatalf("draft %q: %v", typed, err)
+		}
+	}
+	if g, ok := read(); !ok || g.TitleGuess != "zombie" || g.Locked {
+		t.Fatalf("the latest draft should win and stay unlocked: %+v (%v)", g, ok)
+	}
+
+	if err := database.SaveGuess(gameId, p.playerId, card.CardId, "", "", false); err != nil {
+		t.Fatalf("empty draft: %v", err)
+	}
+	if _, ok := read(); ok {
+		t.Fatal("clearing the boxes should remove the draft")
+	}
+
+	if err := database.SaveGuess(gameId, p.playerId, card.CardId, "zombie", "cranberries", true); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+	if err := database.SaveGuess(gameId, p.playerId, card.CardId, "something else", "", false); err != nil {
+		t.Fatalf("late draft: %v", err)
+	}
+	if g, ok := read(); !ok || g.TitleGuess != "zombie" || g.ArtistGuess != "cranberries" || !g.Locked {
+		t.Errorf("a late draft must not rewrite a locked guess: %+v (%v)", g, ok)
+	}
+	if err := database.SaveGuess(gameId, p.playerId, card.CardId, "again", "", true); !errors.Is(err, database.ErrGuessLocked) {
+		t.Errorf("locking twice should be refused with ErrGuessLocked, got %v", err)
+	}
+}
+
+// A player who leaves on their own turn must not leave the game stuck on them:
+// the turn timer is run by their own browser, so with them gone nothing else
+// would ever end it. Once they have been gone past the grace period (and not
+// come back) the turn moves on; a player who is back, or a turn that has already
+// moved, is left alone.
+func TestAbandonedTurnMovesOn(t *testing.T) {
+	gameId, lobbyId, _, players, srv := newPlaytestFixesGame(t, "abandon", 20, 10, 6)
+	defer closePlaytestFixesGame(players, srv)
+
+	game, err := database.GetGameById(gameId)
+	if err != nil || !game.CurrentPlayerId.Valid {
+		t.Fatalf("game: %v", err)
+	}
+	turnPlayer := game.CurrentPlayerId.UUID
+	card, err := database.GetCurrentCard(gameId)
+	if err != nil {
+		t.Fatalf("current card: %v", err)
+	}
+	var gone *player
+	for _, p := range players {
+		if p.playerId == turnPlayer {
+			gone = p
+		}
+	}
+
+	// Still connected: nothing happens.
+	if again := apiTrackTimeline.AbandonTurnIfStillGone(lobbyId, gameId, turnPlayer, card.CardId); again {
+		t.Error("an active player's turn must not be retried")
+	}
+	if g, _ := database.GetGameById(gameId); !g.CurrentPlayerId.Valid || g.CurrentPlayerId.UUID != turnPlayer {
+		t.Fatal("the turn must stay with a player who is still connected")
+	}
+
+	// Gone: the turn moves to someone else, on a new song.
+	if err := gsDatabase.SetPlayerInactive(lobbyId, gone.userId); err != nil {
+		t.Fatalf("set inactive: %v", err)
+	}
+	// A different song than the one the watch was started for: the turn already moved.
+	apiTrackTimeline.AbandonTurnIfStillGone(lobbyId, gameId, turnPlayer, uuid.New())
+	if g, _ := database.GetGameById(gameId); g.CurrentPlayerId.UUID != turnPlayer {
+		t.Fatal("a watch for some other song must not end this turn")
+	}
+	apiTrackTimeline.AbandonTurnIfStillGone(lobbyId, gameId, turnPlayer, card.CardId)
+	after, err := database.GetGameById(gameId)
+	if err != nil {
+		t.Fatalf("game after: %v", err)
+	}
+	if !after.CurrentPlayerId.Valid || after.CurrentPlayerId.UUID == turnPlayer {
+		t.Fatal("the turn should have moved off the player who left")
+	}
+	if now, _ := database.GetCurrentCard(gameId); now.CardId == card.CardId {
+		t.Error("the abandoned song should have been replaced")
 	}
 }

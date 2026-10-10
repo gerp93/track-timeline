@@ -188,7 +188,7 @@ func TestRulesFollowTheEconomy(t *testing.T) {
 	}
 	out := buf.String()
 	for _, want := range []string{
-		"3 tokens for the song name and 3 tokens for the artist, up to 6 tokens per round",
+		"3 tokens for the song name and 3 tokens for the artist, up to 6 tokens per song",
 		"spend 11 tokens to pass a difficult song",
 		"spend 12 tokens to listen to the song clip a second time",
 		"Spend 13 tokens to challenge",
