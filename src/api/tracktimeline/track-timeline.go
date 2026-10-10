@@ -61,6 +61,10 @@ type guessTokenWinnerPayload struct {
 	Name      string `json:"name"`
 	GuessText string `json:"guessText,omitempty"`
 	Tokens    int    `json:"tokens"`
+	// SkippedSong is the title of the song the guess was about when that was a
+	// song skipped earlier in the round, so the popup does not read as though
+	// the guess were about the song finally revealed. Empty for the final song.
+	SkippedSong string `json:"skippedSong,omitempty"`
 }
 
 // songPayload tells every client which song to cue and which slice of it to

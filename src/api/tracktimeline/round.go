@@ -547,11 +547,15 @@ func announceAndFinish(ctx gameContext, outcome database.RoundOutcome) {
 	// line, with what they earned.
 	for _, winner := range outcome.GuessTokenWinners {
 		earned := database.GuessTokensEarned(winner)
-		payload.GuessTokenWinners = append(payload.GuessTokenWinners, guessTokenWinnerPayload{
+		entry := guessTokenWinnerPayload{
 			Name:      winner.PlayerName,
 			GuessText: winner.GuessText,
 			Tokens:    earned,
-		})
+		}
+		if !winner.IsCurrentSong {
+			entry.SkippedSong = winner.SongTitle
+		}
+		payload.GuessTokenWinners = append(payload.GuessTokenWinners, entry)
 		announce(ctx.LobbyId, fmt.Sprintf(
 			"<green>%s</> earned %s for their guess",
 			esc(winner.PlayerName), tokenCount(earned),
@@ -1121,36 +1125,48 @@ func TimeoutPass(w http.ResponseWriter, r *http.Request) {
 		}
 		// The player on turn never committed, so there is nothing to judge and
 		// nobody can win the card. Discard it and move on.
-		gsWebsocket.LobbyBroadcast(ctx.LobbyId, "songStop")
-		apiRoom.MirrorBroadcast(ctx.LobbyId, "songStop")
-		announce(ctx.LobbyId, fmt.Sprintf("<red>%s</> ran out of time", esc(ctx.Player.Name)))
-		if card, err := database.GetCurrentCard(ctx.Game.Id); err == nil && card.CardId != uuid.Nil {
-			if logErr := database.LogCardEvent(card.CardId, database.CardEventDiscarded); logErr != nil {
-				log.Println(logErr)
-			}
-		}
-		if err := database.ClearPlacements(ctx.Game.Id); err != nil {
-			log.Println(err)
-		}
-		announceGuessesAtTimeout(ctx)
-		if err := database.ClearGuesses(ctx.Game.Id); err != nil {
-			log.Println(err)
-		}
-		if err := database.AdvanceToNextPlayer(ctx.Game.Id); err != nil {
-			log.Println(err)
-			announce(ctx.LobbyId, "<red>The draw pile is empty</> — no more songs to play")
-			gsWebsocket.LobbyBroadcast(ctx.LobbyId, "reload")
-			apiRoom.MirrorBroadcast(ctx.LobbyId, "reload")
+		if !discardTurn(ctx, ctx.Player.Name, fmt.Sprintf("<red>%s</> ran out of time", esc(ctx.Player.Name)), ctx.Player.Name+" ran out of time.") {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("Out of songs."))
 			return
 		}
-		sendStatus(ctx.LobbyId, fmt.Sprintf("%s ran out of time. %s is up.", ctx.Player.Name, currentPlayerName(ctx.Game.Id)))
-		refresh(ctx.LobbyId)
 	}
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("Turn passed."))
+}
+
+// discardTurn ends the player-on-turn's turn without a placement: the song is
+// discarded, the round's guesses are judged and paid, and the turn moves to the
+// next active player. Shared by the turn timer running out and by the player on
+// turn leaving. Returns false when there was no next song to draw (the game is
+// then told to reload).
+func discardTurn(ctx gameContext, name string, announceLine string, statusPrefix string) bool {
+	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "songStop")
+	apiRoom.MirrorBroadcast(ctx.LobbyId, "songStop")
+	announce(ctx.LobbyId, announceLine)
+	if card, err := database.GetCurrentCard(ctx.Game.Id); err == nil && card.CardId != uuid.Nil {
+		if logErr := database.LogCardEvent(card.CardId, database.CardEventDiscarded); logErr != nil {
+			log.Println(logErr)
+		}
+	}
+	if err := database.ClearPlacements(ctx.Game.Id); err != nil {
+		log.Println(err)
+	}
+	announceGuessesAtTimeout(ctx)
+	if err := database.ClearGuesses(ctx.Game.Id); err != nil {
+		log.Println(err)
+	}
+	if err := database.AdvanceToNextPlayer(ctx.Game.Id); err != nil {
+		log.Println(err)
+		announce(ctx.LobbyId, "<red>The draw pile is empty</> — no more songs to play")
+		gsWebsocket.LobbyBroadcast(ctx.LobbyId, "reload")
+		apiRoom.MirrorBroadcast(ctx.LobbyId, "reload")
+		return false
+	}
+	sendStatus(ctx.LobbyId, fmt.Sprintf("%s %s is up.", statusPrefix, currentPlayerName(ctx.Game.Id)))
+	refresh(ctx.LobbyId)
+	return true
 }
 
 // announceGuessesAtTimeout settles a round that ended with nobody placing the

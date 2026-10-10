@@ -32,6 +32,7 @@ function initTrackTimeline(lobbyId, turnTimerSeconds) {
 
     ttInitVolume();
     loadYouTubeApi();
+    ttWatchBlockingOverlays();
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     ttConn = new WebSocket(protocol + "//" + window.location.host + "/ws/lobby/" + lobbyId);
@@ -1124,6 +1125,37 @@ function ttShowTurnTimerBanner(deadlineMs) {
 
 // ------------------------------------------------------------------ display
 
+// ------------------------------------------------------- blocking overlays
+//
+// The steal countdown, the reveal popup, the challenge dialogs and the rest of
+// the full-screen .tt-popup-backdrop family dim the page and swallow mouse
+// clicks, but they are plain divs, so the page underneath stayed live to the
+// keyboard: a guess box that already had focus kept taking keystrokes (and
+// saving them as drafts) behind the overlay, and Tab walked straight through
+// it. While one is up, the game page is made inert -- unfocusable, untypable, and
+// hidden from assistive tech, which is what "blocking" should mean. The overlays
+// are direct children of <body>, outside #tt-page, so they stay usable
+// themselves. The non-blocking banners (the active stealer's own turn, the turn
+// timer) are not .tt-popup-backdrop and deliberately leave the page alone.
+
+function ttSyncBlockingOverlay() {
+    const page = document.getElementById("tt-page");
+    if (!page) return;
+    const blocked = !!document.querySelector("body > .tt-popup-backdrop");
+    if (blocked && !page.hasAttribute("inert")) {
+        // Whatever was typed before the overlay came up still counts.
+        ttFlushGuessDraft();
+        page.setAttribute("inert", "");
+    } else if (!blocked && page.hasAttribute("inert")) {
+        page.removeAttribute("inert");
+    }
+}
+
+function ttWatchBlockingOverlays() {
+    new MutationObserver(ttSyncBlockingOverlay).observe(document.body, { childList: true });
+    ttSyncBlockingOverlay();
+}
+
 // ------------------------------------------------------------ guess drafts
 //
 // A guess is judged when the round ends, not when it is typed, and a round can
@@ -1297,7 +1329,10 @@ function showResultPopup(payload, onDone) {
         const guessLine = document.createElement("div");
         guessLine.className = "tt-popup-guess";
         const quoted = winner.guessText ? " — “" + winner.guessText + "”" : "";
-        guessLine.textContent = winner.name + " named it" + quoted + " — won " + winner.tokens + (winner.tokens === 1 ? " token" : " tokens");
+        // A guess about a song skipped earlier in the round says so; without it
+        // "named it" reads as being about the song revealed above.
+        const named = winner.skippedSong ? " named the skipped “" + winner.skippedSong + "”" : " named it";
+        guessLine.textContent = winner.name + named + quoted + " — won " + winner.tokens + (winner.tokens === 1 ? " token" : " tokens");
         popup.appendChild(guessLine);
     });
 
@@ -1616,6 +1651,14 @@ function ttShowStealModal(opts) {
                 joinButton.disabled = true;
                 joinButton.textContent = "Time's up";
             }
+            // The server closes the round a beat after the clock hits zero --
+            // it judges every guess made this round first, which waits on the
+            // network -- so say what the overlay is waiting for instead of
+            // leaving a dead "0" on screen.
+            const waiting = document.createElement("div");
+            waiting.className = "tt-popup-artist tt-steal-waiting";
+            waiting.textContent = "Time's up — revealing…";
+            popup.appendChild(waiting);
             clearInterval(ttStealInterval);
             ttStealInterval = null;
             return;

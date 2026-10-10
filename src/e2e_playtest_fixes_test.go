@@ -1577,3 +1577,58 @@ func TestGuessDraftsReplaceUntilLocked(t *testing.T) {
 		t.Errorf("locking twice should be refused with ErrGuessLocked, got %v", err)
 	}
 }
+
+// A player who leaves on their own turn must not leave the game stuck on them:
+// the turn timer is run by their own browser, so with them gone nothing else
+// would ever end it. Once they have been gone past the grace period (and not
+// come back) the turn moves on; a player who is back, or a turn that has already
+// moved, is left alone.
+func TestAbandonedTurnMovesOn(t *testing.T) {
+	gameId, lobbyId, _, players, srv := newPlaytestFixesGame(t, "abandon", 20, 10, 6)
+	defer closePlaytestFixesGame(players, srv)
+
+	game, err := database.GetGameById(gameId)
+	if err != nil || !game.CurrentPlayerId.Valid {
+		t.Fatalf("game: %v", err)
+	}
+	turnPlayer := game.CurrentPlayerId.UUID
+	card, err := database.GetCurrentCard(gameId)
+	if err != nil {
+		t.Fatalf("current card: %v", err)
+	}
+	var gone *player
+	for _, p := range players {
+		if p.playerId == turnPlayer {
+			gone = p
+		}
+	}
+
+	// Still connected: nothing happens.
+	if again := apiTrackTimeline.AbandonTurnIfStillGone(lobbyId, gameId, turnPlayer, card.CardId); again {
+		t.Error("an active player's turn must not be retried")
+	}
+	if g, _ := database.GetGameById(gameId); !g.CurrentPlayerId.Valid || g.CurrentPlayerId.UUID != turnPlayer {
+		t.Fatal("the turn must stay with a player who is still connected")
+	}
+
+	// Gone: the turn moves to someone else, on a new song.
+	if err := gsDatabase.SetPlayerInactive(lobbyId, gone.userId); err != nil {
+		t.Fatalf("set inactive: %v", err)
+	}
+	// A different song than the one the watch was started for: the turn already moved.
+	apiTrackTimeline.AbandonTurnIfStillGone(lobbyId, gameId, turnPlayer, uuid.New())
+	if g, _ := database.GetGameById(gameId); g.CurrentPlayerId.UUID != turnPlayer {
+		t.Fatal("a watch for some other song must not end this turn")
+	}
+	apiTrackTimeline.AbandonTurnIfStillGone(lobbyId, gameId, turnPlayer, card.CardId)
+	after, err := database.GetGameById(gameId)
+	if err != nil {
+		t.Fatalf("game after: %v", err)
+	}
+	if !after.CurrentPlayerId.Valid || after.CurrentPlayerId.UUID == turnPlayer {
+		t.Fatal("the turn should have moved off the player who left")
+	}
+	if now, _ := database.GetCurrentCard(gameId); now.CardId == card.CardId {
+		t.Error("the abandoned song should have been replaced")
+	}
+}
