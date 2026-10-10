@@ -19,7 +19,7 @@
             </li>
             <li>
                 <strong>Anyone Can Guess for Tokens:</strong>
-                While the clip is playing, <em>every player</em> has an opportunity to guess the song title and the artist in the guess boxes. Each part you get right earns tokens right away: {{$e.Tokens $e.GuessTokensPerPart}} for the song name and {{$e.Tokens $e.GuessTokensPerPart}} for the artist, up to {{$e.Tokens $e.MaxGuessTokens}} per round!
+                While the clip is playing, <em>every player</em> has an opportunity to guess the song title and the artist in the guess boxes. Each part you get right earns tokens when the round ends: {{$e.Tokens $e.GuessTokensPerPart}} for the song name and {{$e.Tokens $e.GuessTokensPerPart}} for the artist, up to {{$e.Tokens $e.MaxGuessTokens}} per song! Whatever is in the boxes counts as your guess even if you don't press Guess, and if the song is skipped your guess for it is still judged.
             </li>
             <li>
                 <strong>Active Player Places the Song:</strong>
@@ -70,7 +70,7 @@
                 <div class="tt-econ-item">
                     <span class="tt-econ-badge plus">+{{$e.GuessTokensPerPart}} to +{{$e.MaxGuessTokens}}</span>
                     <div>
-                        <strong>Name the Song:</strong> Guess the title and the artist during playback before the reveal. Each part you get right pays {{$e.Tokens $e.GuessTokensPerPart}}, so a perfect guess pays {{$e.Tokens $e.MaxGuessTokens}}. You get them the moment your guess is judged.
+                        <strong>Name the Song:</strong> Guess the title and the artist during playback before the reveal. Each part you get right pays {{$e.Tokens $e.GuessTokensPerPart}}, so a perfect guess pays {{$e.Tokens $e.MaxGuessTokens}}. Every guess is judged together when the round ends, so you get them then.
                     </div>
                 </div>
                 <div class="tt-econ-item">

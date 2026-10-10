@@ -8,7 +8,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/gerp93/track-timeline/database"
-	"github.com/gerp93/track-timeline/guess"
 )
 
 // TestTruncateRunesDoesNotSplitMultiByteCharacters guards the playtest fix
@@ -39,33 +38,24 @@ func TestTruncateRunesDoesNotSplitMultiByteCharacters(t *testing.T) {
 	}
 }
 
-// TestDescribeVerdictReportsWhatWasEarned guards the guess-token rule: each
-// right part earns its own tokens the moment it is judged (see
-// database.AwardGuessToken), regardless of turn order or who else guessed, so
-// the private message states the amount and never hedges or mentions others.
-func TestDescribeVerdictReportsWhatWasEarned(t *testing.T) {
-	eco := database.CurrentEconomy()
-
-	both := describeVerdict(guess.Verdict{TitleCorrect: true, ArtistCorrect: true})
-	if !strings.Contains(both, "You earned "+eco.Tokens(eco.MaxGuessTokens)+"!") {
-		t.Fatalf("a perfect guess should report %s, got %q", eco.Tokens(eco.MaxGuessTokens), both)
-	}
-	if strings.Contains(both, "holds up") || strings.Contains(both, "other player") || strings.Contains(both, "first in line") {
-		t.Errorf("no caveat/hedge/race language is needed, got %q", both)
+// The reveal line for a judged guess says who was right about what, and an AI
+// verdict carries no match percent -- Claude's call is yes or no, not a score.
+func TestDescribeGuessPublic(t *testing.T) {
+	ai := describeGuessPublic(database.Guess{Judged: true, JudgedByAI: true, TitleCorrect: true})
+	if ai != "title right, artist wrong — judged by the AI Quizmaster" {
+		t.Errorf("AI verdict: got %q", ai)
 	}
 
-	for name, verdict := range map[string]guess.Verdict{
-		"title only":  {TitleCorrect: true},
-		"artist only": {ArtistCorrect: true},
-	} {
-		if got := describeVerdict(verdict); !strings.Contains(got, "You earned "+eco.Tokens(eco.GuessTokensPerPart)+"!") {
-			t.Errorf("%s should report %s, got %q", name, eco.Tokens(eco.GuessTokensPerPart), got)
-		}
+	local := describeGuessPublic(database.Guess{
+		Judged: true, TitleCorrect: true, ArtistCorrect: true, TitleMatchPercent: 100, ArtistMatchPercent: 80,
+	})
+	if local != "title right (100% match), artist right (80% match)" {
+		t.Errorf("local verdict: got %q", local)
 	}
 
-	// A wrong guess never mentions tokens.
-	if got := describeVerdict(guess.Verdict{}); strings.Contains(got, "token") {
-		t.Errorf("a wrong guess should not mention tokens at all, got %q", got)
+	// A guess the judge never got to must not read as a wrong answer.
+	if got := describeGuessPublic(database.Guess{}); got != "couldn't be judged" {
+		t.Errorf("unjudged guess: got %q", got)
 	}
 }
 
@@ -77,25 +67,6 @@ func TestWagerResultNamesStakeAndOutcome(t *testing.T) {
 	}
 	if got := wagerResult(1, true); got != "wagered 1 token and won 1 token" {
 		t.Errorf("won wager: got %q", got)
-	}
-}
-
-// A right part is confirmed back to the guesser, but a wrong part is never
-// revealed — a correct title must not leak the artist.
-func TestDescribeRightPartsOnlyNamesWhatWasRight(t *testing.T) {
-	if got := describeRightParts(true, true, "Africa", "Toto"); got != `It's "Africa" by Toto.` {
-		t.Errorf("both right: got %q", got)
-	}
-	got := describeRightParts(true, false, "Africa", "Toto")
-	if !strings.Contains(got, "Africa") || strings.Contains(got, "Toto") {
-		t.Errorf("title only should name the title and not the artist, got %q", got)
-	}
-	got = describeRightParts(false, true, "Africa", "Toto")
-	if !strings.Contains(got, "Toto") || strings.Contains(got, "Africa") {
-		t.Errorf("artist only should name the artist and not the title, got %q", got)
-	}
-	if got := describeRightParts(false, false, "Africa", "Toto"); got != "" {
-		t.Errorf("a wrong guess should reveal nothing, got %q", got)
 	}
 }
 

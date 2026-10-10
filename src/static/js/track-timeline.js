@@ -21,6 +21,9 @@ let ttMuted = false;
 
 const TT_STATUS_MESSAGE_MS = 8000;
 
+// How long after the last keystroke the guess boxes are saved to the server.
+const TT_GUESS_DRAFT_DELAY_MS = 200;
+
 // ---------------------------------------------------------------- websocket
 
 function initTrackTimeline(lobbyId, turnTimerSeconds) {
@@ -59,6 +62,7 @@ function initTrackTimeline(lobbyId, turnTimerSeconds) {
         }
         if (event.detail.target && event.detail.target.id === "tt-current-card") {
             syncPlaybackUI();
+            ttSyncGuessCard();
         }
     });
 }
@@ -81,6 +85,10 @@ function handleMessage(message) {
             return;
 
         case "songStop":
+            // The song is done with: a placement locked in, or it was skipped.
+            // Get whatever is still in the boxes to the server now rather than
+            // after the debounce.
+            ttFlushGuessDraft();
             stopSong();
             return;
 
@@ -1115,6 +1123,110 @@ function ttShowTurnTimerBanner(deadlineMs) {
 }
 
 // ------------------------------------------------------------------ display
+
+// ------------------------------------------------------------ guess drafts
+//
+// A guess is judged when the round ends, not when it is typed, and a round can
+// outlive the song it started with: a skip moves everyone on to a new song but
+// keeps the guesses made on the old one. So the boxes are saved to the server as
+// they are typed, tagged with the song they were typed for. Whatever is in them
+// when a song is skipped or a placement locks in then counts as the player's
+// guess for that song, whether or not they got as far as pressing Guess, and a
+// guess that reaches the server a beat after the skip is still filed against the
+// song it was for.
+
+let ttGuessCardId = "";
+let ttGuessDirty = false;
+let ttGuessTimer = null;
+
+function ttGuessBox(name) {
+    return document.querySelector('#tt-current-card input[name="' + name + '"]');
+}
+
+function ttGuessBoxes() {
+    return { title: ttGuessBox("guessTitle"), artist: ttGuessBox("guessArtist") };
+}
+
+function ttGuessCurrentCardId() {
+    const marker = document.getElementById("tt-guess-card");
+    return marker ? marker.dataset.cardId || "" : "";
+}
+
+// Saves the boxes as a draft guess for cardId. Resolves true if the server kept it.
+function ttSendGuessDraft(cardId, title, artist) {
+    if (!ttLobbyId || !cardId) return Promise.resolve(false);
+    const body = new URLSearchParams({ cardId: cardId, guessTitle: title, guessArtist: artist });
+    return fetch("/api/track-timeline/" + ttLobbyId + "/guess-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+        keepalive: true,
+    }).then((response) => response.ok).catch(() => false);
+}
+
+// Sends the boxes now if anything has changed since they were last saved.
+function ttFlushGuessDraft() {
+    if (ttGuessTimer) {
+        clearTimeout(ttGuessTimer);
+        ttGuessTimer = null;
+    }
+    if (!ttGuessDirty) return Promise.resolve(false);
+    const boxes = ttGuessBoxes();
+    if (!boxes.title || !boxes.artist) return Promise.resolve(false);
+    ttGuessDirty = false;
+    return ttSendGuessDraft(ttGuessCardId, boxes.title.value.trim(), boxes.artist.value.trim());
+}
+
+// Called whenever the current-card fragment is swapped. If the song under the
+// boxes has changed, the boxes are saved against the song they were typed for and
+// then emptied: they are hx-preserve'd, so otherwise last song's text would sit
+// in them as if it were a guess for the new one.
+function ttSyncGuessCard() {
+    const now = ttGuessCurrentCardId();
+    if (!now || now === ttGuessCardId) return;
+
+    const previous = ttGuessCardId;
+    ttGuessCardId = now;
+    if (!previous) return;
+
+    const boxes = ttGuessBoxes();
+    if (ttGuessTimer) {
+        clearTimeout(ttGuessTimer);
+        ttGuessTimer = null;
+    }
+    if (boxes.title && boxes.artist) {
+        const title = boxes.title.value.trim();
+        const artist = boxes.artist.value.trim();
+        if (title || artist) {
+            ttSendGuessDraft(previous, title, artist).then((kept) => {
+                // The server only keeps it when that song still belongs to the
+                // round in progress, i.e. it was skipped rather than finished.
+                if (kept) showStatus("Your guess was kept for the song that was skipped.");
+            });
+        }
+        boxes.title.value = "";
+        boxes.artist.value = "";
+    }
+    ttGuessDirty = false;
+}
+
+document.addEventListener("input", (event) => {
+    const name = event.target && event.target.name;
+    if (name !== "guessTitle" && name !== "guessArtist") return;
+    if (!event.target.closest("#tt-current-card")) return;
+
+    // The song the player is typing for is the one the page last rendered.
+    if (!ttGuessCardId) ttGuessCardId = ttGuessCurrentCardId();
+    ttGuessDirty = true;
+    if (ttGuessTimer) clearTimeout(ttGuessTimer);
+    ttGuessTimer = setTimeout(ttFlushGuessDraft, TT_GUESS_DRAFT_DELAY_MS);
+});
+
+// A tab being closed or backgrounded is the last chance to save what is typed.
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") ttFlushGuessDraft();
+});
+window.addEventListener("pagehide", () => { ttFlushGuessDraft(); });
 
 function showStatus(message) {
     const el = document.getElementById("tt-message");

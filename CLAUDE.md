@@ -183,13 +183,58 @@ which just passes a missed card to the next player with no cost. Here:
   CREATED_ON_DATE ASC`). The first placement that is correct wins the card;
   everyone else's attempt is still judged and logged for stats, but only one
   card changes hands per round.
-- Free-form artist/title guesses (`SubmitGuess`) are judged **as they
-  arrive, not at reveal** — a token earned this round can immediately fund a
-  challenge on the same round. This is deliberate tension, not a bug: it is
-  what makes "did you actually know the song, or are you guessing where to
-  place it" two separate skills that both pay off.
-- One guess and one placement/challenge per player per round — enforced by
-  `HasGuessed` and the placement table's unique constraint, respectively.
+- Free-form artist/title guesses are **not judged as they arrive** — they are
+  judged together when the round resolves, and their tokens are paid then. That
+  means a guess token can no longer fund a steal or a skip on the round it was
+  earned in. See "Guesses" below.
+- One locked guess per player per song, and one placement/challenge per player
+  per round — enforced by the guess table's `(game, player, card)` unique key
+  (`database.HasGuessed`, `ErrGuessLocked`) and the placement table's unique
+  constraint, respectively.
+
+## Guesses (drafted as typed, judged together at round end)
+
+A **round** can span several songs: every song skipped before the one that is
+finally placed belongs to it. Nothing about a guess is decided until the round
+ends.
+
+- **A guess is stored against the song it was typed for.**
+  `TRACK_TIMELINE_TITLE_GUESS` is keyed `(game, player, card)`. The guess forms
+  carry a hidden `cardId`, and `readGuessRequest` (`api/tracktimeline/round.go`)
+  files the guess under *that* song, never "whatever is in play when the request
+  lands" — so a guess typed for a song skipped a moment earlier still counts for
+  that song and can't be mistaken for the next one's. A guess is accepted for the
+  song in play or one in `TRACK_TIMELINE_SKIPPED_CARD` (this round's skips); any
+  other id is refused (`database.IsRoundCard`).
+- **Drafts.** `track-timeline.js` saves the guess boxes to `/guess-draft` as the
+  player types (`SaveGuessDraft`, `database.SaveGuess` with `lock=false`). A draft
+  is judged like any other guess, so whatever was in the boxes when a song was
+  skipped or a placement locked in earns credit even if the player never pressed
+  Guess. Pressing Guess *locks* it (`LOCKED = 1`, the "already guessed" state);
+  a locked or judged guess is never rewritten by a late draft. The turn
+  player's `PlaceCard` locks whatever is in the boxes. When the song under the
+  boxes changes, the JS saves them against the old song, then clears them
+  (they are `hx-preserve`'d, so they would otherwise carry last song's text over).
+- **Judged at resolve, one request per song.** `database.JudgeRoundGuesses`
+  (`database/guess-judging.go`) runs from `ResolveRoundWon` /
+  `ResolveRoundFallbackToOriginal` (via `judgeBeforeResolving`, deliberately
+  *outside* `resolveRound`'s process-wide lock because it waits on the network)
+  and from the turn-timeout path (`SettleGuesses`). It groups the round's guesses
+  by song and calls `guess.AdjudicateSong` for each — **one Claude request per
+  song holding every guess made about it**, so the model sees everything said and
+  holds it all to one standard ("gansta paradise" and "gangster paradise" are not
+  judged differently). The local matcher is still the per-guess fallback.
+  It is idempotent (only `JUDGED = 0` rows, behind a per-game lock) so two ways
+  of ending a round at once can't pay twice.
+- **Skips keep guesses; dead videos drop them.** `SkipCurrentCard(gameId, true)`
+  (an ordinary, paid skip) records the song in the skipped table and keeps its
+  guesses, which are judged and paid with the rest of the round.
+  `SkipCurrentCard(gameId, false)` (`ReportDeadVideo`: the video never played)
+  discards that song's guesses. A turn timeout still judges and pays the round's
+  guesses. `ClearGuesses` empties both tables when a round ends.
+- **Nothing is judged on submit**, so the private message a guesser gets is only
+  "locked in — judged when the round ends"; verdicts and tokens arrive with the
+  reveal (`announceGuesses`). Room-mode phones don't run the draft code.
 
 ## Challenges (a vote, not a steal)
 
@@ -225,7 +270,7 @@ that is the answer, and a template or JSON payload that cannot reach a field
 cannot leak it. `database.CurrentCardAnswer` is a separate type embedding
 `CurrentCard` and is only ever fetched once `RoundPhase == PhaseReveal`, or
 server-side where the answer is being *compared* rather than sent (e.g.
-`ResolveRound`, `SubmitGuess`'s judging). Keep this split when adding new
+`ResolveRound`, `JudgeRoundGuesses`). Keep this split when adding new
 code that touches the card in play — do not add title/artist/year fields to
 `CurrentCard` itself, and do not fetch `CurrentCardAnswer` outside the reveal
 phase or a server-side comparison.
@@ -328,7 +373,7 @@ popup**, for non-reveal events like "a challenge window opened" or "N more
 players could still challenge." Handlers that need to tell only the *acting*
 player something private (e.g. what part of a guess was right) use
 `gsWebsocket.PlayerBroadcast(playerId, "alert:"+text)` instead — the lobby
-only ever hears that a guess scored, never what it contained
+only ever hears that a guess was locked in, never what it contained
 (`SubmitGuess` in `api/tracktimeline/round.go`).
 
 **The song stops (`songStop`) the instant a placement locks in.** Leaving it
