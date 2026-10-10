@@ -110,6 +110,7 @@
                 {{.PlayerName}}{{if .HasPlaced}} <span class="player-placed bi bi-check2" title="Has committed a placement"></span>{{end}}
             </span>
             <span class="player-tokens" title="{{.PlayerName}}'s tokens">{{.TokenCount}} <span class="bi bi-coin"></span></span>
+            <span class="player-challenges{{if not .ChallengeLeft}} is-spent{{end}}" title="{{if .ChallengeLeft}}{{.PlayerName}} can still raise a challenge{{else}}{{.PlayerName}} has used up their challenge{{end}}">{{if .ChallengeLeft}}1{{else}}0{{end}} <span class="bi bi-megaphone"></span></span>
 
             <div class="timeline-track">
                 {{$canAct := false}}

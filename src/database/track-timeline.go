@@ -360,9 +360,12 @@ type PlayerTimeline struct {
 	IsCurrent  bool
 	IsMe       bool
 	TokenCount int
-	Timeline   []TimelineCard
-	HasPlaced  bool
-	PlacedAt   int
+	// ChallengeLeft is whether this player can still raise a challenge: they
+	// have one, and a rejected one uses it up (PlayerHasChallengeLeft).
+	ChallengeLeft bool
+	Timeline      []TimelineCard
+	HasPlaced     bool
+	PlacedAt      int
 }
 
 // DeckInfo is one deck's contribution to a draw pile, derived from the pile
@@ -1119,13 +1122,19 @@ func GetAllPlayerTimelines(gameId uuid.UUID, currentPlayerId uuid.UUID, viewingP
 			timeline[i].IsLastPlaced = lastPlacedCardId != uuid.Nil && timeline[i].CardId == lastPlacedCardId
 		}
 
+		challengeLeft, err := PlayerHasChallengeLeft(gameId, player.PlayerId)
+		if err != nil {
+			challengeLeft = false
+		}
+
 		row := PlayerTimeline{
-			PlayerId:   player.PlayerId,
-			PlayerName: player.UserName,
-			IsCurrent:  player.PlayerId == currentPlayerId,
-			IsMe:       player.PlayerId == viewingPlayerId,
-			TokenCount: player.TokenCount,
-			Timeline:   timeline,
+			PlayerId:      player.PlayerId,
+			PlayerName:    player.UserName,
+			IsCurrent:     player.PlayerId == currentPlayerId,
+			IsMe:          player.PlayerId == viewingPlayerId,
+			TokenCount:    player.TokenCount,
+			ChallengeLeft: challengeLeft,
+			Timeline:      timeline,
 		}
 		if placement.Id != uuid.Nil && placement.PlayerId == player.PlayerId {
 			row.HasPlaced = true

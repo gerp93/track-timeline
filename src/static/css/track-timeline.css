@@ -755,6 +755,18 @@
     white-space: nowrap;
 }
 
+.player-challenges {
+    flex: 0 0 auto;
+    min-width: 1.6rem;
+    font-size: 0.76rem;
+    opacity: 0.8;
+    white-space: nowrap;
+}
+
+.player-challenges.is-spent {
+    opacity: 0.4;
+}
+
 .song-count {
     flex: 0 0 auto;
     font-size: 0.76rem;
