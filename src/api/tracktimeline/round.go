@@ -914,7 +914,10 @@ func describeStoredGuessForPlayer(gameId uuid.UUID, playerId uuid.UUID) (string,
 		ArtistMatchPercent: float64(mine.ArtistMatchPercent),
 		ByAI:               mine.JudgedByAI,
 	}
-	text := describeVerdict(verdict)
+	// Their own words go first, so the verdict and the confirmed answer after
+	// it read as "what you said" against "what it actually is".
+	text := fmt.Sprintf("You guessed \u201c%s\u201d.", mine.GuessText)
+	text += " " + describeVerdict(verdict)
 	if mine.TitleCorrect || mine.ArtistCorrect {
 		if card, err := database.GetCurrentCardAnswer(gameId); err == nil {
 			if parts := describeRightParts(mine.TitleCorrect, mine.ArtistCorrect, card.Title, card.Artist); parts != "" {
