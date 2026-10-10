@@ -81,6 +81,10 @@ func (j ClaudeJudge) Judge(ctx context.Context, in Input) (Verdict, error) {
 		// Claude Haiku 4.5 — short yes/no classification, not a reasoning model.
 		Model:     claudeAPIModel,
 		MaxTokens: 150,
+		// Zero so the same guess always gets the same verdict; at the default
+		// temperature two players typing the same title could be judged
+		// differently.
+		Temperature: anthropic.Float(0),
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
 		},
@@ -116,6 +120,13 @@ const (
 )
 
 func claudePrompt(in Input, titleSaid, artistSaid string) string {
+	// Capitalisation never matters to a guess, so the model never sees it:
+	// "dance" and "Dance" must reach it as the identical string and get the
+	// identical verdict.
+	titleSaid = strings.ToLower(titleSaid)
+	artistSaid = strings.ToLower(artistSaid)
+	in.Guess = strings.ToLower(in.Guess)
+
 	intent := "Judge intent, not spelling. Accept typos, wrong word order, missing punctuation, " +
 		"nicknames, abbreviations, partial titles, and phonetic / sound-alike spellings " +
 		"(for example \"deaf leopard\" for Def Leppard, \"led zepplin\" for Led Zeppelin) " +
