@@ -334,6 +334,7 @@ function refreshGame() {
                     roomPhoneSyncBoardVisibility();
                 }
                 restartTurnTimer();
+                ttRevealOwnRowForSteal();
             })
             .catch((e) => console.error("[TrackTimeline] board refresh failed:", e));
     }
@@ -363,7 +364,13 @@ function refreshControls() {
             const current = document.getElementById("tt-controls");
             if (fresh && current) {
                 current.outerHTML = fresh.outerHTML;
-                htmx.process(document.getElementById("tt-controls"));
+                const replaced = document.getElementById("tt-controls");
+                htmx.process(replaced);
+                // The game-over banner and Play Again sit below the board rows,
+                // out of sight on a shorter screen (the board scrolls inside the
+                // page). When the controls come back with something to press,
+                // bring them into view.
+                if (replaced.querySelector("button")) replaced.scrollIntoView({ block: "nearest" });
             }
         })
         .catch((e) => console.error("[TrackTimeline] controls refresh failed:", e));
@@ -1316,7 +1323,7 @@ function showResultPopup(payload, onDone) {
     verdict.className = "tt-popup-verdict";
     if (payload.winnerName) {
         verdict.textContent = payload.wonByChallenge
-            ? payload.winnerName + " stole it with a challenge"
+            ? payload.winnerName + " stole it"
             : payload.winnerName + " placed it correctly";
     } else {
         verdict.textContent = "Nobody placed it correctly";
@@ -1669,6 +1676,17 @@ function ttShowStealModal(opts) {
     ttStealInterval = setInterval(tick, 100);
 }
 
+// The board scrolls inside the page and the stealer's own row sits last in turn
+// order, so on a shorter screen it can be below the fold with a 15-second clock
+// running and the +-slots they have to click out of sight. When it is the active
+// stealer's turn (the non-blocking banner is up), bring their own row into view.
+function ttRevealOwnRowForSteal() {
+    const modal = document.getElementById("tt-steal-modal");
+    if (!modal || modal.classList.contains("tt-popup-backdrop")) return;
+    const row = document.querySelector("#tt-board .player-card.is-me");
+    if (row) row.scrollIntoView({ block: "nearest" });
+}
+
 // ttLocalDeadline turns a steal payload into a deadline on THIS browser's
 // clock: now plus the time the server says is left. The server never sends an
 // absolute timestamp, because comparing one to Date.now() breaks for any client
@@ -1883,6 +1901,14 @@ function ttOpenChallengeForm() {
     document.body.appendChild(backdrop);
     reason.focus();
 }
+
+// Escape closes the challenge form. With the page behind it inert, the form's own
+// Cancel button was the only way out.
+document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const modal = document.getElementById("tt-challenge-modal");
+    if (modal && modal.dataset.mode === "form") ttCloseChallengeModal();
+});
 
 function ttPostChallengeAction(path, form) {
     return fetch("/api/track-timeline/" + ttLobbyId + "/challenge/" + path, {

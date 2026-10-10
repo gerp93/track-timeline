@@ -383,6 +383,28 @@ turn calling `PlaySong` rather than automatically on the previous round's
 reveal — that gives everyone time to read the answer, and a song never starts
 underneath a popup.
 
+**Full-screen overlays are blocking, for the keyboard too.** The steal countdown,
+the reveal popup and the challenge dialogs are all `body > .tt-popup-backdrop`
+elements. A `MutationObserver` in `track-timeline.js` (`ttSyncBlockingOverlay`)
+sets `inert` on `#tt-page` while any is up (flushing the guess draft first), so a
+focused guess box can't be typed into behind them and Tab can't walk through. A
+new overlay must be a direct child of `<body>` with the `tt-popup-backdrop` class
+to get this; the non-blocking banners (the active stealer's own turn, the turn
+timer) deliberately aren't, so the board stays clickable.
+
+**Countdowns are the server's time-left, never a deadline.** Steal and challenge
+windows send `remainingMs`, so a browser's clock can't skew them. The *turn* timer
+is the odd one out: it is started and counted by each browser on its own, from its
+own player's clip-ended event, and only the turn player's browser reports the
+timeout. Nothing server-side enforces it.
+
+**A player leaving on their own turn.** Because of the above, nothing would ever
+end a turn whose player has gone. `OnPlayerInactive` (`game/hooks.go`) calls
+`apiTrackTimeline.WatchAbandonedTurn`, which after `turnAbandonedGrace` (30s)
+checks the same player is still gone and still holds the same song, then discards
+it and advances (`discardTurn`, shared with the turn-timer timeout). Only the
+listening phase needs this; the steal phases have their own server timers.
+
 **The YouTube player is hidden with off-screen CSS, not `display:none`** —
 the IFrame API needs real element dimensions to attach. This is a UI
 convenience, explicitly not a security boundary; see "Metadata hiding" above.
