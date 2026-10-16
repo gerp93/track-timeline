@@ -37,7 +37,8 @@ import (
 // fail and turns it into a no-op instead of double-resolving the round.
 
 // remainingMs is how long is left until deadline, per this process's clock —
-// the same clock the enforcing time.AfterFunc uses. Clients count down from
+// the same clock the enforcing time.AfterFunc uses (which fires
+// database.StealLatencyGrace later, for slow connections). Clients count down from
 // this duration on their own clock rather than comparing the absolute
 // absolute deadline to Date.now(): a browser whose clock runs ahead of the server's
 // would otherwise see the window as already expired (a permanent "0").
@@ -152,7 +153,9 @@ func openStealJoin(ctx gameContext, timeline []database.TimelineCard, position i
 	refresh(ctx.LobbyId)
 
 	lobbyId, gameId := ctx.LobbyId, ctx.Game.Id
-	time.AfterFunc(time.Until(deadline), func() {
+	// Closed StealLatencyGrace after the countdown the clients were shown, so a
+	// claim from a slow connection that is still counting down is accepted.
+	time.AfterFunc(time.Until(deadline.Add(database.StealLatencyGrace)), func() {
 		if !phaseStillCurrent(gameId, database.PhaseStealJoin, startedAt) {
 			return
 		}
@@ -176,7 +179,7 @@ func beginStealTurnBroadcast(lobbyId uuid.UUID, gameId uuid.UUID, stealerId uuid
 	sendStealTurn(lobbyId, deadline, stealerId, stealerName)
 	refresh(lobbyId)
 
-	time.AfterFunc(time.Until(deadline), func() {
+	time.AfterFunc(time.Until(deadline.Add(database.StealLatencyGrace)), func() {
 		if !phaseStillCurrent(gameId, database.PhaseStealTurn, startedAt) {
 			return
 		}

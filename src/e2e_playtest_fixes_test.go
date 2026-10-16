@@ -1632,3 +1632,56 @@ func TestAbandonedTurnMovesOn(t *testing.T) {
 		t.Error("the abandoned song should have been replaced")
 	}
 }
+
+// A steal window stays open for StealLatencyGrace past the countdown the clients
+// were shown, so a claim from a slow connection that still sees time on its clock
+// is accepted -- and one after the grace is over is refused.
+func TestStealWindowGracePeriod(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		wait     time.Duration
+		wantCode int
+	}{
+		{"claim just after the countdown, inside the grace", database.StealJoinWindow + database.StealLatencyGrace/3, http.StatusOK},
+		{"claim after the grace", database.StealJoinWindow + database.StealLatencyGrace + 700*time.Millisecond, http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prefix := "grace" + fmt.Sprint(tc.wantCode)
+			gameId, lobbyId, _, players, srv := newPlaytestFixesGame(t, prefix, 20, 10, 6)
+			defer closePlaytestFixesGame(players, srv)
+
+			turn := gamePlayerByUserId(players, mustCurrentPlayerUserId(t, gameId))
+			var stealer *player
+			for _, p := range players {
+				if p != turn {
+					stealer = p
+					break
+				}
+			}
+			card, err := database.GetCurrentCardAnswer(gameId)
+			if err != nil || card.CardId == uuid.Nil {
+				t.Fatalf("current card: %v", err)
+			}
+			timeline, err := database.GetPlayerTimeline(gameId, turn.playerId)
+			if err != nil {
+				t.Fatalf("timeline: %v", err)
+			}
+			rec := serve(apiTrackTimeline.PlaceCard, authedRequest(t, "POST",
+				"/api/track-timeline/"+lobbyId.String()+"/place-card",
+				url.Values{"position": {fmt.Sprint(wrongPosition(timeline, card.ReleaseYear))}}, turn.userId))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("place: %d %s", rec.Code, rec.Body.String())
+			}
+			if g, _ := database.GetGameById(gameId); g.RoundPhase != database.PhaseStealJoin {
+				t.Fatalf("expected a steal window, phase is %q", g.RoundPhase)
+			}
+
+			time.Sleep(tc.wait)
+			rec = serve(apiTrackTimeline.ClaimSteal, authedRequest(t, "POST",
+				"/api/track-timeline/"+lobbyId.String()+"/claim-steal", url.Values{}, stealer.userId))
+			if rec.Code != tc.wantCode {
+				t.Errorf("claim %v after the window opened: want %d, got %d %s", tc.wait, tc.wantCode, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}

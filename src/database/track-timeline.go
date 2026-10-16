@@ -30,6 +30,15 @@ const (
 	StealTurnWindow = 15 * time.Second
 )
 
+// StealLatencyGrace is how long past its nominal end the server keeps a steal
+// window open before it closes it. Clients count down from the time-left they are
+// sent, so a player on a slow connection starts counting up to a second or two
+// after the server did and still sees time on the clock when the window is over;
+// without this their last-second Steal click, or placement, was refused. Nobody
+// else sees a difference except that a round with a steal window ends this much
+// later.
+const StealLatencyGrace = 1500 * time.Millisecond
+
 // Game statuses.
 const (
 	StatusWaiting  = "waiting"

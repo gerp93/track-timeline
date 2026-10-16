@@ -394,7 +394,9 @@ timer) deliberately aren't, so the board stays clickable.
 
 **Countdowns are the server's time-left, never a deadline.** Steal and challenge
 windows send `remainingMs`, so a browser's clock can't skew them, and the server
-enforces each window with its own timer. There is deliberately no per-turn timer:
+enforces each window with its own timer, closing it `StealLatencyGrace` (1.5s)
+after the countdown clients were shown so a slow connection's last-second claim
+or placement still lands. There is deliberately no per-turn timer:
 it was removed (one self-contained commit, "Remove the turn timer", so it can be
 reverted) because each browser counted it separately and nothing server-side
 enforced it.
