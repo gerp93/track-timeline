@@ -140,7 +140,7 @@ func TestAboutPageWithRulesTemplate(t *testing.T) {
 		"Round Flow: How Each Turn Works",
 		"Timeline Placement Rules",
 		"Tokens &amp; The Economy",
-		"Challenging &amp; Stealing",
+		"Stealing",
 		"Illustrated Examples",
 		"A Note on Fair Play",
 	}
@@ -189,7 +189,7 @@ func TestRulesFollowTheEconomy(t *testing.T) {
 		"3 tokens for the song name and 3 tokens for the artist, up to 6 tokens per song",
 		"spend 11 tokens to pass a difficult song",
 		"spend 12 tokens to listen to the song clip a second time",
-		"Spend 13 tokens to challenge",
+		"Spend 13 tokens to steal",
 		"Spend 14 tokens at any time",
 		"at least 13 tokens can click",
 	} {
