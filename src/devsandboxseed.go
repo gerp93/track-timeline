@@ -68,7 +68,7 @@ func main() {
 	// applied schema to.
 	features := gsBootstrap.Features{
 		Decks: true, DecksListPageOverride: true, WinCelebration: true,
-		LoseCelebration: true, WinVideo: true, LobbyTurnTimer: true,
+		LoseCelebration: true, WinVideo: true,
 	}
 	gsBootstrap.ApplySchema(gsStatic.StaticFiles, gsStatic.SQLFiles)
 	gsBootstrap.ApplyFeatureSchema(features)

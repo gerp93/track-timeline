@@ -53,7 +53,6 @@ func main() {
 		WinCelebration:        true,
 		LoseCelebration:       true,
 		WinVideo:              true,
-		LobbyTurnTimer:        true,
 	}
 	gsBootstrap.MountFeatures(features)
 

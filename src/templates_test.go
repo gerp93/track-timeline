@@ -39,7 +39,6 @@ func TestRulesAndSettingsTemplates(t *testing.T) {
 		DrawPileCount    int
 		DrawPileTooltip  string
 		YearRanges       []database.YearRange
-		TurnTimerSeconds int
 		WinnerName       string
 		Economy          database.Economy
 
@@ -74,7 +73,6 @@ func TestRulesAndSettingsTemplates(t *testing.T) {
 		YearRanges: []database.YearRange{
 			{FromYear: 1970, ToYear: 1999},
 		},
-		TurnTimerSeconds: 60,
 		Economy:          database.CurrentEconomy(),
 
 		PlaybackOptions: database.PlaybackOptions(),

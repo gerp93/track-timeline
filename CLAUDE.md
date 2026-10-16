@@ -393,17 +393,20 @@ to get this; the non-blocking banners (the active stealer's own turn, the turn
 timer) deliberately aren't, so the board stays clickable.
 
 **Countdowns are the server's time-left, never a deadline.** Steal and challenge
-windows send `remainingMs`, so a browser's clock can't skew them. The *turn* timer
-is the odd one out: it is started and counted by each browser on its own, from its
-own player's clip-ended event, and only the turn player's browser reports the
-timeout. Nothing server-side enforces it.
+windows send `remainingMs`, so a browser's clock can't skew them, and the server
+enforces each window with its own timer. There is deliberately no per-turn timer:
+it was removed (one self-contained commit, "Remove the turn timer", so it can be
+reverted) because each browser counted it separately and nothing server-side
+enforced it.
 
-**A player leaving on their own turn.** Because of the above, nothing would ever
-end a turn whose player has gone. `OnPlayerInactive` (`game/hooks.go`) calls
+**A player leaving on their own turn.** With no turn timer, nothing would end a
+turn whose player has gone. `OnPlayerInactive` (`game/hooks.go`) calls
 `apiTrackTimeline.WatchAbandonedTurn`, which after `turnAbandonedGrace` (30s)
 checks the same player is still gone and still holds the same song, then discards
-it and advances (`discardTurn`, shared with the turn-timer timeout). Only the
-listening phase needs this; the steal phases have their own server timers.
+it and advances (`discardTurn`). Only the listening phase needs this; the steal
+phases have their own server timers. A player who stays connected but idle is not
+covered. `TimeoutPass` (`/timeout`) remains as an endpoint but nothing in the UI
+calls it any more.
 
 **The YouTube player is hidden with off-screen CSS, not `display:none`** —
 the IFrame API needs real element dimensions to attach. This is a UI

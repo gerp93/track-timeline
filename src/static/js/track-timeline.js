@@ -8,8 +8,6 @@
 
 let ttConn = null;
 let ttLobbyId = null;
-let ttTurnTimerSeconds = 0;
-let ttDeferTimerStart = false;
 let ttStatusTimeout = null;
 
 let ttClipStartSeconds = 0;
@@ -26,9 +24,8 @@ const TT_GUESS_DRAFT_DELAY_MS = 200;
 
 // ---------------------------------------------------------------- websocket
 
-function initTrackTimeline(lobbyId, turnTimerSeconds) {
+function initTrackTimeline(lobbyId) {
     ttLobbyId = lobbyId;
-    setTurnTimerSeconds(turnTimerSeconds || 0);
 
     ttInitVolume();
     loadYouTubeApi();
@@ -52,14 +49,11 @@ function initTrackTimeline(lobbyId, turnTimerSeconds) {
         gsChat.wireForm(chatForm, chatInput, ttConn);
     }
 
-    // The board is what says whose turn it is, so the timer restarts whenever
-    // the board is swapped in.
     document.body.addEventListener("htmx:afterSwap", (event) => {
         if (event.detail.target && event.detail.target.id === "tt-board") {
             ttLoadChallengeOnce();
             ttSyncSelfStatus();
             syncPlaybackUI();
-            restartTurnTimer();
         }
         if (event.detail.target && event.detail.target.id === "tt-current-card") {
             syncPlaybackUI();
@@ -184,25 +178,14 @@ function handleMessage(message) {
             return;
         }
         ttCloseStealModal();
-        ttCloseTurnTimerBanner();
         stopSong();
         showStatus(payload.bottomMessage);
 
-        // Freeze the clock straight away: it belongs to a turn that has ended
-        // and must not keep ticking behind the reveal.
-        ttDeferTimerStart = true;
-
         const afterReveal = () => {
-            ttDeferTimerStart = false;
-            // A new round starts un-held, unlistened and with Play enabled:
-            // the clip that was holding the clock belonged to the round that
-            // just ended, and stopVideo does not reliably fire ENDED, so the
-            // gates are cleared here rather than left to a state transition
-            // that may never arrive. The turn clock stays off until this
-            // round's clip ends or is paused — restartTurnTimer alone must
-            // not start it here.
-            ttTimerHeldForPlayback = false;
-            ttTimerReleasedThisRound = false;
+            // A new round starts unlistened and with Play enabled: the clip
+            // from the round that just ended is over, and stopVideo does not
+            // reliably fire ENDED, so the gates are cleared here rather than
+            // left to a state transition that may never arrive.
             ttClipReachedPlaying = false;
             ttClipListenedThisRound = false;
             ttClipFinished = false;
@@ -243,24 +226,6 @@ function handleMessage(message) {
 
     if (message.startsWith("settings:")) {
         ttApplyLiveSettings(JSON.parse(message.substring("settings:".length)));
-        return;
-    }
-
-    if (message.startsWith("turnTimer:")) {
-        setTurnTimerSeconds(message.substring("turnTimer:".length));
-        showStatus(ttTurnTimerSeconds > 0
-            ? "Turn timer set to " + ttTurnTimerSeconds + "s"
-            : "Turn timer turned off");
-        // Apply a mid-game change immediately only when the clock is already
-        // eligible to run (clip heard/paused). Otherwise just store the new
-        // duration for the eventual release.
-        if (ttTurnTimerSeconds <= 0) {
-            ttCloseTurnTimerBanner();
-            return;
-        }
-        if (!ttDeferTimerStart && !ttTimerHeldForPlayback && ttTimerReleasedThisRound) {
-            doRestartTurnTimer();
-        }
         return;
     }
 
@@ -333,7 +298,6 @@ function refreshGame() {
                 if (typeof roomPhoneSyncBoardVisibility === "function") {
                     roomPhoneSyncBoardVisibility();
                 }
-                restartTurnTimer();
                 ttRevealOwnRowForSteal();
             })
             .catch((e) => console.error("[TrackTimeline] board refresh failed:", e));
@@ -438,11 +402,6 @@ window.onYouTubeIframeAPIReady = function () {
             // just the call sites that ask it to play/pause/stop, so a
             // buffered/ended video (or a fragment re-swap mid-playback) never
             // leaves the UI out of sync with what's actually audible.
-            //
-            // It is also where the held turn clock is released: the clip
-            // reaching its endSeconds fires ENDED, and a manual pause fires
-            // PAUSED, which are exactly the two moments the turn is meant to
-            // start being timed.
             onStateChange: (event) => {
                 if (event.data === YT.PlayerState.PLAYING) {
                     // Cue/load often emits PAUSED before the first PLAYING.
@@ -471,7 +430,6 @@ window.onYouTubeIframeAPIReady = function () {
                 if (ttClipReachedPlaying &&
                     (event.data === YT.PlayerState.ENDED || event.data === YT.PlayerState.PAUSED)) {
                     ttClipListenedThisRound = true;
-                    ttReleaseTimerAfterPlayback();
                 }
                 syncPlaybackUI();
             },
@@ -763,16 +721,12 @@ function playSong(videoId, startSeconds, endSeconds) {
         return;
     }
 
-    // A fresh clip means the turn hasn't started being timed yet -- the clock
-    // is held until this finishes or the player pauses it (see
-    // ttHoldTimerForPlayback).
-    ttHoldTimerForPlayback();
     ttPlaybackStartedThisRound = true;
-    // Explicit, not just relying on ttHoldTimerForPlayback's own reset: a
-    // paid Restart (ReplaySong) calls playSong() again for the exact same
-    // round, and both of these gate real UI actions (the Play/Pause click
-    // handler and the clip-progress ring) on being accurate right now, not
-    // eventually once some event fires.
+    // A paid Restart (ReplaySong) calls playSong() again for the exact same
+    // round, and these gate real UI actions (the Play/Pause click handler and
+    // the clip-progress ring) on being accurate right now, not eventually once
+    // some event fires.
+    ttClipListenedThisRound = false;
     ttClipFinished = false;
     ttClipReachedPlaying = false;
     // Only arm the listen gate on this round's first play. A paid Restart is
@@ -794,7 +748,7 @@ function playSong(videoId, startSeconds, endSeconds) {
 
     try {
         // endSeconds is the IFrame API's own clip support: it stops there and
-        // fires ENDED, which is what releases the turn timer. 0/undefined
+        // fires ENDED. 0/undefined
         // means play to the end of the video ('full' playback mode).
         const request = { videoId: videoId, startSeconds: startSeconds || 0 };
         if (endSeconds > 0) request.endSeconds = endSeconds;
@@ -823,25 +777,10 @@ function playSong(videoId, startSeconds, endSeconds) {
 }
 
 function stopSong() {
-    // Clear the hold gate BEFORE stopVideo so a lagged ENDED/PAUSED from the
-    // forced stop cannot release and flash the turn timer as the round ends.
-    // ttTimerReleasedThisRound must clear too, not just the hold flag: a
-    // round that ends without a reveal (timeout discard, skip) never runs
-    // afterReveal's reset, so a released flag from a clip heard earlier in
-    // this same turn would otherwise survive into the next song/turn and let
-    // restartTurnTimer start the clock again before anyone has pressed Play.
-    ttTimerHeldForPlayback = false;
-    ttTimerReleasedThisRound = false;
     ttClipReachedPlaying = false;
     // An explicit stop is not a playhead that merely stopped moving: drop the
     // movement backstop so the record halts now, not up to 400ms later.
     ttLastSpinMoved = 0;
-    // A round that ends here without a reveal never reaches the "result:"
-    // handler's own ttCloseTurnTimerBanner() call, so a banner already shown
-    // for the round that just got discarded (e.g. "ran out of time") would
-    // otherwise linger on screen, frozen, into the next player's turn.
-    ttCloseTurnTimerBanner();
-    ttTurnTimerDeadlineMs = 0;
 
     ttStopClipProgressTimer();
     ttResetClipProgress();
@@ -892,26 +831,9 @@ function ttUnlockAudio() {
     hideAudioUnlock();
 }
 
-// ------------------------------------------------------------------- timer
+// ------------------------------------------------------------- playback state
 
-// The turn clock does not run while the clip is playing. A player shouldn't
-// be spending their thinking time listening — the timer is for deciding where
-// the song goes, so it starts once the clip finishes on its own or the player
-// pauses it, whichever comes first. ttHoldTimerForPlayback stops and holds it;
-// ttReleaseTimerAfterPlayback starts it (idempotent — the release fires from
-// both the ENDED and PAUSED transitions, and repeated calls after the first
-// are no-ops rather than restarts, so pausing a second time doesn't hand the
-// player a fresh full clock).
-//
-// Display matches the steal countdown: a fixed top-of-screen banner with a
-// large bare number, driven by a deadline so board refreshes (guesses, token
-// changes) do not reset the remaining time. Unlike steal, the deadline is
-// client-local — the server has no turn-timer authority of its own.
-let ttTimerHeldForPlayback = false;
-let ttTimerReleasedThisRound = false;
 let ttClipReachedPlaying = false;
-let ttTurnTimerInterval = null;
-let ttTurnTimerDeadlineMs = 0;
 
 // ttClipListenedThisRound gates the paid restart button: it appears only once
 // the clip has been heard through or deliberately paused, never before the
@@ -974,160 +896,6 @@ function ttListenGateSatisfied() {
 
 function ttListenGateRemainingSeconds() {
     return Math.max(0, Math.ceil((ttListenGateDeadlineMs - Date.now()) / 1000));
-}
-
-// setTurnTimerSeconds keeps the tracked duration and the header badge's
-// visibility in sync. The badge element is always in the DOM (even when the
-// lobby loaded with the timer off) so a mid-game enable can show it without
-// a reload — same approach timeline-trivia uses.
-function setTurnTimerSeconds(seconds) {
-    ttTurnTimerSeconds = parseInt(seconds, 10) || 0;
-    const statEl = document.getElementById("tt-turn-timer-stat");
-    if (statEl) {
-        statEl.style.display = ttTurnTimerSeconds > 0 ? "" : "none";
-    }
-    if (ttTurnTimerSeconds <= 0) {
-        const timerEl = document.getElementById("tt-turn-timer");
-        if (timerEl) timerEl.textContent = "";
-    }
-}
-
-function ttCloseTurnTimerBanner() {
-    if (ttTurnTimerInterval) {
-        clearInterval(ttTurnTimerInterval);
-        ttTurnTimerInterval = null;
-    }
-    const existing = document.getElementById("tt-turn-timer-modal");
-    if (existing) existing.remove();
-
-    // The header badge is only ever written by the banner's own tick, so
-    // without this it keeps showing whatever number the ordinary countdown
-    // last wrote — frozen and increasingly wrong — all the way through a
-    // steal window/turn (which suppress the ordinary timer entirely) and
-    // into the next round, until a fresh ordinary countdown happens to
-    // start and overwrite it again.
-    const badgeEl = document.getElementById("tt-turn-timer");
-    if (badgeEl) badgeEl.textContent = "";
-}
-
-function ttHoldTimerForPlayback() {
-    ttTimerHeldForPlayback = true;
-    ttTimerReleasedThisRound = false;
-    ttClipReachedPlaying = false;
-    ttClipListenedThisRound = false;
-    ttClipFinished = false;
-    ttCloseTurnTimerBanner();
-    ttTurnTimerDeadlineMs = 0;
-}
-
-function ttReleaseTimerAfterPlayback() {
-    if (!ttTimerHeldForPlayback || ttTimerReleasedThisRound) return;
-    if (ttDeferTimerStart) return;
-    ttTimerHeldForPlayback = false;
-    ttTimerReleasedThisRound = true;
-    doRestartTurnTimer();
-}
-
-function restartTurnTimer() {
-    if (ttDeferTimerStart) return;
-    // A board refresh mid-clip must not sneak the clock back on behind the
-    // song that is still playing.
-    if (ttTimerHeldForPlayback) return;
-    // The clock only becomes eligible after clip end/pause. Board swaps and
-    // the post-reveal refresh must not start it early.
-    if (!ttTimerReleasedThisRound) return;
-    // Already ticking — keep the existing deadline (refresh must not reset).
-    if (ttTurnTimerInterval) return;
-    doRestartTurnTimer();
-}
-
-function doRestartTurnTimer() {
-    if (ttTurnTimerSeconds <= 0) {
-        ttCloseTurnTimerBanner();
-        ttTurnTimerDeadlineMs = 0;
-        return;
-    }
-
-    // Whose turn it is comes from the DOM rather than from JS state, so a
-    // refreshed board is always the source of truth.
-    const currentCard = document.querySelector("#tt-board .player-card.is-current");
-    if (!currentCard) {
-        ttCloseTurnTimerBanner();
-        ttTurnTimerDeadlineMs = 0;
-        return;
-    }
-
-    const deadlineMs = Date.now() + ttTurnTimerSeconds * 1000;
-    ttShowTurnTimerBanner(deadlineMs);
-}
-
-// ttShowTurnTimerBanner mirrors the steal attempt banner: non-blocking so the
-// board's placement buttons stay clickable, large centered countdown, short
-// instructional heading. Everyone sees the same clock; only the player on
-// turn reports the timeout when it hits zero.
-function ttShowTurnTimerBanner(deadlineMs) {
-    ttCloseTurnTimerBanner();
-    if (ttTurnTimerSeconds <= 0 || !deadlineMs) return;
-    ttTurnTimerDeadlineMs = deadlineMs;
-
-    const currentCard = document.querySelector("#tt-board .player-card.is-current");
-    if (!currentCard) return;
-    const mine = currentCard.classList.contains("is-me");
-    const nameEl = currentCard.querySelector(".player-name");
-    const name = nameEl ? nameEl.textContent.trim() : "Someone";
-
-    const wrap = document.createElement("div");
-    wrap.id = "tt-turn-timer-modal";
-    wrap.className = "tt-steal-banner-wrap";
-
-    const popup = document.createElement("div");
-    popup.className = "tt-steal-banner";
-
-    const heading = document.createElement("div");
-    heading.className = "tt-popup-title";
-    heading.textContent = mine ? "Your turn!" : (name + "'s turn");
-    popup.appendChild(heading);
-
-    if (mine) {
-        const hint = document.createElement("div");
-        hint.className = "tt-popup-artist";
-        hint.textContent = "Place it on your timeline before time runs out.";
-        popup.appendChild(hint);
-    }
-
-    const ringObj = ttCreateCountdownRing();
-    popup.appendChild(ringObj.element);
-
-    wrap.appendChild(popup);
-    document.body.appendChild(wrap);
-
-    const badgeEl = document.getElementById("tt-turn-timer");
-    let expired = false;
-
-    const totalTurnMs = (ttTurnTimerSeconds || 30) * 1000;
-    const tick = () => {
-        const remainingMs = ttTurnTimerDeadlineMs - Date.now();
-        ringObj.update(remainingMs, totalTurnMs);
-        const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
-        if (badgeEl) badgeEl.textContent = seconds + "s";
-
-        if (remainingMs <= 0) {
-            clearInterval(ttTurnTimerInterval);
-            ttTurnTimerInterval = null;
-            if (expired) return;
-            expired = true;
-            // Only the player whose turn it is reports the timeout; the server
-            // re-checks anyway, so a stale call cannot end somebody else's turn.
-            if (mine && ttLobbyId) {
-                fetch("/api/track-timeline/" + ttLobbyId + "/timeout", { method: "POST" })
-                    .catch(() => {});
-            }
-        }
-    };
-    tick();
-    if (!expired) {
-        ttTurnTimerInterval = setInterval(tick, 200);
-    }
 }
 
 // ------------------------------------------------------------------ display
@@ -1552,9 +1320,8 @@ function showWinVideoModal(payload, onDone) {
 
 // -------------------------------------------------------------- steal modal
 //
-// Unlike the turn timer (each client starts its own independent local
-// countdown on receipt), the steal countdown's length is server-authoritative:
-// the payload carries the time left (remainingMs), and each client counts
+// The steal countdown's length is server-authoritative: the payload carries
+// the time left (remainingMs), and each client counts
 // down from receipt using only its own clock's elapsed time — never an
 // absolute server timestamp, which a skewed client clock would misread. The
 // server enforces the deadline itself (a scheduled
@@ -1580,13 +1347,6 @@ function ttCloseStealModal() {
 // of being covered.
 function ttShowStealModal(opts) {
     ttCloseStealModal();
-
-    // Pause the ordinary turn timer while this is up, the same way the
-    // reveal popup already does — it belongs to a phase that is not "waiting
-    // on the turn player's own timer" anymore.
-    ttDeferTimerStart = true;
-    ttCloseTurnTimerBanner();
-    ttTurnTimerDeadlineMs = 0;
 
     const blocking = opts.blocking !== false;
 
@@ -1698,8 +1458,8 @@ function ttLocalDeadline(payload) {
 
 // handleStealJoin shows the join-window modal. The turn player cannot steal
 // their own placement, so they see the countdown with no Steal button — "am
-// I the turn player" is read off the already-rendered board (the same
-// technique the turn timer uses), since this broadcast is identical for
+// I the turn player" is read off the already-rendered board, since this
+// broadcast is identical for
 // everyone and carries no per-viewer eligibility of its own. Whether the
 // original placement was actually right or wrong is deliberately never
 // revealed here — see steal.go's doc comment — so the heading must not

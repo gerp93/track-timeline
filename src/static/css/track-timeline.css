@@ -80,7 +80,7 @@
     opacity: 1;
 }
 
-/* A plain fact about the game (First to N, songs left, decks, turn timer) --
+/* A plain fact about the game (First to N, songs left, decks) --
    flat and borderless, unlike .badge/.currency-badge/.btn-buy, so at a
    glance it reads as information rather than something to click. */
 .stat-text {
@@ -1053,8 +1053,8 @@
     margin-top: 1rem;
 }
 
-/* Non-blocking variant, used for the active stealer's own turn and for the
-   regular turn timer so the board's +-slot buttons underneath (their actual
+/* Non-blocking variant, used for the active stealer's own turn so the
+   board's +-slot buttons underneath (their actual
    placement UI) stay clickable instead of being covered by a full-screen
    backdrop. */
 .tt-steal-banner-wrap {
