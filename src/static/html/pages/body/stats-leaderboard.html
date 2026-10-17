@@ -5,8 +5,7 @@
 <p>No game against an opponent has been finished yet.</p>
 {{else}}
 <p class="stat-hint">
-    Ranked by wins, then win rate. {{.TotalGames}} finished game(s) with at least one opponent
-    {{if .SoloGames}}(plus {{.SoloGames}} solo, which don't count){{end}}.
+    Ranked by wins, then win rate. {{.TotalGames}} finished game(s) with at least one opponent{{if .SoloGames}} (plus {{.SoloGames}} solo, which don't count){{end}}.
 </p>
 <table class="stat-table">
     <thead>
