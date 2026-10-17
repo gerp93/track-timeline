@@ -262,7 +262,8 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetDrawPile returns the songs-left count and its hover text as JSON, so the
-// header badge can refresh both together.
+// header badge can refresh both together. It also carries the whole-game
+// right/wrong totals for the header, which only ever count revealed rounds.
 func GetDrawPile(w http.ResponseWriter, r *http.Request) {
 	ctx, ok := loadContext(w, r)
 	if !ok {
@@ -278,9 +279,11 @@ func GetDrawPile(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(struct {
-		Count   int    `json:"count"`
-		Tooltip string `json:"tooltip"`
-	}{breakdown.Total, breakdown.Tooltip(ctx.Game.FreshSongsFirst)})
+		Count     int    `json:"count"`
+		Tooltip   string `json:"tooltip"`
+		Correct   int    `json:"correct"`
+		Incorrect int    `json:"incorrect"`
+	}{breakdown.Total, breakdown.Tooltip(ctx.Game.FreshSongsFirst), ctx.Game.TotalCorrect, ctx.Game.TotalIncorrect})
 }
 
 // GetDecks renders which decks fed this game's pile.

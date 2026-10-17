@@ -69,6 +69,10 @@
                 <span class="stat-text" id="tt-draw-pile-stat" title="{{.DrawPileTooltip}}">
                     <span class="bi bi-music-note-list"></span> <strong id="tt-draw-pile-count">{{.DrawPileCount}}</strong> songs left
                 </span>
+                <span class="stat-text" id="tt-guess-totals" title="Placements by the player on turn, right and wrong, across the whole game">
+                    <span class="bi bi-check-circle"></span> <strong id="tt-total-correct">{{.Game.TotalCorrect}}</strong> right
+                    <span class="bi bi-x-circle"></span> <strong id="tt-total-incorrect">{{.Game.TotalIncorrect}}</strong> wrong
+                </span>
                 <span class="stat-text tt-deck-tooltip" title="Hover for the decks in this game">
                     <span class="bi bi-collection"></span> Decks
                     <span id="tt-deck-info" class="tt-tooltip-body"></span>

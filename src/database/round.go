@@ -1080,6 +1080,14 @@ func resolveRound(gameId uuid.UUID, winnerPlayerId uuid.UUID, winnerName string,
 	}
 	outcome.GuessTokenWinners = guessWinners
 
+	// Every way a round ends follows a placement by the player on turn, so this
+	// is the moment their guess becomes public: a steal that took the card means
+	// theirs was wrong. Tallied here, not at lock-in, so the header totals never
+	// give the result away early.
+	if err := recordPlacementResult(gameId, winnerPlayerId != uuid.Nil && !wonBySteal); err != nil {
+		return outcome, err
+	}
+
 	if err := ClearPlacements(gameId); err != nil {
 		return outcome, err
 	}
@@ -1101,6 +1109,15 @@ func judgeBeforeResolving(gameId uuid.UUID) {
 	if err := JudgeRoundGuesses(gameId); err != nil {
 		log.Println(err)
 	}
+}
+
+// recordPlacementResult bumps the game's whole-game right/wrong tally by one.
+func recordPlacementResult(gameId uuid.UUID, correct bool) error {
+	column := "TOTAL_INCORRECT"
+	if correct {
+		column = "TOTAL_CORRECT"
+	}
+	return execute(fmt.Sprintf("UPDATE TRACK_TIMELINE_GAME SET %s = %s + 1 WHERE ID = ?", column, column), gameId)
 }
 
 // ResolveRoundWon awards the card to winnerPlayerId at winPosition.

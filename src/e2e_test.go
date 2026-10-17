@@ -840,14 +840,21 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("current card: %v", err)
 	}
+	totalsBefore, _ := database.GetGameById(gameId)
 	rec = serve(apiTrackTimeline.PlaceCard, authedRequest(t, "POST",
 		"/api/track-timeline/"+lobbyId.String()+"/place-card",
 		url.Values{"position": {fmt.Sprint(correctPosition(resolverTimeline, resolverCard.ReleaseYear))}}, resolver.userId))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("place card: %d %s", rec.Code, rec.Body.String())
 	}
-	if g, _ := database.GetGameById(gameId); g.RoundPhase != database.PhaseReveal && g.RoundPhase != database.PhaseListening {
+	g, _ = database.GetGameById(gameId)
+	if g.RoundPhase != database.PhaseReveal && g.RoundPhase != database.PhaseListening {
 		t.Fatalf("expected the round to resolve immediately with nobody eligible to steal, got %q", g.RoundPhase)
+	}
+	// The header's whole-game tally counts the revealed round, right and not wrong.
+	if g.TotalCorrect != totalsBefore.TotalCorrect+1 || g.TotalIncorrect != totalsBefore.TotalIncorrect {
+		t.Errorf("a correct placement should add one right and no wrong: %d/%d -> %d/%d",
+			totalsBefore.TotalCorrect, totalsBefore.TotalIncorrect, g.TotalCorrect, g.TotalIncorrect)
 	}
 	for _, p := range players {
 		drain(p)
@@ -1226,6 +1233,9 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 			"/api/track-timeline/"+lobbyId.String()+"/reset", url.Values{}, players[0].userId))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("reset: %d %s", rec.Code, rec.Body.String())
+		}
+		if g, _ := database.GetGameById(gameId); g.TotalCorrect != 0 || g.TotalIncorrect != 0 {
+			t.Errorf("reset should zero the right/wrong totals, got %d/%d", g.TotalCorrect, g.TotalIncorrect)
 		}
 		rec = serve(apiTrackTimeline.StartGame, authedRequest(t, "POST",
 			"/api/track-timeline/"+lobbyId.String()+"/start",

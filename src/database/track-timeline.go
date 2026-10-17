@@ -297,6 +297,11 @@ type Game struct {
 	// BetweenRounds is true from the moment a round resolves until the next
 	// song is played: the only window in which a challenge can be raised.
 	BetweenRounds bool
+	// TotalCorrect/TotalIncorrect tally the on-turn player's placements across
+	// the whole game. Bumped at reveal (see resolveRound), so reading them never
+	// gives away a result that has not been revealed yet.
+	TotalCorrect   int
+	TotalIncorrect int
 	WinnerId   uuid.NullUUID
 }
 
@@ -429,6 +434,8 @@ func getGameByColumn(column string, value uuid.UUID) (Game, error) {
 			CLIP_END_SECONDS,
 			REPLAY_USED,
 			BETWEEN_ROUNDS,
+			TOTAL_CORRECT,
+			TOTAL_INCORRECT,
 			WINNER_ID
 		FROM TRACK_TIMELINE_GAME
 		WHERE %s = ?
@@ -458,6 +465,8 @@ func getGameByColumn(column string, value uuid.UUID) (Game, error) {
 			&game.ClipEndSeconds,
 			&game.ReplayUsed,
 			&game.BetweenRounds,
+			&game.TotalCorrect,
+			&game.TotalIncorrect,
 			&game.WinnerId,
 		); err != nil {
 			log.Println(err)
@@ -1450,7 +1459,8 @@ func ResetGame(gameId uuid.UUID) error {
 	sqlResetGame := `
 		UPDATE TRACK_TIMELINE_GAME
 		SET GAME_STATUS = ?, ROUND_PHASE = ?, PHASE_STARTED_ON_DATE = NULL,
-			CURRENT_PLAYER_ID = NULL, WINNER_ID = NULL, BETWEEN_ROUNDS = 0
+			CURRENT_PLAYER_ID = NULL, WINNER_ID = NULL, BETWEEN_ROUNDS = 0,
+			TOTAL_CORRECT = 0, TOTAL_INCORRECT = 0
 		WHERE ID = ?
 	`
 	return execute(sqlResetGame, StatusWaiting, PhaseListening, gameId)

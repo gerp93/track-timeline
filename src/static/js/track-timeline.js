@@ -311,6 +311,10 @@ function refreshGame() {
                 pile.textContent = info.count;
                 const stat = document.getElementById("tt-draw-pile-stat");
                 if (stat) stat.title = info.tooltip;
+                const right = document.getElementById("tt-total-correct");
+                const wrong = document.getElementById("tt-total-incorrect");
+                if (right) right.textContent = info.correct;
+                if (wrong) wrong.textContent = info.incorrect;
             })
             .catch(() => {});
     }
