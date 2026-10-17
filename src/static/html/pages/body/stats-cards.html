@@ -13,8 +13,8 @@
 <p class="stat-hint">
     {{if eq .View "hardest"}}Songs placed wrong more often than the table average ({{.Average.Percent}}) on a player's own turn. A song needs at least {{.MinTries}} tries to be ranked, and the order weighs how many tries there were: a song missed 8 of 10 times outranks one missed 3 of 3.
     {{else if eq .View "easiest"}}Songs placed right more often than the table average ({{.Average.Percent}}) on a player's own turn. A song needs at least {{.MinTries}} tries to be ranked, and the order weighs how many tries there were: a song placed right 10 of 10 times outranks one placed right 3 of 3.
-    {{else if eq .View "known"}}Songs whose title and artist were named more often than the table average ({{.Naming.Percent}}). A song needs at least {{.MinGuesses}} guesses to be ranked, and the order weighs how many guesses there were: a song named 20 of 20 times outranks one named 6 of 6.
-    {{else if eq .View "unknown"}}Songs whose title and artist were named less often than the table average ({{.Naming.Percent}}). A song needs at least {{.MinGuesses}} guesses to be ranked, and the order weighs how many guesses there were: a song missed 20 of 20 times outranks one missed 6 of 6.
+    {{else if eq .View "known"}}Songs whose title and artist were named more often than the table average ({{.Naming.Percent}}, title and artist results averaged). A song needs at least {{.MinGuesses}} guesses to be ranked, and the order weighs how many guesses there were: a song named right 20 of 20 times outranks one named right 6 of 6.
+    {{else if eq .View "unknown"}}Songs whose title and artist were named less often than the table average ({{.Naming.Percent}}, title and artist results averaged). A song needs at least {{.MinGuesses}} guesses to be ranked, and the order weighs how many guesses there were: a song missed 20 of 20 times outranks one missed 6 of 6.
     {{else if eq .View "skipped"}}Songs players skipped when they came up. Skipped songs are often a video that won't play &mdash; worth a look in the library.
     {{else}}Songs with the most placement attempts: every own-turn placement and every steal attempt counts once. A song that was only skipped, or came up but was never placed, doesn't count.
     {{end}}
@@ -63,7 +63,7 @@
     Showing {{len .Rows}} of {{.Total}} qualifying songs.
     {{if or (eq .View "hardest") (eq .View "easiest")}}Of the {{.Played}} songs played, only {{.Eligible}} have the {{.MinTries}}+ own-turn tries needed to be ranked &mdash; most songs have only come up once or twice, so this list firms up as more games are played.{{end}}
     {{if or (eq .View "known") (eq .View "unknown")}}Of the {{.Played}} songs played, {{.Guessed}} have been guessed on {{.MinGuesses}}+ times and can be ranked.{{end}}
-    The title and artist columns count guesses: &ldquo;3 / 4&rdquo; means 3 of the 4 guesses on that song got it right. The recognition rankings weigh both together.</p>
+    The title and artist columns count guesses: &ldquo;3 / 4&rdquo; means 3 of the 4 guesses on that song got it right. One guess is one entry, checked separately for the title and for the artist. The recognition rankings average the title and artist results.</p>
 {{end}}
 {{end}}
 {{end}}

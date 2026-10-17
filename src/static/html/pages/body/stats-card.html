@@ -29,11 +29,11 @@
             {{if ge $s.Percentile 0}}of {{.Rankable}} ranked songs{{else}}needs {{.MinTries}} own-turn tries to rank{{end}}
         </span>
     </div>
-    <div class="stat-tile" title="{{$s.Recognised.Tip}}">
-        <span class="stat-tile-label">Named (title &amp; artist)</span>
-        <span class="stat-tile-value">{{$s.Recognised.Percent}}</span>
+    <div class="stat-tile">
+        <span class="stat-tile-label">Guesses</span>
+        <span class="stat-tile-value">{{$s.Guesses}}</span>
         <span class="stat-tile-note">
-            {{if $s.Guesses}}{{$s.Guesses}} guess{{if ne $s.Guesses 1}}es{{end}}: title {{$s.NamedTitle.Fraction}} &middot; artist {{$s.NamedArtist.Fraction}}{{else}}nobody has guessed it{{end}}
+            {{if $s.Guesses}}title right {{$s.NamedTitle.Fraction}} &middot; artist right {{$s.NamedArtist.Fraction}}{{else}}nobody has guessed it{{end}}
         </span>
     </div>
     <div class="stat-tile">
