@@ -116,6 +116,7 @@ func main() {
 	http.Handle("POST /api/videos/mark-ok", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.MarkVideosOk)))
 	http.Handle("POST /api/videos/mark-unavailable", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.MarkVideosUnavailable)))
 	http.Handle("POST /api/videos/mark-incorrect", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.MarkVideosIncorrect)))
+	http.Handle("POST /api/videos/dismiss-mismatches", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.DismissVideoMismatches)))
 	http.Handle("POST /api/videos/delete", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.DeleteCards)))
 	http.Handle("GET /api/videos/dead-export", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.ExportDeadVideos)))
 	http.Handle("POST /api/videos/import-links", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.ImportVideoLinks)))
@@ -133,6 +134,7 @@ func main() {
 	http.Handle("POST /api/card/{cardId}/mark-ok", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.MarkVideoOk)))
 	http.Handle("POST /api/card/{cardId}/mark-unavailable", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.MarkVideoUnavailable)))
 	http.Handle("POST /api/card/{cardId}/mark-incorrect", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.MarkVideoIncorrect)))
+	http.Handle("POST /api/card/{cardId}/dismiss-mismatch", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.DismissVideoMismatch)))
 	http.Handle("DELETE /api/card/{cardId}", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiCard.Delete)))
 
 	// genre (admin-managed; MiddlewareForAPIs only enforces login, so the

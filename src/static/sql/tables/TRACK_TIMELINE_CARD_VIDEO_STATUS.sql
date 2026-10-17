@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS TRACK_TIMELINE_CARD_VIDEO_STATUS(
     -- Playable but the wrong song. Stays on the dead-videos list until fixed
     -- or cleared by Mark OK / a successful API check.
     INCORRECT_VIDEO TINYINT(1) NOT NULL DEFAULT 0,
+    -- What YouTube calls the video, learned on the same check (the snippet part
+    -- rides the same one-unit videos.list call). YOUTUBE_TITLE_VIDEO_ID records
+    -- which video id the title was read from, so a title is only trusted while
+    -- it still matches CARD.YOUTUBE_VIDEO_ID -- a link edit orphans it without
+    -- anything having to clear it. Drives the Library "Mismatches" tab.
+    YOUTUBE_TITLE VARCHAR(255) NULL,
+    YOUTUBE_CHANNEL VARCHAR(255) NULL,
+    YOUTUBE_TITLE_VIDEO_ID VARCHAR(255) NULL,
+    -- The video id an admin said "looks fine" about on the Mismatches tab. Like
+    -- the title, it only counts while it equals the card's current video id.
+    MISMATCH_OK_VIDEO_ID VARCHAR(255) NULL,
     PRIMARY KEY(CARD_ID),
     FOREIGN KEY(CARD_ID) REFERENCES CARD(ID) ON DELETE CASCADE
 );

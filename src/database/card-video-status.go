@@ -190,14 +190,18 @@ func PruneUnavailableFromDrawPile(gameId uuid.UUID) error {
 }
 
 // staleVideoWhere is shared by count/list of cards that need a fresh
-// videos.list pass: never checked, last checked before olderThan, or
-// playable with no duration yet.
+// videos.list pass: never checked, last checked before olderThan, playable with
+// no duration yet, or playable with no YouTube title recorded for the current
+// link (what the Library Mismatches tab compares against). The title clause is
+// deliberately not in HasStaleVideoChecksForCards: a missing title is no reason
+// to hold up starting a game.
 const staleVideoWhere = `
 	C.YOUTUBE_VIDEO_ID IS NOT NULL
 	AND (
 		S.CARD_ID IS NULL
 		OR S.CHECKED_ON_DATE < ?
 		OR (S.AVAILABLE = 1 AND S.DURATION_SECONDS IS NULL)
+		OR (S.AVAILABLE = 1 AND (S.YOUTUBE_TITLE_VIDEO_ID IS NULL OR S.YOUTUBE_TITLE_VIDEO_ID <> C.YOUTUBE_VIDEO_ID))
 	)
 `
 
@@ -433,7 +437,8 @@ func CountDeadOrAwaitingVideos(search string, status string) (int, error) {
 }
 
 // CountLibraryIssues is the admin Library badge: dead/awaiting/incorrect
-// songs, undismissed duplicate groups, and songs missing a valid genre.
+// songs, undismissed duplicate groups, songs missing a valid genre, and videos
+// whose YouTube title does not look like their song.
 func CountLibraryIssues() (int, error) {
 	dead, err := CountDeadOrAwaitingVideos("", "all")
 	if err != nil {
@@ -447,7 +452,11 @@ func CountLibraryIssues() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return dead + duplicates + ungenred, nil
+	mismatches, err := CountVideoMismatches()
+	if err != nil {
+		return 0, err
+	}
+	return dead + duplicates + ungenred + mismatches, nil
 }
 
 // SearchDeadOrAwaitingVideos returns one page of dead / awaiting-validation

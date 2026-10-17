@@ -134,6 +134,17 @@ func MarkVideosIncorrect(w http.ResponseWriter, r *http.Request) {
 	updateVideoStatuses(w, r, database.MarkVideoIncorrect)
 }
 
+// DismissVideoMismatch marks one card's current video as the right song after
+// all, taking it off the Library Mismatches tab until its link changes.
+func DismissVideoMismatch(w http.ResponseWriter, r *http.Request) {
+	updateVideoStatus(w, r, database.DismissVideoMismatch)
+}
+
+// DismissVideoMismatches is DismissVideoMismatch for a selection.
+func DismissVideoMismatches(w http.ResponseWriter, r *http.Request) {
+	updateVideoStatuses(w, r, database.DismissVideoMismatch)
+}
+
 func DeleteCards(w http.ResponseWriter, r *http.Request) {
 	if !gsApi.UserIsAdmin(r) {
 		w.WriteHeader(http.StatusUnauthorized)

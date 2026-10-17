@@ -61,6 +61,15 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 		t.Fatalf("create card: %v", err)
 	}
 
+	// A video whose YouTube title looks nothing like the song, for the Library
+	// Mismatches tab.
+	if err := database.SetVideoStatus(cardId, true, 200); err != nil {
+		t.Fatalf("set video status: %v", err)
+	}
+	if err := database.SetVideoTitle(cardId, "renderVideoId", "Totally Different Tune", "Other Channel"); err != nil {
+		t.Fatalf("set video title: %v", err)
+	}
+
 	// Give the stats pages something to render: a win, a correct placement,
 	// and a correct guess.
 	if err := database.LogWin(userId, 10, 2); err != nil {
@@ -124,6 +133,10 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 		{"Account", gsApiPages.Account, "/account", false, nil, []string{"Win Celebration", "render_admin"}},
 		{"Categories", apiPages.Categories, "/categories", false, nil, []string{"Render Genre"}},
 		{"DeadVideos", apiPages.DeadVideos, "/videos", false, nil, []string{"Library", "Dead Videos (", "Duplicates (", "Ungenred ("}},
+		{
+			"DeadVideosMismatches", apiPages.DeadVideos, "/videos?tab=mismatches", false, nil,
+			[]string{"Mismatches (1)", "In the deck", "Render Song", "Render Artist", "Totally Different Tune", "Other Channel"},
+		},
 		{"Status", apiPages.Status, "/status", false, nil, []string{"API Status", `hx-post="/api/status/check"`, `hx-trigger="load"`}},
 		{"GuessTest", apiPages.GuessTest, "/guess-test", false, nil, []string{"Quizmaster Testing", "Find song", "Song name", "Artist", "Claude config", "claude-haiku-4-5"}},
 		{
@@ -179,5 +192,19 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 				}
 			}
 		})
+	}
+
+	// Telling the tab "looks fine" takes the song off it.
+	if err := database.DismissVideoMismatch(cardId); err != nil {
+		t.Fatalf("dismiss mismatch: %v", err)
+	}
+	mismatches, err := database.ListVideoMismatches("")
+	if err != nil {
+		t.Fatalf("list mismatches: %v", err)
+	}
+	for _, m := range mismatches {
+		if m.CardId == cardId {
+			t.Errorf("dismissed song %v still listed as a mismatch", cardId)
+		}
 	}
 }

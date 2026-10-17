@@ -52,6 +52,11 @@ func RecordVideoCheck(ctx context.Context, cardVideos []database.CardVideoId) (u
 		if err := database.SetVideoStatus(cv.CardId, video.Available, video.DurationSeconds); err != nil {
 			return unavailableCount, err
 		}
+		if video.Title != "" {
+			if err := database.SetVideoTitle(cv.CardId, cv.YouTubeVideoId, video.Title, video.Channel); err != nil {
+				return unavailableCount, err
+			}
+		}
 	}
 
 	return unavailableCount, nil
