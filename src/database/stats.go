@@ -63,10 +63,21 @@ type statsGuess struct {
 	Artist bool
 }
 
-// statsCardEvent is one row of TRACK_TIMELINE_LOG_CARD.
+// statsCardEvent is one row of TRACK_TIMELINE_LOG_CARD. UserId is set for
+// 'dealt' and, since buyers began to be recorded, 'bought' events.
 type statsCardEvent struct {
 	CardId uuid.UUID
 	Type   string
+	UserId uuid.NullUUID
+}
+
+// statsWager is one row of TRACK_TIMELINE_LOG_WAGER.
+type statsWager struct {
+	UserId  uuid.UUID
+	CardId  uuid.UUID
+	At      time.Time
+	Tokens  int
+	Correct bool
 }
 
 // statsUser is the slice of USER the stats need.
@@ -89,6 +100,7 @@ type statsSnapshot struct {
 	wins       []statsWin
 	guesses    []statsGuess
 	events     []statsCardEvent
+	wagers     []statsWager
 	users      map[uuid.UUID]statsUser
 	cards      map[uuid.UUID]statsCard
 }
@@ -146,6 +158,13 @@ type PlayerStats struct {
 	Artist  Rate
 	Both    Rate
 
+	Bought        int  // cards bought with tokens, where the buyer was on record
+	Wagers        Rate // exact-year wagers: Hit = right, Total = placed
+	WagerStaked   int  // tokens staked across every wager
+	WagerNet      int  // tokens won minus tokens lost on wagers
+	BiggestWager  int  // largest stake, 0 when none
+	BiggestWin    int  // largest stake on a wager that came in
+	BiggestLoss   int  // largest stake on a wager that missed
 	LongestStreak int
 	Decades       []Rate // aligned with StatsReport.DecadeAxis
 	Genres        []NamedRate
@@ -170,6 +189,17 @@ func (p PlayerStats) EdgeLabel() string {
 		return "0.0"
 	}
 	return fmt.Sprintf("%+.1f", edge)
+}
+
+// WagerNetLabel is WagerNet for display, signed: "+4", "-2", "0".
+func (p PlayerStats) WagerNetLabel() string { return signedTokens(p.WagerNet) }
+
+// signedTokens renders a token delta with an explicit sign.
+func signedTokens(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	return fmt.Sprintf("%+d", n)
 }
 
 // ExpectedLabel is Expected rounded to one place.
@@ -223,34 +253,58 @@ type SongStats struct {
 
 // StatsTotals are the table-wide headline figures.
 type StatsTotals struct {
-	Games         int // finished games with at least one opponent
-	SoloGames     int
-	StandardCards int // the usual "first to N cards" target; game-length figures only compare games played to it
-	Sessions      int
-	Players       int
-	Placements    int
-	Songs         int // distinct songs placed
-	Turn          Rate
-	Steal         Rate
-	Guesses       int
-	Title         Rate
-	Artist        Rate
-	Both          Rate
-	Draws         int
-	Skips         int
-	Bought        int
-	Discards      int
-	MedianMinutes int
-	MedianPlaces  int
-	FirstOn       time.Time
-	LastOn        time.Time
+	Games           int // finished games with at least one opponent
+	OnlineGames     int // of Games: played online
+	RoomGames       int // of Games: played in person (room mode)
+	UnrecordedGames int // of Games: logged before the mode was recorded
+	SoloGames       int
+	StandardCards   int // the usual "first to N cards" target; game-length figures only compare games played to it
+	Sessions        int
+	Players         int
+	Placements      int
+	Songs           int // distinct songs placed
+	Turn            Rate
+	Steal           Rate
+	Guesses         int
+	Title           Rate
+	Artist          Rate
+	Both            Rate
+	Draws           int
+	Skips           int
+	Bought          int // every card bought with tokens, including buys with no buyer on record
+	BoughtByName    int // of Bought: those whose buyer is on record
+	Discards        int
+	Wagers          Rate // exact-year wagers: Hit = right, Total = placed
+	WagerStaked     int  // tokens staked across every wager
+	WagerNet        int  // tokens won minus tokens lost on wagers
+	MedianMinutes   int
+	MedianPlaces    int
+	FirstOn         time.Time
+	LastOn          time.Time
 }
+
+// WagerNetLabel is WagerNet for display, signed.
+func (t StatsTotals) WagerNetLabel() string { return signedTokens(t.WagerNet) }
 
 // SkipRate is skipped draws out of all draws.
 func (t StatsTotals) SkipRate() Rate { return Rate{Hit: t.Skips, Total: t.Draws} }
 
+// WagerRecord is one standout wager.
+type WagerRecord struct {
+	Tokens   int
+	UserId   uuid.UUID
+	UserName string
+	Known    bool // the wagerer is an approved account with a stats page
+	At       time.Time
+	Title    string
+	Artist   string
+}
+
 // StatsRecords are the standout single results.
 type StatsRecords struct {
+	BiggestWager     *WagerRecord // largest stake, right or wrong
+	BiggestWagerWin  *WagerRecord // largest stake on a year that was right (net + that many tokens)
+	BiggestWagerLoss *WagerRecord // largest stake on a year that was wrong (net - that many tokens)
 	StreakPlayerId   uuid.UUID
 	StreakPlayerName string
 	StreakLength     int
@@ -343,7 +397,7 @@ func loadStatsSnapshot() (statsSnapshot, error) {
 	rows.Close()
 
 	rows, err = query(`
-		SELECT USER_ID, CREATED_ON_DATE, CARDS_TO_WIN, PLAYER_COUNT
+		SELECT USER_ID, CREATED_ON_DATE, CARDS_TO_WIN, PLAYER_COUNT, IS_ROOM
 		FROM TRACK_TIMELINE_LOG_WIN
 		ORDER BY CREATED_ON_DATE ASC, ID ASC
 	`)
@@ -352,7 +406,7 @@ func loadStatsSnapshot() (statsSnapshot, error) {
 	}
 	for rows.Next() {
 		var w statsWin
-		if err := rows.Scan(&w.UserId, &w.At, &w.CardsToWin, &w.PlayerCount); err != nil {
+		if err := rows.Scan(&w.UserId, &w.At, &w.CardsToWin, &w.PlayerCount, &w.Room); err != nil {
 			rows.Close()
 			log.Println(err)
 			return snapshot, errors.New("failed to scan row in query results")
@@ -380,18 +434,37 @@ func loadStatsSnapshot() (statsSnapshot, error) {
 	}
 	rows.Close()
 
-	rows, err = query("SELECT CARD_ID, EVENT_TYPE FROM TRACK_TIMELINE_LOG_CARD")
+	rows, err = query("SELECT CARD_ID, EVENT_TYPE, USER_ID FROM TRACK_TIMELINE_LOG_CARD")
 	if err != nil {
 		return snapshot, err
 	}
 	for rows.Next() {
 		var e statsCardEvent
-		if err := rows.Scan(&e.CardId, &e.Type); err != nil {
+		if err := rows.Scan(&e.CardId, &e.Type, &e.UserId); err != nil {
 			rows.Close()
 			log.Println(err)
 			return snapshot, errors.New("failed to scan row in query results")
 		}
 		snapshot.events = append(snapshot.events, e)
+	}
+	rows.Close()
+
+	rows, err = query(`
+		SELECT USER_ID, CARD_ID, CREATED_ON_DATE, TOKENS, IS_CORRECT
+		FROM TRACK_TIMELINE_LOG_WAGER
+		ORDER BY CREATED_ON_DATE ASC, ID ASC
+	`)
+	if err != nil {
+		return snapshot, err
+	}
+	for rows.Next() {
+		var w statsWager
+		if err := rows.Scan(&w.UserId, &w.CardId, &w.At, &w.Tokens, &w.Correct); err != nil {
+			rows.Close()
+			log.Println(err)
+			return snapshot, errors.New("failed to scan row in query results")
+		}
+		snapshot.wagers = append(snapshot.wagers, w)
 	}
 	rows.Close()
 
@@ -420,6 +493,7 @@ func loadStatsSnapshot() (statsSnapshot, error) {
 		WHERE C.ID IN (SELECT CARD_ID FROM TRACK_TIMELINE_LOG_PLACEMENT)
 			OR C.ID IN (SELECT CARD_ID FROM TRACK_TIMELINE_LOG_TITLE_GUESS)
 			OR C.ID IN (SELECT CARD_ID FROM TRACK_TIMELINE_LOG_CARD)
+			OR C.ID IN (SELECT CARD_ID FROM TRACK_TIMELINE_LOG_WAGER)
 	`)
 	if err != nil {
 		return snapshot, err
@@ -627,9 +701,59 @@ func buildStatsReport(s statsSnapshot) *StatsReport {
 		case CardEventBought:
 			totals.Bought++
 			songFor(e.CardId).Bought++
+			if e.UserId.Valid {
+				totals.BoughtByName++
+				if player := playerFor(e.UserId.UUID); player != nil {
+					player.Bought++
+				}
+			}
 		case CardEventDiscarded:
 			totals.Discards++
 			songFor(e.CardId).Discards++
+		}
+	}
+
+	// Exact-year wagers: a right year pays the stake back doubled (net +stake), a
+	// wrong one loses it (net -stake).
+	for _, w := range s.wagers {
+		net := -w.Tokens
+		if w.Correct {
+			net = w.Tokens
+		}
+		totals.Wagers.tally(w.Correct)
+		totals.WagerStaked += w.Tokens
+		totals.WagerNet += net
+
+		record := func(slot **WagerRecord) {
+			if *slot != nil && (*slot).Tokens >= w.Tokens {
+				return
+			}
+			rec := &WagerRecord{Tokens: w.Tokens, UserId: w.UserId, UserName: report.nameOf(w.UserId), At: w.At}
+			if user, ok := s.users[w.UserId]; ok && user.Approved {
+				rec.Known = true
+			}
+			if card, ok := s.cards[w.CardId]; ok {
+				rec.Title, rec.Artist = card.Title, card.Artist
+			}
+			*slot = rec
+		}
+		record(&report.Records.BiggestWager)
+		if w.Correct {
+			record(&report.Records.BiggestWagerWin)
+		} else {
+			record(&report.Records.BiggestWagerLoss)
+		}
+
+		if player := playerFor(w.UserId); player != nil {
+			player.Wagers.tally(w.Correct)
+			player.WagerStaked += w.Tokens
+			player.WagerNet += net
+			player.BiggestWager = max(player.BiggestWager, w.Tokens)
+			if w.Correct {
+				player.BiggestWin = max(player.BiggestWin, w.Tokens)
+			} else {
+				player.BiggestLoss = max(player.BiggestLoss, w.Tokens)
+			}
 		}
 	}
 
@@ -663,6 +787,14 @@ func buildStatsReport(s statsSnapshot) *StatsReport {
 		}
 
 		totals.Games++
+		switch {
+		case !game.Room.Valid:
+			totals.UnrecordedGames++
+		case game.Room.Bool:
+			totals.RoomGames++
+		default:
+			totals.OnlineGames++
+		}
 		report.Records.BiggestTable = max(report.Records.BiggestTable, game.PlayerCount)
 		if game.CardsToWin == totals.StandardCards {
 			durations = append(durations, game.Minutes)
@@ -716,7 +848,7 @@ func buildStatsReport(s statsSnapshot) *StatsReport {
 
 	// Players: finish and order.
 	for id, p := range players {
-		if p.Turn.Total == 0 && p.Steal.Total == 0 && p.Guesses == 0 {
+		if p.Turn.Total == 0 && p.Steal.Total == 0 && p.Guesses == 0 && p.Wagers.Total == 0 && p.Bought == 0 {
 			continue
 		}
 		if len(p.Form) > 8 {
@@ -963,6 +1095,13 @@ type PlayerList struct {
 	Rows       []PlayerRow
 	AxisLabels []string
 	Everyone   []HeatCell // the table-wide row under the per-player era grid
+
+	// BuysTracked / WagersTracked say whether any buyer or wager is on record at
+	// all: both started being logged after the stats pages first shipped, so for
+	// older data the per-player cells show a dash rather than a misleading zero.
+	BuysTracked   bool
+	WagersTracked bool
+	Totals        StatsTotals
 }
 
 // GetPlayerList returns every approved player with any recorded activity.
@@ -972,7 +1111,12 @@ func GetPlayerList() (PlayerList, error) {
 		return PlayerList{}, err
 	}
 
-	list := PlayerList{AxisLabels: report.AxisLabels()}
+	list := PlayerList{
+		AxisLabels:    report.AxisLabels(),
+		BuysTracked:   report.Totals.BoughtByName > 0,
+		WagersTracked: report.Totals.Wagers.Has(),
+		Totals:        report.Totals,
+	}
 	for _, era := range report.Eras {
 		list.Everyone = append(list.Everyone, HeatCell{Rate: era.Turn})
 	}

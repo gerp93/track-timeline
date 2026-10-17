@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"sort"
 	"time"
 
@@ -45,6 +46,7 @@ type statsWin struct {
 	At          time.Time
 	CardsToWin  int
 	PlayerCount int
+	Room        sql.NullBool // in person (true), online (false), or not recorded (invalid)
 }
 
 // StatsGame is one finished game, rebuilt from the logs.
@@ -56,6 +58,7 @@ type StatsGame struct {
 	WinnerKnown bool // the winner is an approved account with a stats page
 	CardsToWin  int
 	PlayerCount int
+	Room        sql.NullBool
 	Players     []uuid.UUID
 	Placements  int
 	Minutes     int
@@ -98,6 +101,7 @@ func reconstructGames(wins []statsWin, placements []statsPlacement) []StatsGame 
 			WinnerId:    win.UserId,
 			CardsToWin:  win.CardsToWin,
 			PlayerCount: win.PlayerCount,
+			Room:        win.Room,
 		}
 		seen := make(map[uuid.UUID]bool)
 		for i := first; i < end; i++ {

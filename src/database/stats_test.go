@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"math"
 	"testing"
 	"time"
@@ -223,9 +224,9 @@ func TestBuildStatsReport(t *testing.T) {
 			{UserId: bob, CardId: songB, Title: false, Artist: false},
 		},
 		events: []statsCardEvent{
-			{songA, CardEventDrawn}, {songA, CardEventDrawn}, {songB, CardEventDrawn},
-			{songB, CardEventSkipped}, {songA, CardEventBought}, {songDeleted, CardEventDiscarded},
-			{songA, CardEventDealt},
+			{CardId: songA, Type: CardEventDrawn}, {CardId: songA, Type: CardEventDrawn}, {CardId: songB, Type: CardEventDrawn},
+			{CardId: songB, Type: CardEventSkipped}, {CardId: songA, Type: CardEventBought}, {CardId: songDeleted, Type: CardEventDiscarded},
+			{CardId: songA, Type: CardEventDealt},
 		},
 	}
 	report := buildStatsReport(snapshot)
@@ -405,5 +406,103 @@ func TestRecognitionViewsSplitAtTheTableAverage(t *testing.T) {
 	known := songView(report, SongViewKnown)
 	if len(known) != 2 || known[0].Title != "Known long" || known[1].Title != "Known short" {
 		t.Fatalf("most recognised should be above-average songs, longest record first: %+v", known)
+	}
+}
+
+func TestGameModeCountsOnlineInPersonAndUnrecorded(t *testing.T) {
+	a, b := uuid.New(), uuid.New()
+	users := map[uuid.UUID]statsUser{a: {Name: "A", Approved: true}, b: {Name: "B", Approved: true}}
+	var placements []statsPlacement
+	var wins []statsWin
+	modes := []sql.NullBool{
+		{Bool: false, Valid: true}, {Bool: false, Valid: true}, {Bool: true, Valid: true}, {}, // 2 online, 1 in person, 1 not recorded
+	}
+	for i, mode := range modes {
+		base := i * 600 // ten hours apart: separate games
+		placements = append(placements, statsPlacement{UserId: a, At: at(base), Correct: true}, statsPlacement{UserId: b, At: at(base + 1), Correct: true})
+		wins = append(wins, statsWin{UserId: a, At: at(base + 2), CardsToWin: 10, PlayerCount: 2, Room: mode})
+	}
+	// A solo game is not a game against anyone and must not be counted in any mode.
+	wins = append(wins, statsWin{UserId: a, At: at(5000), CardsToWin: 10, PlayerCount: 1, Room: sql.NullBool{Bool: true, Valid: true}})
+
+	report := buildStatsReport(statsSnapshot{users: users, cards: map[uuid.UUID]statsCard{}, placements: placements, wins: wins})
+	got := report.Totals
+	if got.Games != 4 || got.OnlineGames != 2 || got.RoomGames != 1 || got.UnrecordedGames != 1 {
+		t.Fatalf("mode counts wrong: games=%d online=%d room=%d unrecorded=%d", got.Games, got.OnlineGames, got.RoomGames, got.UnrecordedGames)
+	}
+	if got.OnlineGames+got.RoomGames+got.UnrecordedGames != got.Games {
+		t.Fatal("every finished game must be counted in exactly one mode")
+	}
+}
+
+func TestWagersAndBuysAreTalliedPerPlayerAndOverall(t *testing.T) {
+	ann, bob, guest := uuid.New(), uuid.New(), uuid.New()
+	song := uuid.New()
+	users := map[uuid.UUID]statsUser{
+		ann: {Name: "Ann", Approved: true}, bob: {Name: "Bob", Approved: true}, guest: {Name: "g", Approved: false},
+	}
+	cards := map[uuid.UUID]statsCard{song: {Title: "Hurt", Artist: "Johnny Cash", Year: 2002}}
+	snapshot := statsSnapshot{
+		users: users, cards: cards,
+		wagers: []statsWager{
+			{UserId: ann, CardId: song, At: at(1), Tokens: 1, Correct: true},  // +1
+			{UserId: ann, CardId: song, At: at(2), Tokens: 3, Correct: false}, // -3
+			{UserId: ann, CardId: song, At: at(3), Tokens: 2, Correct: true},  // +2
+			{UserId: bob, CardId: song, At: at(4), Tokens: 5, Correct: true},  // +5
+			{UserId: guest, CardId: song, At: at(5), Tokens: 4, Correct: false},
+		},
+		events: []statsCardEvent{
+			{CardId: song, Type: CardEventBought, UserId: uuid.NullUUID{UUID: ann, Valid: true}},
+			{CardId: song, Type: CardEventBought, UserId: uuid.NullUUID{UUID: ann, Valid: true}},
+			{CardId: song, Type: CardEventBought, UserId: uuid.NullUUID{UUID: bob, Valid: true}},
+			{CardId: song, Type: CardEventBought}, // logged before buyers were recorded
+		},
+	}
+	report := buildStatsReport(snapshot)
+
+	got := report.Totals
+	if got.Bought != 4 || got.BoughtByName != 3 {
+		t.Fatalf("buys: total %d with buyer %d, want 4 and 3", got.Bought, got.BoughtByName)
+	}
+	if got.Wagers != (Rate{Hit: 3, Total: 5}) || got.WagerStaked != 15 || got.WagerNet != 1+(-3)+2+5+(-4) {
+		t.Fatalf("overall wagers wrong: %+v staked=%d net=%d", got.Wagers, got.WagerStaked, got.WagerNet)
+	}
+
+	byName := map[string]PlayerStats{}
+	for _, p := range report.Players {
+		byName[p.UserName] = p
+	}
+	a := byName["Ann"]
+	if a.Bought != 2 || a.Wagers != (Rate{Hit: 2, Total: 3}) || a.WagerStaked != 6 || a.WagerNet != 0 {
+		t.Fatalf("Ann wrong: %+v", a)
+	}
+	if a.BiggestWager != 3 || a.BiggestWin != 2 || a.BiggestLoss != 3 || a.WagerNetLabel() != "0" {
+		t.Fatalf("Ann's extremes wrong: biggest=%d win=%d loss=%d", a.BiggestWager, a.BiggestWin, a.BiggestLoss)
+	}
+	if b := byName["Bob"]; b.Bought != 1 || b.BiggestWin != 5 || b.BiggestLoss != 0 || b.WagerNetLabel() != "+5" {
+		t.Fatalf("Bob wrong: %+v", b)
+	}
+	if _, ok := byName["g"]; ok {
+		t.Fatal("a guest must not get a player row")
+	}
+
+	// Table-wide records include the guest's wager, and say whose it was.
+	rec := report.Records
+	if rec.BiggestWager == nil || rec.BiggestWager.Tokens != 5 || rec.BiggestWager.UserName != "Bob" || rec.BiggestWager.Title != "Hurt" {
+		t.Fatalf("biggest wager wrong: %+v", rec.BiggestWager)
+	}
+	if rec.BiggestWagerWin == nil || rec.BiggestWagerWin.Tokens != 5 {
+		t.Fatalf("biggest wager win wrong: %+v", rec.BiggestWagerWin)
+	}
+	if rec.BiggestWagerLoss == nil || rec.BiggestWagerLoss.Tokens != 4 || rec.BiggestWagerLoss.UserName != "Guest" || rec.BiggestWagerLoss.Known {
+		t.Fatalf("biggest wager loss should be the guest's 4, unlinked: %+v", rec.BiggestWagerLoss)
+	}
+}
+
+func TestSignedTokens(t *testing.T) {
+	for n, want := range map[int]string{0: "0", 3: "+3", -2: "-2"} {
+		if got := signedTokens(n); got != want {
+			t.Errorf("signedTokens(%d) = %q, want %q", n, got, want)
+		}
 	}
 }

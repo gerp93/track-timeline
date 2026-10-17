@@ -904,7 +904,22 @@ func BuyCard(gameId uuid.UUID, playerId uuid.UUID) (BoughtCard, error) {
 		return bought, err
 	}
 
-	if logErr := LogCardEvent(card.CardId, CardEventBought); logErr != nil {
+	// Record who bought it; if the buyer can't be resolved the buy is still
+	// logged, just unattributed.
+	buyerUserId := uuid.Nil
+	if players, playersErr := GetPlayers(gameId); playersErr == nil {
+		for _, p := range players {
+			if p.PlayerId == playerId {
+				buyerUserId = p.UserId
+				break
+			}
+		}
+	}
+	if buyerUserId != uuid.Nil {
+		if logErr := LogCardBought(card.CardId, buyerUserId); logErr != nil {
+			log.Println(logErr)
+		}
+	} else if logErr := LogCardEvent(card.CardId, CardEventBought); logErr != nil {
 		log.Println(logErr)
 	}
 

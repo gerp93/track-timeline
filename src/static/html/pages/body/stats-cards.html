@@ -38,7 +38,8 @@
             <th class="stat-num">Year</th>
             <th>Placement accuracy</th>
             <th>Steals landed</th>
-            <th>Named</th>
+            <th>Title named</th>
+            <th>Artist named</th>
             <th class="stat-num">Skipped</th>
         </tr>
     </thead>
@@ -51,7 +52,8 @@
             <td class="stat-num">{{if .Year}}{{.Year}}{{end}}</td>
             <td>{{template "stats-rate" .Turn}}</td>
             <td>{{template "stats-num" .Steal}}</td>
-            <td>{{template "stats-num" .Recognised}}</td>
+            <td>{{template "stats-num" .NamedTitle}}</td>
+            <td>{{template "stats-num" .NamedArtist}}</td>
             <td class="stat-num">{{if .Skips}}{{.Skips}}{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
         </tr>
         {{end}}
@@ -61,8 +63,7 @@
     Showing {{len .Rows}} of {{.Total}} qualifying songs.
     {{if or (eq .View "hardest") (eq .View "easiest")}}Of the {{.Played}} songs played, only {{.Eligible}} have the {{.MinTries}}+ own-turn tries needed to be ranked &mdash; most songs have only come up once or twice, so this list firms up as more games are played.{{end}}
     {{if or (eq .View "known") (eq .View "unknown")}}Of the {{.Played}} songs played, {{.Guessed}} have been guessed on {{.MinGuesses}}+ times and can be ranked.{{end}}
-    "Named" pools title and artist: a guess gets two chances to be right.
-</p>
+    The title and artist columns count guesses: &ldquo;3 / 4&rdquo; means 3 of the 4 guesses on that song got it right. The recognition rankings weigh both together.</p>
 {{end}}
 {{end}}
 {{end}}

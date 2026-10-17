@@ -44,6 +44,30 @@
         <span class="stat-tile-note">{{if $p.Guesses}}{{$p.Both.Fraction}} guesses{{else}}no guesses yet{{end}}</span>
     </div>
     <div class="stat-tile">
+        <span class="stat-tile-label">Songs bought</span>
+        <span class="stat-tile-value">{{$p.Bought}}</span>
+        <span class="stat-tile-note">paid for with tokens{{if not $p.Bought}} &middot; none on record{{end}}</span>
+    </div>
+    <div class="stat-tile" title="{{$p.Wagers.Tip}}">
+        <span class="stat-tile-label">Exact-year wagers</span>
+        {{if $p.Wagers.Has}}
+        <span class="stat-tile-value">{{$p.Wagers.Total}}</span>
+        <span class="stat-tile-note">{{$p.Wagers.Hit}} right ({{$p.Wagers.Percent}}) &middot; net {{$p.WagerNetLabel}} tokens</span>
+        {{else}}
+        <span class="stat-tile-value">&ndash;</span>
+        <span class="stat-tile-note">none on record yet</span>
+        {{end}}
+    </div>
+    {{if $p.Wagers.Has}}
+    <div class="stat-tile">
+        <span class="stat-tile-label">Biggest wager</span>
+        <span class="stat-tile-value">{{$p.BiggestWager}}</span>
+        <span class="stat-tile-note">
+            {{if $p.BiggestWin}}biggest win {{$p.BiggestWin}}{{else}}no wager won yet{{end}} &middot; {{if $p.BiggestLoss}}biggest loss {{$p.BiggestLoss}}{{else}}no wager lost yet{{end}}
+        </span>
+    </div>
+    {{end}}
+    <div class="stat-tile">
         <span class="stat-tile-label">Best streak</span>
         <span class="stat-tile-value">{{$p.LongestStreak}}</span>
         <span class="stat-tile-note">right in a row on their own turn</span>

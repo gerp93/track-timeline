@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"unicode"
 
@@ -181,6 +182,18 @@ func LobbyIsRoom(lobbyId uuid.UUID) (bool, error) {
 	}
 	defer rows.Close()
 	return rows.Next(), nil
+}
+
+// LobbyModeForLog is LobbyIsRoom shaped for LogWin: true for a room-mode (in
+// person) lobby, false for an online one, and invalid when the lookup failed so
+// the game is stored as "not recorded" rather than guessed.
+func LobbyModeForLog(lobbyId uuid.UUID) sql.NullBool {
+	isRoom, err := LobbyIsRoom(lobbyId)
+	if err != nil {
+		log.Println(err)
+		return sql.NullBool{}
+	}
+	return sql.NullBool{Bool: isRoom, Valid: true}
 }
 
 // SetRoomPaused freezes or unfreezes room gameplay (host disconnect / reconnect).

@@ -82,14 +82,47 @@ func LogCardDealt(cardId uuid.UUID, userId uuid.UUID, poolSize sql.NullInt64) er
 	return execute(sqlString, id, cardId, CardEventDealt, userId, poolSize)
 }
 
-// LogWin records a completed game.
-func LogWin(userId uuid.UUID, cardsToWin int, playerCount int) error {
+// LogCardBought records a card bought with tokens, and who bought it. (Buys
+// logged before the buyer was recorded have no USER_ID and are reported as
+// unattributed.)
+func LogCardBought(cardId uuid.UUID, userId uuid.UUID) error {
 	id, err := uuid.NewUUID()
 	if err != nil {
 		log.Println(err)
 		return errors.New("failed to generate new id")
 	}
 
-	sqlString := "INSERT INTO TRACK_TIMELINE_LOG_WIN (ID, USER_ID, CARDS_TO_WIN, PLAYER_COUNT) VALUES (?, ?, ?, ?)"
-	return execute(sqlString, id, userId, cardsToWin, playerCount)
+	sqlString := "INSERT INTO TRACK_TIMELINE_LOG_CARD (ID, CARD_ID, EVENT_TYPE, USER_ID) VALUES (?, ?, ?, ?)"
+	return execute(sqlString, id, cardId, CardEventBought, userId)
+}
+
+// LogWager records one exact-year wager: the year the player named, the song's
+// real year, the tokens staked, and whether the year was right. Right pays the
+// stake back doubled (net +tokens); wrong loses it (net -tokens).
+func LogWager(userId uuid.UUID, cardId uuid.UUID, exactYearGuess int, releaseYear int, tokens int, isCorrect bool) error {
+	id, err := uuid.NewUUID()
+	if err != nil {
+		log.Println(err)
+		return errors.New("failed to generate new id")
+	}
+
+	sqlString := `
+		INSERT INTO TRACK_TIMELINE_LOG_WAGER (ID, USER_ID, CARD_ID, EXACT_YEAR_GUESS, RELEASE_YEAR, TOKENS, IS_CORRECT)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`
+	return execute(sqlString, id, userId, cardId, exactYearGuess, releaseYear, tokens, isCorrect)
+}
+
+// LogWin records a completed game. isRoom says whether it was played in room
+// mode (in person) or online; pass an invalid value when that could not be
+// determined, and the game is stored as "not recorded".
+func LogWin(userId uuid.UUID, cardsToWin int, playerCount int, isRoom sql.NullBool) error {
+	id, err := uuid.NewUUID()
+	if err != nil {
+		log.Println(err)
+		return errors.New("failed to generate new id")
+	}
+
+	sqlString := "INSERT INTO TRACK_TIMELINE_LOG_WIN (ID, USER_ID, CARDS_TO_WIN, PLAYER_COUNT, IS_ROOM) VALUES (?, ?, ?, ?, ?)"
+	return execute(sqlString, id, userId, cardsToWin, playerCount, isRoom)
 }

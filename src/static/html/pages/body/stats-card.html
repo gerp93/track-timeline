@@ -30,10 +30,10 @@
         </span>
     </div>
     <div class="stat-tile" title="{{$s.Recognised.Tip}}">
-        <span class="stat-tile-label">Named</span>
+        <span class="stat-tile-label">Named (title &amp; artist)</span>
         <span class="stat-tile-value">{{$s.Recognised.Percent}}</span>
         <span class="stat-tile-note">
-            {{if $s.Guesses}}title {{$s.NamedTitle.Fraction}} &middot; artist {{$s.NamedArtist.Fraction}}{{else}}nobody has guessed it{{end}}
+            {{if $s.Guesses}}{{$s.Guesses}} guess{{if ne $s.Guesses 1}}es{{end}}: title {{$s.NamedTitle.Fraction}} &middot; artist {{$s.NamedArtist.Fraction}}{{else}}nobody has guessed it{{end}}
         </span>
     </div>
     <div class="stat-tile">

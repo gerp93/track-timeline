@@ -198,6 +198,11 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 	if logErr := database.LogPlacement(ctx.UserId, card.CardId, card.ReleaseYear, false, correct); logErr != nil {
 		log.Println(logErr)
 	}
+	if usedExactYear {
+		if logErr := database.LogWager(ctx.UserId, card.CardId, exactYearGuess, card.ReleaseYear, yearWager, exactYearCorrect); logErr != nil {
+			log.Println(logErr)
+		}
+	}
 
 	eligible, err := database.AnyEligibleToSteal(ctx.Game.Id)
 	if err != nil {

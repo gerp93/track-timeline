@@ -117,6 +117,9 @@ func TestRoomModeEndToEnd(t *testing.T) {
 		t.Fatalf("host was seated as player %s; host display must be seatless", hostPlayer.Id)
 	}
 
+	if mode := database.LobbyModeForLog(room.LobbyId); !mode.Valid || !mode.Bool {
+		t.Fatalf("a room's lobby should read as in person for the win log, got %+v", mode)
+	}
 	isRoom, err := database.LobbyIsRoom(room.LobbyId)
 	if err != nil || !isRoom {
 		t.Fatalf("LobbyIsRoom = %v, %v", isRoom, err)
@@ -286,7 +289,7 @@ func TestRoomModeEndToEnd(t *testing.T) {
 	if approved, err := gsDatabase.GetUserIsApproved(guestUserId); err != nil || approved {
 		t.Fatalf("guest approved = %v, %v; want an unapproved account", approved, err)
 	}
-	if err := database.LogWin(guestUserId, 5, 2); err != nil {
+	if err := database.LogWin(guestUserId, 5, 2, sql.NullBool{Bool: true, Valid: true}); err != nil {
 		t.Fatalf("log guest win: %v", err)
 	}
 	guestCardId := uuid.New()

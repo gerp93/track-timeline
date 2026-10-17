@@ -70,3 +70,7 @@
     {{range .}}<span class="stat-form-pip{{if .Won}} stat-form-win{{end}}" title="{{if .Won}}Won{{else}}Lost{{end}} &middot; {{.Players}} players">{{if .Won}}W{{else}}L{{end}}</span>{{end}}
 </span>
 {{end}}
+
+{{/* One standout wager as a line: who, how many tokens, on which song, when.
+     Takes a database.WagerRecord. */}}
+{{define "stats-wager"}}{{if .Known}}<a href="/stats/user/{{.UserId}}">{{.UserName}}</a>{{else}}{{.UserName}}{{end}}, {{.Tokens}} token{{if ne .Tokens 1}}s{{end}}{{if .Title}} on &ldquo;{{.Title}}&rdquo;{{end}}, {{template "stats-date" .At}}{{end}}

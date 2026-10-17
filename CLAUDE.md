@@ -290,6 +290,19 @@ database. Definitions that hold on every page:
   players found per game match the win row's own `PLAYER_COUNT`. Games nobody
   finished leave no trace; solo games count toward accuracy but not wins. If a
   `GAME_ID` is ever added to the logs, replace this inference with it.
+- **Song rankings follow one rule set** (`songView`): Hardest/Easiest need
+  `minSongTries` own-turn tries and list only songs below/above the table average;
+  Most/Least recognised need `minGuessesForRecognition` guesses and the same
+  above/below split on pooled title+artist hits. Both order by the *shrunk* rate so
+  a long record outranks a short one. A tab's text must state its own rule.
+- **Some stats exist only from when they began being logged.** `LOG_WIN.IS_ROOM`
+  (online vs in-person, set in `CheckWinner` via `LobbyModeForLog`), the buyer on
+  `bought` rows of `LOG_CARD` (`LogCardBought`) and `TRACK_TIMELINE_LOG_WAGER`
+  (written at lock-in in `PlaceCard`: stake, year named, right/wrong; net is
+  +stake when right, -stake when wrong) have no history. Older rows are `NULL`/absent
+  and the pages say "not recorded" instead of guessing; never infer them (a room
+  row is deleted with its lobby). If a mode is added to the logs, record it at the
+  moment it happens.
 - **Timeline size at placement is deliberately not shown.** It is the biggest
   confounder of placement difficulty, but bought and dealt cards are not attributed
   to a player in the log, so reconstructing it is off by several cards.
@@ -387,7 +400,7 @@ boundary. See "Real-time" below for the same caveat applied to the DOM.
   as timeline-trivia's flagged-card/stats tables: a lobby (and everything
   hanging off it) is deleted when the last websocket client disconnects
   (framework behavior), but stats have to outlive that. A card's stats page
-  (`GetCardStats`) still resolves after the card itself is deleted — it
+  (`GetSongStats`) still resolves after the card itself is deleted — it
   shows "(deleted song)" rather than erroring. Do not add a foreign key to
   any `LOG_` table without removing this guarantee first.
 
