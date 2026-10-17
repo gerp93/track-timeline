@@ -39,6 +39,7 @@ var SQLFiles = []string{
 	"sql/tables/TRACK_TIMELINE_LOG_CARD.sql",
 	"sql/tables/TRACK_TIMELINE_LOG_WIN.sql",
 	"sql/tables/TRACK_TIMELINE_LOG_WAGER.sql",
+	"sql/tables/TRACK_TIMELINE_LOG_CHAT.sql",
 	"sql/tables/TRACK_TIMELINE_LOG_GENRE_ASSIGN.sql",
 
 	// migrations

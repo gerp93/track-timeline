@@ -113,6 +113,30 @@ func LogWager(userId uuid.UUID, cardId uuid.UUID, exactYearGuess int, releaseYea
 	return execute(sqlString, id, userId, cardId, exactYearGuess, releaseYear, tokens, isCorrect)
 }
 
+// LogChat records one line the game wrote to a lobby's chat. The game and
+// whether the lobby is a room are looked up in the same statement, so the row
+// stays attributable after those rows are deleted with the lobby. A failure is
+// reported to the caller to log; it must never stop the game.
+func LogChat(lobbyId uuid.UUID, message string) error {
+	id, err := uuid.NewUUID()
+	if err != nil {
+		log.Println(err)
+		return errors.New("failed to generate new id")
+	}
+
+	sqlString := `
+		INSERT INTO TRACK_TIMELINE_LOG_CHAT (ID, LOBBY_ID, GAME_ID, IS_ROOM, MESSAGE)
+		VALUES (
+			?,
+			?,
+			(SELECT ID FROM TRACK_TIMELINE_GAME WHERE LOBBY_ID = ?),
+			EXISTS (SELECT 1 FROM TRACK_TIMELINE_ROOM WHERE LOBBY_ID = ?),
+			?
+		)
+	`
+	return execute(sqlString, id, lobbyId, lobbyId, lobbyId, message)
+}
+
 // LogWin records a completed game. isRoom says whether it was played in room
 // mode (in person) or online; pass an invalid value when that could not be
 // determined, and the game is stored as "not recorded".

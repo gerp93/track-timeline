@@ -186,6 +186,27 @@ func TestRoomModeEndToEnd(t *testing.T) {
 	if !strings.Contains(guestRec.Header().Get("HX-Redirect"), "/room/"+code+"/play") {
 		t.Fatalf("join guest redirect = %q", guestRec.Header().Get("HX-Redirect"))
 	}
+	// The host-screen "sat down" line is a game-written chat line, so it is kept
+	// in the chat log, flagged as a room line and tied to the room's lobby.
+	{
+		room, roomErr := database.GetRoomByCode(code)
+		if roomErr != nil {
+			t.Fatalf("read the room: %v", roomErr)
+		}
+		var lines int
+		var inRoom bool
+		chatRows, err := gsDatabase.Query("SELECT COUNT(*), COALESCE(MIN(IS_ROOM), 0) FROM TRACK_TIMELINE_LOG_CHAT WHERE LOBBY_ID = ? AND MESSAGE = 'Sam sat down'", room.LobbyId)
+		if err != nil {
+			t.Fatalf("read the chat log: %v", err)
+		}
+		if chatRows.Next() {
+			_ = chatRows.Scan(&lines, &inRoom)
+		}
+		chatRows.Close()
+		if lines != 1 || !inRoom {
+			t.Errorf("expected one logged room line \"Sam sat down\", got %d (in room: %v)", lines, inRoom)
+		}
+	}
 	var guestNight *http.Cookie
 	for _, c := range guestRec.Result().Cookies() {
 		if c.Name == "TRACK-TIMELINE-ROOM-GUEST" {

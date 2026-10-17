@@ -303,6 +303,15 @@ database. Definitions that hold on every page:
   and the pages say "not recorded" instead of guessing; never infer them (a room
   row is deleted with its lobby). If a mode is added to the logs, record it at the
   moment it happens.
+- **`TRACK_TIMELINE_LOG_CHAT` keeps every line the game writes to chat** (not
+  what players type): `announce` (`api/tracktimeline/track-timeline.go`) logs each
+  line via `database.LogChat`, and the room host's "sat down" lines are logged
+  where they are written (`api/room/join.go`). It stores the raw text (colour
+  markup included), a `SEQ` total order, and the game and room flag snapshotted
+  in the same INSERT. It feeds no page: it exists so a statistic wanted later can
+  be rebuilt from what the game said at the time. A new place that writes game
+  chat must go through `announce` (or call `LogChat`) so it is kept. Private
+  `alert:` notices and the status line are not chat and are not logged.
 - **Timeline size at placement is deliberately not shown.** It is the biggest
   confounder of placement difficulty, but bought and dealt cards are not attributed
   to a player in the log, so reconstructing it is off by several cards.

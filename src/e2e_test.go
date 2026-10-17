@@ -1238,6 +1238,40 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	if finalGame.GameStatus != database.StatusFinished {
 		t.Fatalf("expected the game to be finished, got %q", finalGame.GameStatus)
 	}
+	// Everything the game said in chat while it ran was kept in the chat log,
+	// attributed to this game, in order -- including the public reveal of the
+	// exact-year wager, which is what lets wagers be rebuilt from it later.
+	{
+		var lines, wagerLines, outOfOrder int
+		chatRows, err := gsDatabase.Query(`
+			SELECT COUNT(*), COALESCE(SUM(MESSAGE LIKE '%nailed the exact year%'), 0)
+			FROM TRACK_TIMELINE_LOG_CHAT WHERE GAME_ID = ? AND IS_ROOM = 0`, gameId)
+		if err != nil {
+			t.Fatalf("read the chat log: %v", err)
+		}
+		if chatRows.Next() {
+			_ = chatRows.Scan(&lines, &wagerLines)
+		}
+		chatRows.Close()
+		orderRows, err := gsDatabase.Query(`
+			SELECT COUNT(*) FROM (
+				SELECT CREATED_ON_DATE, LAG(CREATED_ON_DATE) OVER (ORDER BY SEQ) prev
+				FROM TRACK_TIMELINE_LOG_CHAT WHERE GAME_ID = ?
+			) x WHERE prev IS NOT NULL AND CREATED_ON_DATE < prev`, gameId)
+		if err != nil {
+			t.Fatalf("check the chat log order: %v", err)
+		}
+		if orderRows.Next() {
+			_ = orderRows.Scan(&outOfOrder)
+		}
+		orderRows.Close()
+		if lines < 5 || wagerLines < 1 {
+			t.Errorf("expected the game's chat to be logged (incl. the wager reveal), got %d lines, %d wager lines", lines, wagerLines)
+		}
+		if outOfOrder != 0 {
+			t.Errorf("chat log SEQ order disagrees with time for %d lines", outOfOrder)
+		}
+	}
 	if !finalGame.WinnerId.Valid || finalGame.WinnerId.UUID != alice.userId {
 		t.Errorf("expected alice as the winner, got %+v", finalGame.WinnerId)
 	}
