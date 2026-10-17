@@ -387,3 +387,23 @@ func TestBuildStatsReportWithNoData(t *testing.T) {
 		t.Fatal("no decades without placements")
 	}
 }
+
+func TestRecognitionViewsSplitAtTheTableAverage(t *testing.T) {
+	report := &StatsReport{TurnAccuracy: 0.7, Totals: StatsTotals{Title: Rate{Hit: 50, Total: 100}, Artist: Rate{Hit: 50, Total: 100}}}
+	mk := func(title string, guesses, hits int) SongStats {
+		// each guess has two chances (title and artist); hits are pooled out of 2*guesses
+		return SongStats{Known: true, Title: title, Guesses: guesses, Recognised: Rate{Hit: hits, Total: 2 * guesses}}
+	}
+	report.Songs = []SongStats{
+		mk("Unknown long", 20, 0), mk("Unknown short", 6, 0), mk("Known long", 20, 40), mk("Known short", 6, 12),
+		mk("Middling", 10, 10), mk("Too few guesses", 2, 0),
+	}
+	unknown := songView(report, SongViewUnknown)
+	if len(unknown) != 2 || unknown[0].Title != "Unknown long" || unknown[1].Title != "Unknown short" {
+		t.Fatalf("least recognised should be below-average songs, longest record first: %+v", unknown)
+	}
+	known := songView(report, SongViewKnown)
+	if len(known) != 2 || known[0].Title != "Known long" || known[1].Title != "Known short" {
+		t.Fatalf("most recognised should be above-average songs, longest record first: %+v", known)
+	}
+}

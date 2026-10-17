@@ -148,8 +148,8 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 			func(r *http.Request) { r.SetPathValue("userId", userId.String()) },
 			[]string{"render_admin", "Wins", "Placement accuracy", "Naming songs"},
 		},
-		{"StatsCards", apiPages.StatsCards, "/stats/cards", false, nil, []string{"Hardest to place", "Most skipped"}},
-		{"StatsCardsPlayed", apiPages.StatsCards, "/stats/cards?view=played", false, nil, []string{"Render Song", "Render Artist", "1969"}},
+		{"StatsCards", apiPages.StatsCards, "/stats/cards", false, nil, []string{"Hardest to place", "Most recognised", "Least recognised", "Most skipped"}},
+		{"StatsCardsPlayed", apiPages.StatsCards, "/stats/cards?view=played", false, nil, []string{"Most placed", "Render Song", "Render Artist", "1969"}},
 		{
 			"StatsCard", apiPages.StatsCard, "/stats/card/{cardId}", false,
 			func(r *http.Request) { r.SetPathValue("cardId", cardId.String()) },

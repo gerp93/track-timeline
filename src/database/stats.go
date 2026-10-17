@@ -49,6 +49,7 @@ const (
 	SongViewHardest = "hardest"
 	SongViewEasiest = "easiest"
 	SongViewPlayed  = "played"
+	SongViewKnown   = "known"
 	SongViewUnknown = "unknown"
 	SongViewSkipped = "skipped"
 )
@@ -1016,13 +1017,16 @@ type SongRow struct {
 
 // SongList is the Songs tab.
 type SongList struct {
-	View     string
-	Rows     []SongRow
-	Total    int // songs the view qualified before the 50-row cut-off
-	MinTries int
-	Played   int  // distinct songs placed at all
-	Eligible int  // songs with enough own-turn tries to be ranked for difficulty
-	Average  Rate // the table's own-turn accuracy, the line hardest/easiest are measured against
+	View       string
+	Rows       []SongRow
+	Total      int // songs the view qualified before the 50-row cut-off
+	MinTries   int
+	MinGuesses int
+	Played     int  // distinct songs placed at all
+	Eligible   int  // songs with enough own-turn tries to be ranked for difficulty
+	Guessed    int  // songs guessed on often enough to be ranked for recognition
+	Average    Rate // the table's own-turn accuracy, the line hardest/easiest are measured against
+	Naming     Rate // title and artist hits pooled across every guess, the line known/unknown are measured against
 }
 
 func limitSongs(songs []SongStats, n int) []SongStats {
@@ -1037,6 +1041,8 @@ func limitSongs(songs []SongStats, n int) []SongStats {
 // remain reachable by id.
 func songView(report *StatsReport, view string) []SongStats {
 	songs := make([]SongStats, 0)
+	prior := report.Totals.recognitionPrior()
+	recognised := func(s SongStats) float64 { return s.Recognised.Smoothed(prior, smoothingStrength) }
 	for _, song := range report.Songs {
 		if !song.Known {
 			continue
@@ -1053,7 +1059,11 @@ func songView(report *StatsReport, view string) []SongStats {
 				songs = append(songs, song)
 			}
 		case SongViewUnknown:
-			if song.Guesses >= minGuessesForRecognition {
+			if song.Guesses >= minGuessesForRecognition && recognised(song) < prior {
+				songs = append(songs, song)
+			}
+		case SongViewKnown:
+			if song.Guesses >= minGuessesForRecognition && recognised(song) > prior {
 				songs = append(songs, song)
 			}
 		case SongViewSkipped:
@@ -1067,9 +1077,6 @@ func songView(report *StatsReport, view string) []SongStats {
 		}
 	}
 
-	recognised := func(s SongStats) float64 {
-		return s.Recognised.Smoothed(report.Totals.recognitionPrior(), smoothingStrength)
-	}
 	sort.SliceStable(songs, func(a, b int) bool {
 		x, y := songs[a], songs[b]
 		switch view {
@@ -1084,6 +1091,10 @@ func songView(report *StatsReport, view string) []SongStats {
 		case SongViewUnknown:
 			if recognised(x) != recognised(y) {
 				return recognised(x) < recognised(y)
+			}
+		case SongViewKnown:
+			if recognised(x) != recognised(y) {
+				return recognised(x) > recognised(y)
 			}
 		case SongViewSkipped:
 			if x.Skips != y.Skips {
@@ -1121,15 +1132,19 @@ func GetSongList(view string) (SongList, error) {
 		return SongList{}, err
 	}
 	switch view {
-	case SongViewEasiest, SongViewPlayed, SongViewUnknown, SongViewSkipped:
+	case SongViewEasiest, SongViewPlayed, SongViewKnown, SongViewUnknown, SongViewSkipped:
 	default:
 		view = SongViewHardest
 	}
 	songs := songView(report, view)
-	list := SongList{View: view, Total: len(songs), MinTries: minSongTries, Played: report.Totals.Songs, Average: report.Totals.Turn}
+	list := SongList{View: view, Total: len(songs), MinTries: minSongTries, MinGuesses: minGuessesForRecognition,
+		Played: report.Totals.Songs, Average: report.Totals.Turn, Naming: report.Totals.Title.add(report.Totals.Artist)}
 	for _, song := range report.Songs {
 		if song.Known && song.Turn.Total >= minSongTries {
 			list.Eligible++
+		}
+		if song.Known && song.Guesses >= minGuessesForRecognition {
+			list.Guessed++
 		}
 	}
 	for i, song := range limitSongs(songs, 50) {
