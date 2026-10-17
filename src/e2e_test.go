@@ -699,9 +699,17 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	if g, _ := database.GetGameById(gameId); g.RoundPhase != database.PhaseStealJoin {
 		t.Fatalf("expected steal_join after a correct exact-year lock-in with eligible stealers, got %q", g.RoundPhase)
 	}
+	// The stake is spent at lock-in but the win is not paid yet: a balance that
+	// jumped here would tell the table the year was right mid-steal-window.
+	if got, _ := database.GetPlayerTokens(gameId, exactPlacer.playerId); got != exactTokens-1 {
+		t.Errorf("during the steal window the exact-year placer should be down only the stake (%d), got %d", exactTokens-1, got)
+	}
 	exhaustStealWithMiss(exactPlacer, exactCard.ReleaseYear)
 	for _, p := range players {
 		drain(p)
+	}
+	if got, _ := database.GetPlayerTokens(gameId, exactPlacer.playerId); got != exactTokens+1 {
+		t.Errorf("after the reveal the correct exact-year wager should net +1 (%d), got %d", exactTokens+1, got)
 	}
 
 	// ================= 4d. a claimed steal that misses, when the original was

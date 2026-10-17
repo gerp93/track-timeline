@@ -1021,6 +1021,14 @@ func resolveRound(gameId uuid.UUID, winnerPlayerId uuid.UUID, winnerName string,
 		outcome.ExactYearCorrect = outcome.ExactYearGuess == card.ReleaseYear
 		outcome.YearWager = placement.YearWager
 		outcome.ExactYearPlayer = placement.PlayerName
+		// The stake left the balance at lock-in (it is public); the double-or-
+		// nothing payout waits for this moment, since a balance that jumped
+		// during the steal window would tell everyone the year was right.
+		if outcome.ExactYearCorrect {
+			if _, err := AddPlayerTokens(gameId, placement.PlayerId, 2*placement.YearWager); err != nil {
+				log.Println(err)
+			}
+		}
 	}
 	if placement, err := GetPlacement(gameId); err == nil && placement.Id != uuid.Nil {
 		outcome.CurrentPlayerRange = placement.YearRange.Format()
