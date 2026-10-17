@@ -71,6 +71,8 @@ var SQLFiles = []string{
 	"sql/migrations/MIG_TRACK_TIMELINE_TITLE_GUESS_ADD_JUDGED_BY_AI.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_BETWEEN_ROUNDS.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_TITLE_GUESS_PER_CARD.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_TOTAL_CORRECT.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_TOTAL_INCORRECT.sql",
 
 	// triggers
 	"sql/triggers/TR_AUDIT_CARD_DELETE.sql",

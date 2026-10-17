@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS TRACK_TIMELINE_GAME(
     -- window in which a player may raise a challenge. Set when the turn
     -- advances, cleared when the next song is played.
     BETWEEN_ROUNDS TINYINT(1) NOT NULL DEFAULT 0,
+    -- Whole-game tally of the on-turn player's placements, bumped at reveal.
+    TOTAL_CORRECT INT NOT NULL DEFAULT 0,
+    TOTAL_INCORRECT INT NOT NULL DEFAULT 0,
     WINNER_ID UUID NULL,
     PRIMARY KEY(ID),
     FOREIGN KEY(LOBBY_ID) REFERENCES LOBBY(ID) ON DELETE CASCADE,
