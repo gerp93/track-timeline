@@ -631,18 +631,18 @@ a.no-style {
     word-break: break-word;
 }
 
-/* A rate: a bar, then its percentage, then the raw counts. */
+/* A rate: a bar, then its percentage, then the raw counts. Every part has a
+   fixed width, so the bars in one table column start and end at the same place
+   whatever numbers sit beside them ("88% 7 / 8" vs "73% 82 / 113"). */
 .stat-rate {
-    display: flex;
+    display: grid;
+    grid-template-columns: 6rem 3rem 5.5rem;
     align-items: center;
-    gap: 0.5rem;
-    min-width: 11rem;
+    column-gap: 0.5rem;
     white-space: nowrap;
 }
 
 .stat-bar {
-    flex: 1;
-    min-width: 4rem;
     height: 0.7rem;
     border: 1px solid currentColor;
     border-radius: 4px;
@@ -655,7 +655,6 @@ a.no-style {
 }
 
 .stat-rate-pct {
-    min-width: 3.2ch;
     font-weight: bold;
     text-align: right;
     font-variant-numeric: tabular-nums;
