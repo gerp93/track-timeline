@@ -284,7 +284,9 @@ database. Definitions that hold on every page:
 - **Games are rebuilt, not logged.** The log tables carry no game id (and must stay
   FK-free), so `reconstructGames` (`stats-games.go`) treats each `LOG_WIN` row as
   closing a game and the placements since the previous win (capped at
-  `gameLookback`) as its contents. This is cross-checked in practice: distinct
+  `gameLookback`, and cut at the last quiet spell of `gameIdleGap`, 15 minutes,
+  because a lobby reset and restarted leaves an unfinished game before the gap
+  that must not be glued onto the one that was won) as its contents. This is cross-checked in practice: distinct
   players found per game match the win row's own `PLAYER_COUNT`. Games nobody
   finished leave no trace; solo games count toward accuracy but not wins. If a
   `GAME_ID` is ever added to the logs, replace this inference with it.

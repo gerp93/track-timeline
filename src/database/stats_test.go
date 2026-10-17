@@ -115,6 +115,40 @@ func TestReconstructGamesSplitsAtWinsAndCapsLookback(t *testing.T) {
 	}
 }
 
+func TestReconstructGamesTreatsALongSilenceAsARestart(t *testing.T) {
+	a, b, c := uuid.New(), uuid.New(), uuid.New()
+	place := func(u uuid.UUID, m int) statsPlacement { return statsPlacement{UserId: u, At: at(m), Correct: true} }
+
+	// A lobby plays 20 minutes (c is in it), is reset, and a new game is played
+	// and won by a, with no win logged for the first attempt.
+	placements := []statsPlacement{
+		place(a, 0), place(b, 2), place(c, 4), place(a, 19),
+		place(a, 42), place(b, 43), place(a, 45), place(b, 50), // 23 minutes of silence before this game
+	}
+	games := reconstructGames([]statsWin{{UserId: a, At: at(51), CardsToWin: 10, PlayerCount: 2}}, placements)
+	if len(games) != 1 {
+		t.Fatalf("got %d games, want 1", len(games))
+	}
+	if games[0].Placements != 4 || len(games[0].Players) != 2 {
+		t.Fatalf("only the restarted game's placements should count, got %+v", games[0])
+	}
+	if games[0].Minutes != 9 {
+		t.Fatalf("minutes = %d, want 9 (42 -> 51), not the whole evening", games[0].Minutes)
+	}
+	for _, p := range games[0].Players {
+		if p == c {
+			t.Fatal("a player who only appeared in the unfinished game must not be seated in the next one")
+		}
+	}
+
+	// A pause shorter than the idle gap is a break, not a restart.
+	shortBreak := []statsPlacement{place(a, 0), place(b, 1), place(a, 12), place(b, 13)}
+	games = reconstructGames([]statsWin{{UserId: a, At: at(14), CardsToWin: 10, PlayerCount: 2}}, shortBreak)
+	if games[0].Placements != 4 || games[0].Minutes != 14 {
+		t.Fatalf("a 11-minute pause must not split a game, got %+v", games[0])
+	}
+}
+
 func TestReconstructGamesAlwaysSeatsTheWinner(t *testing.T) {
 	winner := uuid.New()
 	games := reconstructGames([]statsWin{{UserId: winner, At: at(5), PlayerCount: 2}}, nil)

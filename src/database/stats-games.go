@@ -21,6 +21,10 @@ import (
 // the next.
 const (
 	gameLookback = 3 * time.Hour
+	// gameIdleGap is the quiet spell that marks a restart. In the real logs a
+	// game's longest pause is 8 minutes and a restart was 22, so 15 splits them
+	// cleanly; a genuine break longer than this would be read as a restart.
+	gameIdleGap  = 15 * time.Minute
 	sessionGap   = 4 * time.Hour
 	sessionGrace = 15 * time.Minute
 )
@@ -77,6 +81,16 @@ func reconstructGames(wins []statsWin, placements []statsPlacement) []StatsGame 
 		// First placement strictly after lower, then everything up to and
 		// including the win's own timestamp.
 		first := sort.Search(len(placements), func(i int) bool { return placements[i].At.After(lower) })
+		end := sort.Search(len(placements), func(i int) bool { return placements[i].At.After(win.At) })
+
+		// A long silence inside the window means the lobby was reset: only what
+		// follows the last one belongs to the game that was actually won.
+		for i := end - 1; i > first; i-- {
+			if placements[i].At.Sub(placements[i-1].At) > gameIdleGap {
+				first = i
+				break
+			}
+		}
 
 		game := StatsGame{
 			StartedOn:   win.At,
@@ -86,7 +100,7 @@ func reconstructGames(wins []statsWin, placements []statsPlacement) []StatsGame 
 			PlayerCount: win.PlayerCount,
 		}
 		seen := make(map[uuid.UUID]bool)
-		for i := first; i < len(placements) && !placements[i].At.After(win.At); i++ {
+		for i := first; i < end; i++ {
 			p := placements[i]
 			if game.Placements == 0 {
 				game.StartedOn = p.At
