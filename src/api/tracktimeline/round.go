@@ -173,12 +173,9 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 		// whether they were right wait for the reveal (see announceAndFinish).
 		announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> wagered %s on an exact year",
 			esc(ctx.Player.Name), tokenCount(yearWager)))
-		if exactYearCorrect {
-			// Double-or-nothing: return 2× the wager for a net gain of the wager.
-			if _, err := database.AddPlayerTokens(ctx.Game.Id, ctx.Player.Id, 2*yearWager); err != nil {
-				log.Println(err)
-			}
-		}
+		// A correct year pays 2× the wager back (net +wager), but not here: the
+		// payout is made when the round resolves (database.resolveRound), so the
+		// balance on the board doesn't give the result away mid-steal-window.
 	}
 
 	// Whatever is in the guess boxes when the placement locks in is this
