@@ -40,7 +40,7 @@ func parseChrome(bodyPattern string, funcMap template.FuncMap) (*template.Templa
 	if err != nil {
 		return nil, err
 	}
-	return t.ParseFS(static.StaticFiles, bodyPattern, "html/components/tracktimeline/rules.html")
+	return t.ParseFS(static.StaticFiles, bodyPattern, "html/components/tracktimeline/rules.html", "html/components/stats/stats.html")
 }
 
 func Home(w http.ResponseWriter, r *http.Request) {
@@ -609,12 +609,13 @@ func TrackTimelineLobbyAccess(w http.ResponseWriter, r *http.Request) {
 	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Lobby: lobby})
 }
 
-// Stats is the statistics hub: links into leaderboard, users, and cards.
-func Stats(w http.ResponseWriter, r *http.Request) {
-	basePageData := gsApi.GetBasePageData(r)
-	basePageData.PageTitle = "Stats"
+// statsPage renders one of the statistics pages. Every stats page has the same
+// shape (the shared chrome, a body template, one block of precomputed data), so
+// the handlers below only differ in what they fetch.
+func statsPage(w http.ResponseWriter, basePageData gsApi.BasePageData, pageTitle string, body string, stats any) {
+	basePageData.PageTitle = pageTitle
 
-	tmpl, err := parseChrome("html/pages/body/stats.html", nil)
+	tmpl, err := parseChrome("html/pages/body/"+body, nil)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to parse page template."))
@@ -623,69 +624,51 @@ func Stats(w http.ResponseWriter, r *http.Request) {
 
 	type data struct {
 		gsApi.BasePageData
+		Stats any
 	}
 
-	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData})
+	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Stats: stats})
 }
 
-// StatsLeaderboard ranks users by wins.
-func StatsLeaderboard(w http.ResponseWriter, r *http.Request) {
-	basePageData := gsApi.GetBasePageData(r)
-	basePageData.PageTitle = "Leaderboard"
+// Stats is the statistics overview: headline numbers, eras, genres, recent
+// games and sessions, records and the songs worth knowing about.
+func Stats(w http.ResponseWriter, r *http.Request) {
+	overview, err := database.GetStatsOverview()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get the statistics."))
+		return
+	}
 
-	rows, err := database.GetLeaderboard()
+	statsPage(w, gsApi.GetBasePageData(r), "Statistics", "stats.html", overview)
+}
+
+// StatsLeaderboard ranks players by wins.
+func StatsLeaderboard(w http.ResponseWriter, r *http.Request) {
+	board, err := database.GetLeaderboard()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to get the leaderboard."))
 		return
 	}
 
-	tmpl, err := parseChrome("html/pages/body/stats-leaderboard.html", nil)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to parse page template."))
-		return
-	}
-
-	type data struct {
-		gsApi.BasePageData
-		Rows []database.LeaderboardRow
-	}
-
-	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Rows: rows})
+	statsPage(w, gsApi.GetBasePageData(r), "Leaderboard", "stats-leaderboard.html", board)
 }
 
-// StatsUsers lists every user with at least one recorded placement or guess.
+// StatsUsers compares every player with recorded activity.
 func StatsUsers(w http.ResponseWriter, r *http.Request) {
-	basePageData := gsApi.GetBasePageData(r)
-	basePageData.PageTitle = "Players"
-
-	rows, err := database.GetUserStatsList()
+	list, err := database.GetPlayerList()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to get player stats."))
 		return
 	}
 
-	tmpl, err := parseChrome("html/pages/body/stats-users.html", nil)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to parse page template."))
-		return
-	}
-
-	type data struct {
-		gsApi.BasePageData
-		Rows []database.UserStatsRow
-	}
-
-	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Rows: rows})
+	statsPage(w, gsApi.GetBasePageData(r), "Players", "stats-users.html", list)
 }
 
 // StatsUser is one player's detail page.
 func StatsUser(w http.ResponseWriter, r *http.Request) {
-	basePageData := gsApi.GetBasePageData(r)
-
 	userId, err := uuid.Parse(r.PathValue("userId"))
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -693,60 +676,35 @@ func StatsUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := database.GetUserStats(userId)
+	page, found, err := database.GetPlayerStats(userId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to get player stats."))
 		return
 	}
-	basePageData.PageTitle = stats.UserName
-
-	tmpl, err := parseChrome("html/pages/body/stats-user.html", nil)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to parse page template."))
+	if !found {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("No stats for that player."))
 		return
 	}
 
-	type data struct {
-		gsApi.BasePageData
-		Stats database.UserStatsRow
-	}
-
-	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Stats: stats})
+	statsPage(w, gsApi.GetBasePageData(r), page.Player.UserName, "stats-user.html", page)
 }
 
-// StatsCards lists the songs most often placed wrong.
+// StatsCards ranks songs; ?view= picks the ranking.
 func StatsCards(w http.ResponseWriter, r *http.Request) {
-	basePageData := gsApi.GetBasePageData(r)
-	basePageData.PageTitle = "Hardest Songs"
-
-	rows, err := database.GetHardestCards(3)
+	list, err := database.GetSongList(r.URL.Query().Get("view"))
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to get song stats."))
 		return
 	}
 
-	tmpl, err := parseChrome("html/pages/body/stats-cards.html", nil)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to parse page template."))
-		return
-	}
-
-	type data struct {
-		gsApi.BasePageData
-		Rows []database.CardStatsRow
-	}
-
-	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Rows: rows})
+	statsPage(w, gsApi.GetBasePageData(r), "Songs", "stats-cards.html", list)
 }
 
 // StatsCard is one song's detail page.
 func StatsCard(w http.ResponseWriter, r *http.Request) {
-	basePageData := gsApi.GetBasePageData(r)
-
 	cardId, err := uuid.Parse(r.PathValue("cardId"))
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -754,27 +712,19 @@ func StatsCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := database.GetCardStats(cardId)
+	page, found, err := database.GetSongStats(cardId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to get song stats."))
 		return
 	}
-	basePageData.PageTitle = stats.Title
-
-	tmpl, err := parseChrome("html/pages/body/stats-card.html", nil)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to parse page template."))
+	if !found {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("No stats for that song."))
 		return
 	}
 
-	type data struct {
-		gsApi.BasePageData
-		Stats database.CardStatsRow
-	}
-
-	_ = tmpl.ExecuteTemplate(w, "base", data{BasePageData: basePageData, Stats: stats})
+	statsPage(w, gsApi.GetBasePageData(r), page.Song.Title, "stats-card.html", page)
 }
 
 // DeadVideos is the admin library page: dead/incorrect YouTube links and

@@ -1,27 +1,70 @@
 {{define "body"}}
-<h2>Players</h2>
+{{template "stats-nav" "players"}}
+{{with .Stats}}
 {{if eq (len .Rows) 0}}
 <p>Nobody has played yet.</p>
 {{else}}
-<table>
-    <thead>
-        <tr>
-            <th>Player</th>
-            <th>Wins</th>
-            <th>Placements</th>
-            <th>Guesses</th>
-        </tr>
-    </thead>
-    <tbody>
-        {{range .Rows}}
-        <tr>
-            <td><a href="/stats/user/{{.UserId}}">{{.UserName}}</a></td>
-            <td>{{.Wins}}</td>
-            <td>{{.CorrectPlaces}} / {{.Placements}}</td>
-            <td>{{.CorrectGuesses}} / {{.Guesses}}</td>
-        </tr>
-        {{end}}
-    </tbody>
-</table>
+<section class="stat-section">
+    <h3>Skills</h3>
+    <p class="stat-hint">Open a player for their full record.</p>
+    <table class="stat-table">
+        <thead>
+            <tr>
+                <th>Player</th>
+                <th class="stat-num">Games</th>
+                <th class="stat-num">Wins</th>
+                <th>Placement accuracy</th>
+                <th>Steals landed</th>
+                <th>Title named</th>
+                <th>Artist named</th>
+                <th class="stat-num" title="Longest run of correct own-turn placements">Best streak</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Rows}}
+            <tr>
+                <td class="stat-wrap"><a href="/stats/user/{{.UserId}}">{{.UserName}}</a></td>
+                <td class="stat-num">{{.Games}}</td>
+                <td class="stat-num">{{.Wins}}</td>
+                <td>{{template "stats-rate" .Turn}}</td>
+                <td>{{template "stats-rate" .Steal}}</td>
+                <td>{{template "stats-rate" .Title}}</td>
+                <td>{{template "stats-rate" .Artist}}</td>
+                <td class="stat-num">{{.LongestStreak}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</section>
+
+<section class="stat-section">
+    <h3>Strength by era</h3>
+    <p class="stat-hint">
+        Own-turn placement accuracy by decade, compared with everyone that decade: green is better than the
+        table, red is worse (a gap of 3 points or more, with at least 5 placements). The small line gives the
+        gap in points and how many placements the cell rests on; a dashed outline marks fewer than 10.
+    </p>
+    <table class="stat-table">
+        <thead>
+            <tr>
+                <th>Player</th>
+                {{range .AxisLabels}}<th class="stat-num">{{.}}</th>{{end}}
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Rows}}
+            <tr>
+                <td class="stat-wrap"><a href="/stats/user/{{.UserId}}">{{.UserName}}</a></td>
+                {{range .Cells}}{{template "stats-heat" .}}{{end}}
+            </tr>
+            {{end}}
+            <tr>
+                <td class="stat-nowrap"><strong>Everyone</strong></td>
+                {{range .Everyone}}{{template "stats-heat" .}}{{end}}
+            </tr>
+        </tbody>
+    </table>
+</section>
+{{end}}
 {{end}}
 {{end}}

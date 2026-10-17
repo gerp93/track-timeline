@@ -114,3 +114,19 @@ function submitTableFilterForm() {
         formElement.submit();
     }
 }
+// Statistics pages stamp moments as UTC (<time datetime="...Z">) so the server
+// never has to guess a time zone; show them in the viewer's own.
+function localizeStatTimes() {
+    document.querySelectorAll("time.stat-time[datetime]").forEach((el) => {
+        const moment = new Date(el.getAttribute("datetime"));
+        if (isNaN(moment.getTime())) {
+            return;
+        }
+        const options = el.dataset.style === "datetime"
+            ? { dateStyle: "medium", timeStyle: "short" }
+            : { dateStyle: "medium" };
+        el.textContent = moment.toLocaleString(undefined, options);
+    });
+}
+
+document.addEventListener("DOMContentLoaded", localizeStatTimes);

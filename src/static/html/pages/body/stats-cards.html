@@ -1,28 +1,58 @@
 {{define "body"}}
-<h2>Hardest Songs</h2>
-<p class="hint">Songs attempted at least 3 times, sorted by lowest placement accuracy.</p>
+{{template "stats-nav" "songs"}}
+{{with .Stats}}
+<nav class="library-subtabs" aria-label="Song rankings">
+    <a href="/stats/cards?view=hardest" class="library-subtab{{if eq .View "hardest"}} library-subtab-active{{end}}">Hardest to place</a>
+    <a href="/stats/cards?view=easiest" class="library-subtab{{if eq .View "easiest"}} library-subtab-active{{end}}">Easiest to place</a>
+    <a href="/stats/cards?view=unknown" class="library-subtab{{if eq .View "unknown"}} library-subtab-active{{end}}">Least recognised</a>
+    <a href="/stats/cards?view=skipped" class="library-subtab{{if eq .View "skipped"}} library-subtab-active{{end}}">Most skipped</a>
+    <a href="/stats/cards?view=played" class="library-subtab{{if eq .View "played"}} library-subtab-active{{end}}">Most played</a>
+</nav>
+
+<p class="stat-hint">
+    {{if eq .View "hardest"}}Songs most often placed wrong on a player's own turn. Songs need at least {{.MinTries}} tries, and the ranking weighs how many tries there were: a song missed 8 of 10 times outranks one missed 3 of 3.
+    {{else if eq .View "easiest"}}Songs most reliably placed right on a player's own turn, weighted by how many tries there were.
+    {{else if eq .View "unknown"}}Songs players guessed on at least 3 times, ranked by how rarely the title and artist were named.
+    {{else if eq .View "skipped"}}Songs players skipped when they came up. Skipped songs are often a video that won't play &mdash; worth a look in the library.
+    {{else}}Songs that have been placed the most.
+    {{end}}
+</p>
+
 {{if eq (len .Rows) 0}}
-<p>Not enough games played yet to have a ranking.</p>
+<p>Nothing to rank yet &mdash; this fills in as more games are played.</p>
 {{else}}
-<table>
+<table class="stat-table">
     <thead>
         <tr>
+            <th class="stat-num">#</th>
             <th>Song</th>
             <th>Artist</th>
-            <th>Year</th>
-            <th>Accuracy</th>
+            <th class="stat-num">Year</th>
+            <th>Placement accuracy</th>
+            <th>Steals landed</th>
+            <th>Named</th>
+            <th class="stat-num">Skipped</th>
         </tr>
     </thead>
     <tbody>
         {{range .Rows}}
         <tr>
-            <td><a href="/stats/card/{{.CardId}}">{{.Title}}</a></td>
-            <td>{{.Artist}}</td>
-            <td>{{.ReleaseYear}}</td>
-            <td>{{.CorrectPlaces}} / {{.Attempts}}</td>
+            <td class="stat-num">{{.Rank}}</td>
+            <td class="stat-wrap"><a href="/stats/card/{{.CardId}}">{{.Title}}</a></td>
+            <td class="stat-wrap">{{.Artist}}</td>
+            <td class="stat-num">{{if .Year}}{{.Year}}{{end}}</td>
+            <td>{{template "stats-rate" .Turn}}</td>
+            <td>{{template "stats-num" .Steal}}</td>
+            <td>{{template "stats-num" .Recognised}}</td>
+            <td class="stat-num">{{if .Skips}}{{.Skips}}{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
         </tr>
         {{end}}
     </tbody>
 </table>
+<p class="stat-hint">
+    Showing {{len .Rows}} of {{.Total}} qualifying songs.
+    "Named" pools title and artist: a guess gets two chances to be right.
+</p>
+{{end}}
 {{end}}
 {{end}}

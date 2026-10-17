@@ -533,3 +533,289 @@ a.no-style {
 .library-dup-table {
     width: 100%;
 }
+/* ---------------------------------------------------------------------------
+   Statistics pages (/stats...). Everything here is built from the theme's own
+   variables (--color-accent-*, --color-bg-hover, currentColor) so it follows
+   whichever of the colour themes the player picked, and none of it depends on
+   colour alone: every shaded bar or cell prints its number beside it.
+   --------------------------------------------------------------------------- */
+
+.stat-lede {
+    margin: 0.25rem 0 0;
+    opacity: 0.85;
+}
+
+.stat-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+    gap: 0.75rem;
+    margin: 1rem 0 0.5rem;
+}
+
+.stat-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+    padding: 0.65rem 0.9rem;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+}
+
+.stat-tile-label {
+    font-size: 0.8rem;
+    font-weight: bold;
+    letter-spacing: 0.02em;
+    opacity: 0.8;
+}
+
+.stat-tile-value {
+    font-size: 1.9rem;
+    font-weight: bold;
+    line-height: 1.15;
+}
+
+.stat-tile-note {
+    font-size: 0.8rem;
+    opacity: 0.85;
+}
+
+.stat-section h3 {
+    margin: 1.5rem 0 0.25rem;
+}
+
+.stat-hint {
+    margin: 0 0 0.5rem;
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+
+.stat-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+    gap: 0 2rem;
+    align-items: start;
+}
+
+.stat-table {
+    width: 100%;
+}
+
+.stat-table th {
+    text-align: left;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    border-bottom: 1px solid currentColor;
+}
+
+.stat-table td {
+    vertical-align: middle;
+}
+
+.stat-table tbody tr:hover {
+    background-color: var(--color-bg-hover);
+}
+
+.stat-table .stat-num,
+.stat-table th.stat-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat-table .stat-nowrap {
+    white-space: nowrap;
+}
+
+.stat-table .stat-wrap {
+    min-width: 10rem;
+    word-break: break-word;
+}
+
+/* A rate: a bar, then its percentage, then the raw counts. */
+.stat-rate {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 11rem;
+    white-space: nowrap;
+}
+
+.stat-bar {
+    flex: 1;
+    min-width: 4rem;
+    height: 0.7rem;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.stat-bar-fill {
+    height: 100%;
+    background-color: var(--color-accent-blue);
+}
+
+.stat-rate-pct {
+    min-width: 3.2ch;
+    font-weight: bold;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat-rate-n {
+    font-size: 0.8rem;
+    opacity: 0.7;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Too few tries to lean on: still shown, but visibly less certain. */
+.stat-small .stat-bar-fill {
+    opacity: 0.45;
+}
+
+.stat-small .stat-rate-pct,
+.stat-small .stat-heat-pct {
+    opacity: 0.7;
+}
+
+.stat-none {
+    opacity: 0.5;
+}
+
+.stat-num-rate {
+    white-space: nowrap;
+}
+
+/* Heat-map cells: shaded by the gap to the table's rate for that era (green
+   above, red below), capped so the number on top stays readable in every theme;
+   the number and the gap are always printed. */
+.stat-heat {
+    min-width: 4.6rem;
+    text-align: center;
+    border: 2px solid var(--color-bg);
+}
+
+.stat-heat-up {
+    background-color: color-mix(in srgb, var(--color-accent-green) calc(var(--tint, 0) * 0.45%), transparent);
+}
+
+.stat-heat-down {
+    background-color: color-mix(in srgb, var(--color-accent-red) calc(var(--tint, 0) * 0.45%), transparent);
+}
+
+.stat-heat-pct {
+    font-weight: bold;
+}
+
+.stat-heat-n {
+    display: block;
+    font-size: 0.7rem;
+    opacity: 0.75;
+}
+
+.stat-heat.stat-small {
+    outline: 1px dashed currentColor;
+    outline-offset: -4px;
+}
+
+.stat-pos {
+    color: var(--color-accent-green);
+}
+
+.stat-neg {
+    color: var(--color-accent-red);
+}
+
+.stat-form {
+    display: inline-flex;
+    gap: 0.2rem;
+    vertical-align: middle;
+}
+
+.stat-form-pip {
+    display: inline-block;
+    width: 1.35rem;
+    height: 1.35rem;
+    line-height: 1.35rem;
+    text-align: center;
+    font-size: 0.7rem;
+    font-weight: bold;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    opacity: 0.6;
+}
+
+.stat-form-pip.stat-form-win {
+    opacity: 1;
+    color: var(--color-accent-green);
+    border-color: var(--color-accent-green);
+}
+
+.stat-records {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.35rem 1.25rem;
+    margin: 0.5rem 0;
+}
+
+.stat-records dt {
+    font-weight: bold;
+    opacity: 0.85;
+}
+
+.stat-records dd {
+    margin: 0;
+}
+
+.stat-spotlight {
+    margin: 0.5rem 0 0;
+    padding-left: 1.25rem;
+}
+
+.stat-spotlight li {
+    margin-bottom: 0.4rem;
+}
+
+.stat-spotlight small {
+    display: block;
+    opacity: 0.75;
+}
+
+.stat-badge {
+    display: inline-block;
+    margin-left: 0.35rem;
+    padding: 0 0.4rem;
+    font-size: 0.7rem;
+    font-weight: bold;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    opacity: 0.8;
+    white-space: nowrap;
+}
+
+.stat-notes {
+    margin-top: 1.5rem;
+    font-size: 0.9rem;
+}
+
+.stat-notes p,
+.stat-notes ul {
+    margin: 0.4rem 0;
+}
+
+.stat-back {
+    display: inline-block;
+    margin: 0.25rem 0 0;
+    font-size: 0.9rem;
+}
+
+.stat-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 1rem;
+    margin: 0.75rem 0 0;
+}
+
+.stat-title-row h3 {
+    margin: 0;
+}

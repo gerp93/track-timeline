@@ -1,28 +1,142 @@
 {{define "body"}}
-<h2>{{.Stats.UserName}}</h2>
-<table>
-    <tbody>
-        <tr><th>Wins</th><td>{{.Stats.Wins}}</td></tr>
-        <tr>
-            <th>Placement Accuracy</th>
-            <td>
-                {{if gt .Stats.Placements 0}}
-                {{.Stats.CorrectPlaces}} / {{.Stats.Placements}}
-                {{else}}
-                <em>no placements yet</em>
+{{template "stats-nav" "players"}}
+{{with .Stats}}
+{{$p := .Player}}
+<a class="stat-back" href="/stats/users"><i class="bi bi-arrow-left"></i> All players</a>
+<div class="stat-title-row">
+    <h3>{{$p.UserName}}</h3>
+    {{if $p.Rank}}<span class="stat-badge">#{{$p.Rank}} on the leaderboard</span>{{end}}
+    {{if $p.Form}}{{template "stats-form" $p.Form}}{{end}}
+</div>
+
+<section class="stat-tiles" aria-label="Headline numbers">
+    <div class="stat-tile" title="{{$p.WinRate.Tip}}">
+        <span class="stat-tile-label">Wins</span>
+        <span class="stat-tile-value">{{$p.Wins}}</span>
+        <span class="stat-tile-note">
+            {{if $p.Games}}of {{$p.Games}} games &middot; {{$p.WinRate.Percent}}{{else}}no finished games yet{{end}}
+        </span>
+    </div>
+    <div class="stat-tile">
+        <span class="stat-tile-label">Wins vs. chance</span>
+        <span class="stat-tile-value {{if gt $p.Edge 0.049}}stat-pos{{else if lt $p.Edge -0.049}}stat-neg{{end}}">{{$p.EdgeLabel}}</span>
+        <span class="stat-tile-note">
+            {{if $p.Games}}expected {{$p.ExpectedLabel}} from the tables played{{else}}needs a finished game{{end}}
+        </span>
+    </div>
+    <div class="stat-tile" title="{{$p.Turn.Tip}}">
+        <span class="stat-tile-label">Placement accuracy</span>
+        <span class="stat-tile-value">{{$p.Turn.Percent}}</span>
+        <span class="stat-tile-note">
+            {{if $p.Turn.Has}}{{$p.Turn.Fraction}} own-turn &middot; table {{.Table.Turn.Percent}}
+            {{$d := $p.Turn.DeltaLabel .Table.Turn}}{{if $d}}(<span class="{{$p.Turn.DeltaClass .Table.Turn}}">{{$d}}</span>){{end}}
+            {{else}}no placements yet{{end}}
+        </span>
+    </div>
+    <div class="stat-tile" title="{{$p.Steal.Tip}}">
+        <span class="stat-tile-label">Steals landed</span>
+        <span class="stat-tile-value">{{$p.Steal.Percent}}</span>
+        <span class="stat-tile-note">{{if $p.Steal.Has}}{{$p.Steal.Fraction}} attempted{{else}}never tried one{{end}}</span>
+    </div>
+    <div class="stat-tile" title="{{$p.Both.Tip}}">
+        <span class="stat-tile-label">Songs fully named</span>
+        <span class="stat-tile-value">{{$p.Both.Percent}}</span>
+        <span class="stat-tile-note">{{if $p.Guesses}}{{$p.Both.Fraction}} guesses{{else}}no guesses yet{{end}}</span>
+    </div>
+    <div class="stat-tile">
+        <span class="stat-tile-label">Best streak</span>
+        <span class="stat-tile-value">{{$p.LongestStreak}}</span>
+        <span class="stat-tile-note">right in a row on their own turn</span>
+    </div>
+</section>
+
+<div class="stat-columns">
+    <section class="stat-section">
+        <h3>By era</h3>
+        <p class="stat-hint">Own-turn placement accuracy by decade, against everyone at the table.</p>
+        <table class="stat-table">
+            <thead>
+                <tr>
+                    <th>Era</th>
+                    <th>Accuracy</th>
+                    <th class="stat-num">Table</th>
+                    <th class="stat-num" title="Percentage points above or below the table">Gap</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range $i, $rate := $p.Decades}}
+                {{if $rate.Has}}
+                {{$era := index $.Stats.TableEras $i}}
+                <tr>
+                    <td class="stat-nowrap"><strong>{{$era.Label}}</strong></td>
+                    <td>{{template "stats-rate" $rate}}</td>
+                    <td class="stat-num">{{$era.Turn.Percent}}</td>
+                    <td class="stat-num"><span class="{{$rate.DeltaClass $era.Turn}}">{{$rate.DeltaLabel $era.Turn}}</span></td>
+                </tr>
                 {{end}}
-            </td>
-        </tr>
-        <tr>
-            <th>Guess Accuracy</th>
-            <td>
-                {{if gt .Stats.Guesses 0}}
-                {{.Stats.CorrectGuesses}} / {{.Stats.Guesses}}
-                {{else}}
-                <em>no guesses yet</em>
                 {{end}}
-            </td>
-        </tr>
-    </tbody>
-</table>
+            </tbody>
+        </table>
+    </section>
+
+    <div>
+        <section class="stat-section">
+            <h3>Naming songs</h3>
+            <p class="stat-hint">Of every song they guessed on.</p>
+            {{if $p.Guesses}}
+            <table class="stat-table">
+                <tbody>
+                    <tr><td class="stat-nowrap">Title</td><td>{{template "stats-rate" $p.Title}}</td></tr>
+                    <tr><td class="stat-nowrap">Artist</td><td>{{template "stats-rate" $p.Artist}}</td></tr>
+                    <tr><td class="stat-nowrap">Both</td><td>{{template "stats-rate" $p.Both}}</td></tr>
+                </tbody>
+            </table>
+            {{else}}
+            <p class="stat-hint">No guesses recorded yet.</p>
+            {{end}}
+        </section>
+
+        {{if $p.Genres}}
+        <section class="stat-section">
+            <h3>By genre</h3>
+            <p class="stat-hint">Their most-placed genres (at least 5 placements).</p>
+            <table class="stat-table">
+                <tbody>
+                    {{range $p.Genres}}
+                    <tr><td class="stat-nowrap">{{.Name}}</td><td>{{template "stats-rate" .Rate}}</td></tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </section>
+        {{end}}
+    </div>
+</div>
+
+{{if $p.Versus}}
+<section class="stat-section">
+    <h3>Head to head</h3>
+    <p class="stat-hint">Finished games they shared with each opponent, and who won them.</p>
+    <table class="stat-table">
+        <thead>
+            <tr>
+                <th>Opponent</th>
+                <th class="stat-num">Games together</th>
+                <th class="stat-num">{{$p.UserName}} won</th>
+                <th class="stat-num">They won</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range $p.Versus}}
+            <tr>
+                <td class="stat-wrap"><a href="/stats/user/{{.OpponentId}}">{{.OpponentName}}</a></td>
+                <td class="stat-num">{{.Games}}</td>
+                <td class="stat-num">{{.Wins}}</td>
+                <td class="stat-num">{{.Losses}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</section>
+{{end}}
+{{end}}
 {{end}}

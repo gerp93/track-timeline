@@ -62,14 +62,16 @@ src/
     round.go                 placement, tokens, guesses, ResolveRound, turn
                              advancement, challenge-window bookkeeping
     log.go                   FK-free append-only stats logs
-    stats.go                 leaderboard/user/card stats queries
+    stats.go, stats-games.go, stats-rate.go
+                             the statistics engine (see "Statistics" below)
     seed.go                  SeedAdminIfNoUsers
     youtube.go                ParseYouTubeVideoId
   static/                 embedded assets (//go:embed)
     static.go              embed.FS + SQLFiles (ORDERED game schema
                            manifest, runs AFTER the framework schema)
     sql/                   game tables/triggers under src/static/sql/
-    html/                  pages/body/* (this game's own pages — NOT
+    html/                  components/stats/stats.html (shared stats pieces)
+                           pages/body/* (this game's own pages — NOT
                            base.html, login/users/decks/deck-access/account,
                            which are framework-owned, see below) and
                            components/tracktimeline/ (HTMX fragments)
@@ -262,6 +264,42 @@ the rules live in `database/challenge.go`; the HTTP side is
   that would now be the winning card) cost nothing.
 - **A card claim is a free draw from the pile** (`GrantChallengeCard`), not a
   specific song, and is refused when it would reach `CardsToWin`.
+
+## Statistics
+
+The `/stats` pages (Overview, Leaderboard, Players, Songs) are **computed, not
+stored**. `loadStatsSnapshot` reads the append-only `LOG_*` tables in a handful of
+queries, the pure `buildStatsReport` (`database/stats.go`) turns that into one
+`StatsReport`, and each `Get*` function picks the slice a page needs. Keeping the
+arithmetic in a pure function is what lets `database/stats_test.go` cover it with no
+database. Definitions that hold on every page:
+
+- **Placement accuracy is own-turn only.** A steal is only possible after someone
+  else missed, so steals are a harder, self-selected sample and get their own line.
+- **Every rate is a `Rate{Hit, Total}`** (`stats-rate.go`), never a bare percentage,
+  so the sample size is always printed and the tooltip can show a 95% Wilson range.
+  Below `SmallSample` (10) a rate renders dimmed. Songs are ranked on a *shrunk*
+  accuracy (`Rate.Smoothed`) with a minimum of `minSongTries`, so a 2-for-2 miss
+  cannot outrank a long record of misses. Don't replace these with raw percentages.
+- **Games are rebuilt, not logged.** The log tables carry no game id (and must stay
+  FK-free), so `reconstructGames` (`stats-games.go`) treats each `LOG_WIN` row as
+  closing a game and the placements since the previous win (capped at
+  `gameLookback`) as its contents. This is cross-checked in practice: distinct
+  players found per game match the win row's own `PLAYER_COUNT`. Games nobody
+  finished leave no trace; solo games count toward accuracy but not wins. If a
+  `GAME_ID` is ever added to the logs, replace this inference with it.
+- **Timeline size at placement is deliberately not shown.** It is the biggest
+  confounder of placement difficulty, but bought and dealt cards are not attributed
+  to a player in the log, so reconstructing it is off by several cards.
+- **Only approved accounts get a player row/page** (guests and deleted users still
+  count in table-wide and per-song figures). Wins in solo games are not on the board.
+- **Pages use no chart library.** Bars and the era heat map are plain CSS built from
+  the theme variables (`--color-accent-*`), and every shaded element also prints its
+  number, so no theme or colour-blind reader depends on colour alone. Shared markup
+  lives in `html/components/stats/stats.html` (`stats-nav`, `stats-rate`,
+  `stats-num`, `stats-heat`, `stats-date`); it needs no template FuncMap because the
+  figures are methods on `Rate`/`HeatCell`. Moments are emitted as UTC `<time>`
+  elements and localised by `global.js`.
 
 ## Metadata hiding
 
