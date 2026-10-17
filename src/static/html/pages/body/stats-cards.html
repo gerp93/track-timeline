@@ -10,8 +10,8 @@
 </nav>
 
 <p class="stat-hint">
-    {{if eq .View "hardest"}}Songs most often placed wrong on a player's own turn. Songs need at least {{.MinTries}} tries, and the ranking weighs how many tries there were: a song missed 8 of 10 times outranks one missed 3 of 3.
-    {{else if eq .View "easiest"}}Songs most reliably placed right on a player's own turn, weighted by how many tries there were.
+    {{if eq .View "hardest"}}Songs placed wrong more often than the table average ({{.Average.Percent}}) on a player's own turn. A song needs at least {{.MinTries}} tries to be ranked, and the order weighs how many tries there were: a song missed 8 of 10 times outranks one missed 3 of 3.
+    {{else if eq .View "easiest"}}Songs placed right more often than the table average ({{.Average.Percent}}) on a player's own turn, weighted by how many tries there were.
     {{else if eq .View "unknown"}}Songs players guessed on at least 3 times, ranked by how rarely the title and artist were named.
     {{else if eq .View "skipped"}}Songs players skipped when they came up. Skipped songs are often a video that won't play &mdash; worth a look in the library.
     {{else}}Songs that have been placed the most.
@@ -51,6 +51,7 @@
 </table>
 <p class="stat-hint">
     Showing {{len .Rows}} of {{.Total}} qualifying songs.
+    {{if or (eq .View "hardest") (eq .View "easiest")}}Of the {{.Played}} songs played, only {{.Eligible}} have the {{.MinTries}}+ own-turn tries needed to be ranked &mdash; most songs have only come up once or twice, so this list firms up as more games are played.{{end}}
     "Named" pools title and artist: a guess gets two chances to be right.
 </p>
 {{end}}

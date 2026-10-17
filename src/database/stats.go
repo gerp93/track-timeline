@@ -1018,8 +1018,11 @@ type SongRow struct {
 type SongList struct {
 	View     string
 	Rows     []SongRow
-	Total    int // songs the view considered before the cut-off
+	Total    int // songs the view qualified before the 50-row cut-off
 	MinTries int
+	Played   int  // distinct songs placed at all
+	Eligible int  // songs with enough own-turn tries to be ranked for difficulty
+	Average  Rate // the table's own-turn accuracy, the line hardest/easiest are measured against
 }
 
 func limitSongs(songs []SongStats, n int) []SongStats {
@@ -1039,8 +1042,14 @@ func songView(report *StatsReport, view string) []SongStats {
 			continue
 		}
 		switch view {
-		case SongViewHardest, SongViewEasiest:
-			if song.Turn.Total >= minSongTries {
+		case SongViewHardest:
+			// Only songs actually doing worse than the table: ranking every
+			// qualifying song would end the "hardest" list with the easiest.
+			if song.Turn.Total >= minSongTries && song.Smoothed < report.TurnAccuracy {
+				songs = append(songs, song)
+			}
+		case SongViewEasiest:
+			if song.Turn.Total >= minSongTries && song.Smoothed > report.TurnAccuracy {
 				songs = append(songs, song)
 			}
 		case SongViewUnknown:
@@ -1117,7 +1126,12 @@ func GetSongList(view string) (SongList, error) {
 		view = SongViewHardest
 	}
 	songs := songView(report, view)
-	list := SongList{View: view, Total: len(songs), MinTries: minSongTries}
+	list := SongList{View: view, Total: len(songs), MinTries: minSongTries, Played: report.Totals.Songs, Average: report.Totals.Turn}
+	for _, song := range report.Songs {
+		if song.Known && song.Turn.Total >= minSongTries {
+			list.Eligible++
+		}
+	}
 	for i, song := range limitSongs(songs, 50) {
 		list.Rows = append(list.Rows, SongRow{Rank: i + 1, SongStats: song})
 	}

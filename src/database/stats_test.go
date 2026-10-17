@@ -296,11 +296,13 @@ func TestSongViewOrdersByShrunkDifficulty(t *testing.T) {
 	// even though its raw rate is better.
 	report.Songs = []SongStats{mk("Unlucky", 0, 3), mk("Brutal", 2, 10), mk("Easy", 5, 5), mk("Untried", 1, 2)}
 	hardest := songView(report, SongViewHardest)
-	if len(hardest) != 3 || hardest[0].Title != "Brutal" || hardest[1].Title != "Unlucky" {
+	if len(hardest) != 2 || hardest[0].Title != "Brutal" || hardest[1].Title != "Unlucky" {
 		t.Fatalf("hardest order wrong: %+v", hardest)
 	}
+	// "Easy" is the only song above the table average, so it alone is "easiest";
+	// nothing above average may leak into the hardest list or vice versa.
 	easiest := songView(report, SongViewEasiest)
-	if easiest[0].Title != "Easy" {
+	if len(easiest) != 1 || easiest[0].Title != "Easy" {
 		t.Fatalf("easiest order wrong: %+v", easiest)
 	}
 }
