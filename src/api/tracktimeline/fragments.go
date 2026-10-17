@@ -48,14 +48,12 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		hasGuessed = true
 	}
 
-	// Once guessed, show the player their own verdict and token odds in
-	// place of a generic "you have already guessed" line -- otherwise that
-	// only ever appeared once, transiently, via the private "alert:"
-	// broadcast (submitGuessForPlayer), and was gone the moment it scrolled
-	// off or another status message replaced it.
+	// Once guessed, show the player what they locked in, and that it is judged
+	// when the round ends, in place of a generic "you have already guessed"
+	// line.
 	guessResultText := ""
 	if hasGuessed {
-		guessResultText, _ = describeStoredGuessForPlayer(ctx.Game.Id, ctx.Player.Id)
+		guessResultText, _ = describePendingGuess(ctx.Game.Id, ctx.Player.Id)
 	}
 
 	// The Challenge button is offered to anyone who still has a challenge, but
@@ -210,8 +208,8 @@ func GetTimeline(w http.ResponseWriter, r *http.Request) {
 	// players have already submitted a guess this round. Safe to show before
 	// reveal — it says who has guessed, never what or whether it was right.
 	guessedCount := 0
-	if guesses, guessErr := database.GetGuesses(ctx.Game.Id); guessErr == nil {
-		guessedCount = len(guesses)
+	if locked, guessErr := database.CountLockedGuesses(ctx.Game.Id); guessErr == nil {
+		guessedCount = locked
 	}
 
 	tmpl, err := template.New("timeline.html").Funcs(template.FuncMap{

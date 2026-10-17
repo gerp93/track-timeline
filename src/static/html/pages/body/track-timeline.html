@@ -1,15 +1,13 @@
 {{define "body"}}
 <link rel="stylesheet" href="/gs/css/chat.css" />
-<link rel="stylesheet" href="/gs/css/timer.css" />
 <link rel="stylesheet" href="/static/css/track-timeline.css" />
 <script src="/gs/js/chat.js"></script>
-<script src="/gs/js/timer.js"></script>
 <script src="/static/js/track-timeline.js"></script>
 
 <!--
     The whole page is one fixed-height grid — the game area on top scrolls
-    internally if it overflows, and chat is a fixed-height row pinned to the
-    bottom, same layout timeline-trivia uses. #content/#body (framework's
+    internally if it overflows, and chat is pinned to the bottom with a
+    minimum height, growing upward to fill any spare room. #content/#body (framework's
     base.html) already carve the viewport down to the space below the top
     bar, so height:100% here is enough — no magic-number calc needed.
 -->
@@ -48,11 +46,6 @@
                     onclick="document.getElementById('lobby-message-dialog').showModal()"
                 ></span>
                 <span
-                    title="Turn timer"
-                    class="bi bi-stopwatch clickable icon-btn"
-                    onclick="document.getElementById('turn-timer-dialog').showModal()"
-                ></span>
-                <span
                     title="Lobby settings"
                     class="bi bi-sliders clickable icon-btn"
                     onclick="document.getElementById('lobby-settings-dialog').showModal()"
@@ -79,9 +72,6 @@
                 <span class="stat-text tt-deck-tooltip" title="Hover for the decks in this game">
                     <span class="bi bi-collection"></span> Decks
                     <span id="tt-deck-info" class="tt-tooltip-body"></span>
-                </span>
-                <span class="stat-text" id="tt-turn-timer-stat" {{if eq .TurnTimerSeconds 0}}style="display: none"{{end}}>
-                    <span class="bi bi-stopwatch"></span> <span id="tt-turn-timer" class="gs-timer"></span>
                 </span>
                 <!-- In-game volume control: a real control, so it keeps a
                      border unlike the read-only facts above. -->
@@ -190,35 +180,6 @@
     </form>
 </dialog>
 
-<dialog id="turn-timer-dialog">
-    <div style="display: grid; grid-auto-flow: column">
-        <div><h3>Turn Timer</h3></div>
-        <div>
-            <span
-                class="bi bi-x-lg close-button"
-                onclick="document.getElementById('turn-timer-dialog').close()"
-            ></span>
-        </div>
-    </div>
-    <form hx-put="/api/lobby/{{.Lobby.Id}}/turn-timer" hx-target="find .htmx-result">
-        <div class="form-input">
-            <label for="turnTimerSeconds">Seconds (0 for no timer)</label>
-            <input
-                type="number"
-                id="turnTimerSeconds"
-                name="turnTimerSeconds"
-                min="0"
-                max="300"
-                value="{{.TurnTimerSeconds}}"
-                autocomplete="off"
-            />
-        </div>
-        <br />
-        <div class="htmx-result"></div>
-        <input type="submit" value="Set Timer" />
-    </form>
-</dialog>
-
 <dialog id="rules-dialog" class="tt-modal tt-modal-large">
     <div class="tt-modal-header">
         <div class="tt-modal-title">
@@ -281,16 +242,6 @@
                 <div class="tt-settings-item">
                     <span class="tt-settings-label">Starting Tokens</span>
                     <span class="tt-settings-val"><strong>{{.Game.StartingTokens}}</strong> tokens</span>
-                </div>
-                <div class="tt-settings-item">
-                    <span class="tt-settings-label">Turn Timer</span>
-                    <span class="tt-settings-val">
-                        {{if gt .TurnTimerSeconds 0}}
-                        <strong>{{.TurnTimerSeconds}}</strong> seconds per turn
-                        {{else}}
-                        <em>Unlimited (No timer)</em>
-                        {{end}}
-                    </span>
                 </div>
                 <div class="tt-settings-item">
                     <span class="tt-settings-label">Draw Pile Status</span>
@@ -380,7 +331,7 @@
 </dialog>
 
 <script>
-    initTrackTimeline("{{.Lobby.Id}}", {{.TurnTimerSeconds}});
+    initTrackTimeline("{{.Lobby.Id}}");
     ttSyncLiveClipRow();
 </script>
 {{end}}

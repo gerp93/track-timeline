@@ -142,8 +142,8 @@ func TestCurrentCardWagerNotEnoughTokensCopy(t *testing.T) {
 
 // TestCurrentCardAlreadyGuessedShowsResult guards the playtest fix where a
 // player who already guessed only ever saw a generic "You have already
-// guessed this song." line, with their actual verdict and token odds
-// (describeStoredGuessForPlayer, round.go) gone the moment the one-time
+// guessed this song." line, with what they actually locked in
+// (describePendingGuess, round.go) gone the moment the one-time
 // "alert:" broadcast that carried it scrolled away.
 func TestCurrentCardAlreadyGuessedShowsResult(t *testing.T) {
 	withResult := currentCardView{
@@ -151,11 +151,11 @@ func TestCurrentCardAlreadyGuessedShowsResult(t *testing.T) {
 		GameStatus:      database.StatusActive,
 		RoundPhase:      database.PhaseListening,
 		HasGuessed:      true,
-		GuessResultText: "title right (100% match), artist right (100% match) You earned 2 tokens!",
+		GuessResultText: "You guessed “zombie by the cranberries”. The Quizmaster judges it when the round ends.",
 		LobbyId:         uuid.New(),
 	}
 	got := renderCurrentCard(t, withResult)
-	if !strings.Contains(got, "You earned 2 tokens!") {
+	if !strings.Contains(got, "The Quizmaster judges it when the round ends.") {
 		t.Errorf("expected the stored guess result to render in place of the generic message: %s", got)
 	}
 	if strings.Contains(got, "You have already guessed this song.") {

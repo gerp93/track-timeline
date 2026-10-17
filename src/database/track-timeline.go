@@ -30,6 +30,15 @@ const (
 	StealTurnWindow = 15 * time.Second
 )
 
+// StealLatencyGrace is how long past its nominal end the server keeps a steal
+// window open before it closes it. Clients count down from the time-left they are
+// sent, so a player on a slow connection starts counting up to a second or two
+// after the server did and still sees time on the clock when the window is over;
+// without this their last-second Steal click, or placement, was refused. Nobody
+// else sees a difference except that a round with a steal window ends this much
+// later.
+const StealLatencyGrace = 1500 * time.Millisecond
+
 // Game statuses.
 const (
 	StatusWaiting  = "waiting"
@@ -360,9 +369,12 @@ type PlayerTimeline struct {
 	IsCurrent  bool
 	IsMe       bool
 	TokenCount int
-	Timeline   []TimelineCard
-	HasPlaced  bool
-	PlacedAt   int
+	// ChallengeLeft is whether this player can still raise a challenge: they
+	// have one, and a rejected one uses it up (PlayerHasChallengeLeft).
+	ChallengeLeft bool
+	Timeline      []TimelineCard
+	HasPlaced     bool
+	PlacedAt      int
 }
 
 // DeckInfo is one deck's contribution to a draw pile, derived from the pile
@@ -1119,13 +1131,19 @@ func GetAllPlayerTimelines(gameId uuid.UUID, currentPlayerId uuid.UUID, viewingP
 			timeline[i].IsLastPlaced = lastPlacedCardId != uuid.Nil && timeline[i].CardId == lastPlacedCardId
 		}
 
+		challengeLeft, err := PlayerHasChallengeLeft(gameId, player.PlayerId)
+		if err != nil {
+			challengeLeft = false
+		}
+
 		row := PlayerTimeline{
-			PlayerId:   player.PlayerId,
-			PlayerName: player.UserName,
-			IsCurrent:  player.PlayerId == currentPlayerId,
-			IsMe:       player.PlayerId == viewingPlayerId,
-			TokenCount: player.TokenCount,
-			Timeline:   timeline,
+			PlayerId:      player.PlayerId,
+			PlayerName:    player.UserName,
+			IsCurrent:     player.PlayerId == currentPlayerId,
+			IsMe:          player.PlayerId == viewingPlayerId,
+			TokenCount:    player.TokenCount,
+			ChallengeLeft: challengeLeft,
+			Timeline:      timeline,
 		}
 		if placement.Id != uuid.Nil && placement.PlayerId == player.PlayerId {
 			row.HasPlaced = true
@@ -1402,6 +1420,7 @@ func ResetGame(gameId uuid.UUID) error {
 		"DELETE FROM TRACK_TIMELINE_CURRENT_CARD WHERE TRACK_TIMELINE_GAME_ID = ?",
 		"DELETE FROM TRACK_TIMELINE_PLACEMENT WHERE TRACK_TIMELINE_GAME_ID = ?",
 		"DELETE FROM TRACK_TIMELINE_TITLE_GUESS WHERE TRACK_TIMELINE_GAME_ID = ?",
+		"DELETE FROM TRACK_TIMELINE_SKIPPED_CARD WHERE TRACK_TIMELINE_GAME_ID = ?",
 		"DELETE FROM TRACK_TIMELINE_PLAYER_TOKEN WHERE TRACK_TIMELINE_GAME_ID = ?",
 		// Votes go with their challenges (ON DELETE CASCADE). A new game gives
 		// every player their challenge back.

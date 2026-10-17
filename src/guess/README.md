@@ -64,8 +64,14 @@ matcher, at its fixed default bar, is only the fallback when the key is missing
 or the API errors, times out or gives an unreadable reply. The admin **API
 Status** page shows whether Claude is reachable.
 
-Gameplay uses `AdjudicateGuess`. `SetJudge` is still unused; the default
-`Adjudicate` path stays local so tests do not need a key.
+Gameplay uses `AdjudicateSong` (`batch.go`): when a round ends, every guess made
+about one song goes to Claude in a single request, so the model sees everything
+the table said and holds it all to one standard, and gets back a verdict for each
+(`G<n>_TITLE=` / `G<n>_ARTIST=` lines). A request error, a timeout or a missing
+key falls back to the local matcher for the whole song; a reply that leaves one
+guess unreadable falls back for just that guess. `AdjudicateGuess` is the same
+for a single guess. `SetJudge` is still unused; the default `Adjudicate` path
+stays local so tests do not need a key.
 
 ## Things worth knowing
 

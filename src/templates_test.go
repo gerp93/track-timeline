@@ -39,7 +39,6 @@ func TestRulesAndSettingsTemplates(t *testing.T) {
 		DrawPileCount    int
 		DrawPileTooltip  string
 		YearRanges       []database.YearRange
-		TurnTimerSeconds int
 		WinnerName       string
 		Economy          database.Economy
 
@@ -74,7 +73,6 @@ func TestRulesAndSettingsTemplates(t *testing.T) {
 		YearRanges: []database.YearRange{
 			{FromYear: 1970, ToYear: 1999},
 		},
-		TurnTimerSeconds: 60,
 		Economy:          database.CurrentEconomy(),
 
 		PlaybackOptions: database.PlaybackOptions(),
@@ -142,7 +140,7 @@ func TestAboutPageWithRulesTemplate(t *testing.T) {
 		"Round Flow: How Each Turn Works",
 		"Timeline Placement Rules",
 		"Tokens &amp; The Economy",
-		"Challenging &amp; Stealing",
+		"Stealing",
 		"Illustrated Examples",
 		"A Note on Fair Play",
 	}
@@ -188,10 +186,10 @@ func TestRulesFollowTheEconomy(t *testing.T) {
 	}
 	out := buf.String()
 	for _, want := range []string{
-		"3 tokens for the song name and 3 tokens for the artist, up to 6 tokens per round",
+		"3 tokens for the song name and 3 tokens for the artist, up to 6 tokens per song",
 		"spend 11 tokens to pass a difficult song",
 		"spend 12 tokens to listen to the song clip a second time",
-		"Spend 13 tokens to challenge",
+		"Spend 13 tokens to steal",
 		"Spend 14 tokens at any time",
 		"at least 13 tokens can click",
 	} {

@@ -1,6 +1,7 @@
 package game
 
 import (
+	apiTrackTimeline "github.com/gerp93/track-timeline/api/tracktimeline"
 	"github.com/gerp93/track-timeline/database"
 	"github.com/google/uuid"
 )
@@ -17,7 +18,13 @@ func (TrackTimeline) OnPlayerJoined(playerId uuid.UUID) error { return nil }
 
 func (TrackTimeline) OnPlayerActive(playerId uuid.UUID) error { return nil }
 
-func (TrackTimeline) OnPlayerInactive(playerId uuid.UUID) error { return nil }
+// OnPlayerInactive starts the clock on a turn abandoned by its player: nothing
+// else in the game would ever end a turn whose player left (see
+// apiTrackTimeline.WatchAbandonedTurn).
+func (TrackTimeline) OnPlayerInactive(playerId uuid.UUID) error {
+	apiTrackTimeline.WatchAbandonedTurn(playerId)
+	return nil
+}
 
 func (TrackTimeline) OnRoomEmpty(lobbyId uuid.UUID) error { return nil }
 

@@ -1,7 +1,6 @@
 package apiTrackTimeline
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 
 	apiRoom "github.com/gerp93/track-timeline/api/room"
 	"github.com/gerp93/track-timeline/database"
-	"github.com/gerp93/track-timeline/guess"
 )
 
 // PlaceCard records the placement of the player on turn — either a chosen
@@ -183,8 +181,10 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	title, artist, combined := guessFields(r)
-	submitGuessForPlayer(r.Context(), ctx, card, title, artist, combined)
+	// Whatever is in the guess boxes when the placement locks in is this
+	// player's guess. Already-locked is fine: they pressed Guess first.
+	title, artist, _ := guessFields(r)
+	lockGuess(ctx, card.CardId, title, artist)
 
 	// The song stops the moment a placement is locked in: leaving it playing
 	// through a steal window would hand stealers more listening time than the
@@ -536,26 +536,26 @@ func announceAndFinish(ctx gameContext, outcome database.RoundOutcome) {
 		}
 	}
 
-	// Every guess submitted this round, oldest first — held back from chat at
-	// submit time (see submitGuessForPlayer) so nobody could read off who was
-	// right about the title/artist before the song was actually revealed.
-	for _, g := range outcome.Guesses {
-		announce(ctx.LobbyId, fmt.Sprintf(
-			"<blue>%s</> guessed “%s” — %s",
-			esc(g.PlayerName), esc(g.GuessText), describeGuessPublic(g),
-		))
-	}
+	// Every guess made this round, across every song of it, judged together just
+	// before the reveal -- held back from chat until now so nobody could read off
+	// who was right about the title/artist before the song was actually
+	// revealed.
+	announceGuesses(ctx.LobbyId, outcome.Guesses)
 
 	// Every right part of a guess earns its own tokens -- there is no
 	// single-token race, so each winner gets their own announcement and popup
 	// line, with what they earned.
 	for _, winner := range outcome.GuessTokenWinners {
 		earned := database.GuessTokensEarned(winner)
-		payload.GuessTokenWinners = append(payload.GuessTokenWinners, guessTokenWinnerPayload{
+		entry := guessTokenWinnerPayload{
 			Name:      winner.PlayerName,
 			GuessText: winner.GuessText,
 			Tokens:    earned,
-		})
+		}
+		if !winner.IsCurrentSong {
+			entry.SkippedSong = winner.SongTitle
+		}
+		payload.GuessTokenWinners = append(payload.GuessTokenWinners, entry)
 		announce(ctx.LobbyId, fmt.Sprintf(
 			"<green>%s</> earned %s for their guess",
 			esc(winner.PlayerName), tokenCount(earned),
@@ -687,35 +687,45 @@ func finishRound(ctx gameContext, payload resultPayload) {
 	refresh(ctx.LobbyId)
 }
 
-// SubmitGuess judges a free-form artist/title guess and records it — for
-// every player except the turn player, whose guess is bundled into PlaceCard
-// instead. Guesses are judged as they arrive and a qualifying one pays its
-// token immediately (see database.AwardGuessToken); only the chat announcement
-// waits for the reveal. A guess costs nothing to attempt
-// regardless of outcome. Disabled entirely when the lobby's guess mode is off.
-func SubmitGuess(w http.ResponseWriter, r *http.Request) {
+// guessRequest is a guess (or a draft of one) that has passed the checks they
+// share: the game is running, the song is not yet revealed, the player is allowed
+// to guess, and the song the guess was typed for is part of this round.
+type guessRequest struct {
+	ctx    gameContext
+	cardId uuid.UUID
+	title  string
+	artist string
+}
+
+// readGuessRequest reads and validates a guess or a draft, writing its own error
+// response and returning false on any problem.
+//
+// The form is stamped with the song it was typed for (cardId), and that, not
+// whichever song happens to be in play when the request lands, is what the guess
+// is for. Otherwise a guess typed for a song that was skipped a moment before the
+// request arrived would be filed against the next one. A song skipped earlier in
+// this round still counts; one from an earlier round, or a made-up id, does not.
+// A client that sends no cardId is taken to mean the song in play.
+func readGuessRequest(w http.ResponseWriter, r *http.Request) (guessRequest, bool) {
 	ctx, ok := loadContext(w, r)
 	if !ok {
-		return
-	}
-	if challengeInProgress(w, ctx) {
-		return
+		return guessRequest{}, false
 	}
 	if err := r.ParseForm(); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("Failed to parse form."))
-		return
+		return guessRequest{}, false
 	}
 
 	if ctx.Game.GameStatus != database.StatusActive {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("The game is not running."))
-		return
+		return guessRequest{}, false
 	}
 	if ctx.Game.RoundPhase == database.PhaseReveal {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("The song has already been revealed."))
-		return
+		return guessRequest{}, false
 	}
 
 	// Room mode: only the player on turn may guess. Remote lobbies keep the
@@ -725,220 +735,159 @@ func SubmitGuess(w http.ResponseWriter, r *http.Request) {
 		if !ctx.Game.CurrentPlayerId.Valid || ctx.Game.CurrentPlayerId.UUID != ctx.Player.Id {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte("Only the player on turn can guess in room mode."))
-			return
+			return guessRequest{}, false
 		}
 	}
 
-	title, artist, guessText := guessFields(r)
-	if guessText == "" {
+	card, err := database.GetCurrentCard(ctx.Game.Id)
+	if err != nil || card.CardId == uuid.Nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("No song is in play."))
+		return guessRequest{}, false
+	}
+	cardId := card.CardId
+	if said := strings.TrimSpace(r.FormValue("cardId")); said != "" {
+		parsed, parseErr := uuid.Parse(said)
+		if parseErr != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("Invalid song."))
+			return guessRequest{}, false
+		}
+		cardId = parsed
+	}
+	inRound, err := database.IsRoundCard(ctx.Game.Id, cardId)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to check the song."))
+		return guessRequest{}, false
+	}
+	if !inRound {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("That song is already over, so your guess was not used."))
+		return guessRequest{}, false
+	}
+
+	title, artist, _ := guessFields(r)
+	return guessRequest{ctx: ctx, cardId: cardId, title: title, artist: artist}, true
+}
+
+// SubmitGuess locks in a player's free-form artist/title guess when they press
+// Guess. Nothing is judged here: the guess is stored against the song it was
+// typed for and judged, with every other guess of the round, when the round
+// resolves (see database.JudgeRoundGuesses), which is also when its tokens are
+// paid. The turn player's guess is bundled into PlaceCard instead. A guess costs
+// nothing to attempt regardless of outcome.
+func SubmitGuess(w http.ResponseWriter, r *http.Request) {
+	req, ok := readGuessRequest(w, r)
+	if !ok {
+		return
+	}
+	ctx := req.ctx
+	if challengeInProgress(w, ctx) {
+		return
+	}
+
+	if req.title == "" && req.artist == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("Type a guess first."))
 		return
 	}
 
-	already, err := database.HasGuessed(ctx.Game.Id, ctx.Player.Id)
-	if err != nil {
+	if err := lockGuess(ctx, req.cardId, req.title, req.artist); err != nil {
+		if errors.Is(err, database.ErrGuessLocked) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("You have already guessed this song."))
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Failed to check your guess."))
-		return
-	}
-	if already {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("You have already guessed this song."))
+		_, _ = w.Write([]byte("Failed to record your guess."))
 		return
 	}
 
-	// The answer is read server-side and compared here; it never leaves this
-	// handler.
-	card, err := database.GetCurrentCardAnswer(ctx.Game.Id)
-	if err != nil || card.CardId == uuid.Nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("No song is in play."))
-		return
-	}
-
-	submitGuessForPlayer(r.Context(), ctx, card, title, artist, guessText)
-
-	refresh(ctx.LobbyId)
-
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("Guess recorded."))
-}
-
-// guessFields reads the split song-name and artist boxes. Combined is kept for
-// storage and chat quoting ("Title by Artist"). Each box is capped at the same
-// 250 characters the form enforces, since a hand-built request skips the form
-// and everything typed here is sent on to the AI judge.
-func guessFields(r *http.Request) (title, artist, combined string) {
-	title = truncateRunes(strings.TrimSpace(r.FormValue("guessTitle")), 250)
-	artist = truncateRunes(strings.TrimSpace(r.FormValue("guessArtist")), 250)
-	switch {
-	case title != "" && artist != "":
-		combined = title + " by " + artist
-	case title != "":
-		combined = title
-	case artist != "":
-		combined = artist
-	}
-	return title, artist, combined
-}
-
-// submitGuessForPlayer judges and records one player's title/artist guess,
-// sending them the private verdict over the socket and a public match-percent
-// line to chat. Shared by SubmitGuess (any player, anytime before reveal) and
-// PlaceCard (the turn player's own guess, bundled into their placement
-// submission). card must already be the answer, fetched server-side by the
-// caller. A no-op on an empty guess or one already recorded this round
-// (PlaceCard doesn't pre-check HasGuessed itself).
-func submitGuessForPlayer(httpCtx context.Context, ctx gameContext, card database.CurrentCardAnswer, titleGuess, artistGuess, guessText string) {
-	guessText = strings.TrimSpace(guessText)
-	if guessText == "" {
-		return
-	}
-	guessText = truncateRunes(guessText, 500)
-
-	if already, err := database.HasGuessed(ctx.Game.Id, ctx.Player.Id); err != nil || already {
-		return
-	}
-
-	verdict := guess.AdjudicateGuess(httpCtx, guess.Input{
-		Guess:       guessText,
-		TitleGuess:  strings.TrimSpace(titleGuess),
-		ArtistGuess: strings.TrimSpace(artistGuess),
-		Title:       card.Title,
-		Artist:      card.Artist,
-	})
-
-	judged := database.Guess{TitleCorrect: verdict.TitleCorrect, ArtistCorrect: verdict.ArtistCorrect}
-	tokensAwarded := database.GuessTokensEarned(judged)
-	// Recording first is what makes the tokens safe to pay: the row is unique
-	// per player per round, so a duplicate submission fails here and never
-	// reaches the award below.
-	if err := database.RecordGuess(
-		ctx.Game.Id, ctx.Player.Id, guessText,
-		verdict.TitleCorrect, verdict.ArtistCorrect,
-		int(verdict.TitleMatchPercent), int(verdict.ArtistMatchPercent),
-		verdict.ByAI, tokensAwarded,
-	); err != nil {
-		log.Println(err)
-		return
-	}
-	// The tokens are paid the moment the guess is judged, so they can fund a
-	// steal or a skip on this very round. If the payout fails the guess still
-	// stands (and the player is told below they earned it), so that is logged
-	// loudly.
-	if _, err := database.AwardGuessToken(ctx.Game.Id, ctx.Player.Id, judged); err != nil {
-		log.Println("failed to award guess tokens:", err)
-	}
-	if logErr := database.LogTitleGuess(ctx.UserId, card.CardId, guessText, verdict.TitleCorrect, verdict.ArtistCorrect); logErr != nil {
-		log.Println(logErr)
-	}
-
-	// The verdict is private to the guesser for now — a public chat line
-	// naming who was right about the title/artist would leak the answer to
-	// everyone else before the song is actually revealed. The public line is
-	// sent later, at reveal, from the stored guess (see announceAndFinish).
-	private := describeVerdict(verdict)
-	if parts := describeRightParts(verdict.TitleCorrect, verdict.ArtistCorrect, card.Title, card.Artist); parts != "" {
-		private += " " + parts
-	}
-	if verdict.Explanation != "" {
-		private += " " + verdict.Explanation
+	// The guess was typed for a song that has since been skipped: it still
+	// counts, against that song, so say so rather than leaving the player to
+	// wonder where it went.
+	message := "Guess recorded."
+	private := "Guess locked in — the Quizmaster judges it when the round ends."
+	if current, err := database.GetCurrentCard(ctx.Game.Id); err == nil && current.CardId != req.cardId {
+		message = "Guess recorded for the song that was just skipped."
+		private = "Your guess counts for the song that was just skipped — the Quizmaster judges it when the round ends."
 	}
 	gsWebsocket.PlayerBroadcast(ctx.Player.Id, "alert:"+private)
 	apiRoom.MirrorPlayerBroadcast(ctx.LobbyId, ctx.Player.Id, "alert:"+private)
 
-	// Room TV log: someone locked a guess — never the words or the verdict.
+	refresh(ctx.LobbyId)
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(message))
+}
+
+// SaveGuessDraft stores whatever a player has typed so far as a draft guess about
+// the song it was typed for. The browser calls it as they type, so that a song
+// skipped, or a placement locked in, before they pressed Guess still credits what
+// was in the boxes: the draft is judged with the round like any other guess. A
+// locked guess is never changed by it.
+func SaveGuessDraft(w http.ResponseWriter, r *http.Request) {
+	req, ok := readGuessRequest(w, r)
+	if !ok {
+		return
+	}
+
+	if err := database.SaveGuess(req.ctx.Game.Id, req.ctx.Player.Id, req.cardId, req.title, req.artist, false); err != nil {
+		log.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to save your guess."))
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("Saved."))
+}
+
+// lockGuess stores a player's guess about a song and locks it, returning
+// database.ErrGuessLocked if they had already locked one. Nothing is judged; see
+// database.JudgeRoundGuesses. An empty guess is a no-op.
+func lockGuess(ctx gameContext, cardId uuid.UUID, title, artist string) error {
+	if title == "" && artist == "" {
+		return nil
+	}
+	if err := database.SaveGuess(ctx.Game.Id, ctx.Player.Id, cardId, title, artist, true); err != nil {
+		if !errors.Is(err, database.ErrGuessLocked) {
+			log.Println(err)
+		}
+		return err
+	}
+
+	// Room TV log: someone locked a guess -- never the words or the verdict.
 	if isRoom, roomErr := database.LobbyIsRoom(ctx.LobbyId); roomErr == nil && isRoom {
 		announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> locked a guess", esc(ctx.Player.Name)))
 		refresh(ctx.LobbyId)
 	}
+	return nil
 }
 
-// describeVerdict builds the message private to the guesser: describeVerdictPublic's
-// unconditional right/wrong statement, plus what it paid. Every right part earns
-// its tokens the moment it is judged (database.AwardGuessToken) regardless of
-// turn order or who else guessed, so there is no caveat left to state.
-func describeVerdict(verdict guess.Verdict) string {
-	line := describeVerdictPublic(verdict)
-	earned := database.GuessTokensEarned(database.Guess{
-		TitleCorrect:  verdict.TitleCorrect,
-		ArtistCorrect: verdict.ArtistCorrect,
-	})
-	if earned == 0 {
-		return line
-	}
-	return line + " You earned " + tokenCount(earned) + "!"
+// guessFields reads the split song-name and artist boxes. Each box is capped at
+// the same 250 characters the form enforces, since a hand-built request skips the
+// form and everything typed here is sent on to the AI judge.
+func guessFields(r *http.Request) (title, artist, combined string) {
+	title = truncateRunes(strings.TrimSpace(r.FormValue("guessTitle")), 250)
+	artist = truncateRunes(strings.TrimSpace(r.FormValue("guessArtist")), 250)
+	return title, artist, database.CombineGuess(title, artist)
 }
 
-func describeVerdictPublic(verdict guess.Verdict) string {
-	titleWord := correctWord(verdict.TitleCorrect)
-	artistWord := correctWord(verdict.ArtistCorrect)
-	if verdict.ByAI {
-		return fmt.Sprintf("title %s, artist %s — judged by the AI Quizmaster", titleWord, artistWord)
-	}
-	return fmt.Sprintf("title %s (%.0f%% match), artist %s (%.0f%% match)",
-		titleWord, verdict.TitleMatchPercent, artistWord, verdict.ArtistMatchPercent)
-}
-
-// describeStoredGuessForPlayer reconstructs the same private verdict message
-// submitGuessForPlayer sends live (as a transient "alert:" broadcast), from
-// the persisted TRACK_TIMELINE_TITLE_GUESS row instead — used so a player who
-// already guessed still sees their own result and token odds when the board
-// fragment re-renders (fragments.go's GetCurrentCard), rather than only
-// catching it in the moment via the status bar before it clears. Returns
-// ok=false if this player has no recorded guess this round (nothing to show).
-func describeStoredGuessForPlayer(gameId uuid.UUID, playerId uuid.UUID) (string, bool) {
-	guesses, err := database.GetGuesses(gameId)
+// describePendingGuess is what a player who has locked in a guess sees in place
+// of the guess form until the round ends and it is judged. Returns ok=false if
+// they have no locked guess about the song in play.
+func describePendingGuess(gameId uuid.UUID, playerId uuid.UUID) (string, bool) {
+	mine, found, err := database.GetPlayerGuess(gameId, playerId)
 	if err != nil {
 		log.Println(err)
 		return "", false
 	}
-	var mine database.Guess
-	found := false
-	for _, g := range guesses {
-		if g.PlayerId == playerId {
-			mine = g
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !found || !mine.Locked {
 		return "", false
 	}
-
-	verdict := guess.Verdict{
-		TitleCorrect:       mine.TitleCorrect,
-		ArtistCorrect:      mine.ArtistCorrect,
-		TitleMatchPercent:  float64(mine.TitleMatchPercent),
-		ArtistMatchPercent: float64(mine.ArtistMatchPercent),
-		ByAI:               mine.JudgedByAI,
-	}
-	text := describeVerdict(verdict)
-	if mine.TitleCorrect || mine.ArtistCorrect {
-		if card, err := database.GetCurrentCardAnswer(gameId); err == nil {
-			if parts := describeRightParts(mine.TitleCorrect, mine.ArtistCorrect, card.Title, card.Artist); parts != "" {
-				text += " " + parts
-			}
-		}
-	}
-	return text, true
-}
-
-// describeRightParts confirms to the guesser the actual title and/or artist of
-// whichever parts they got right. Only the right parts are named — a correct
-// title must not hand over the artist the player hasn't earned yet. Safe to
-// send privately before reveal, since it only repeats what they already typed.
-func describeRightParts(titleCorrect, artistCorrect bool, title, artist string) string {
-	switch {
-	case titleCorrect && artistCorrect:
-		return fmt.Sprintf("It's \"%s\" by %s.", title, artist)
-	case titleCorrect:
-		return fmt.Sprintf("The title is \"%s\".", title)
-	case artistCorrect:
-		return fmt.Sprintf("The artist is %s.", artist)
-	}
-	return ""
+	return fmt.Sprintf("You guessed \u201c%s\u201d. The Quizmaster judges it when the round ends.", mine.GuessText), true
 }
 
 // truncateRunes caps s at maxRunes runes, not bytes: s[:maxRunes] on the raw
@@ -959,11 +908,13 @@ func correctWord(correct bool) string {
 	return "wrong"
 }
 
-// describeGuessPublic is describeVerdictPublic's counterpart for a guess
-// that was already recorded and is only now, at reveal, being told to chat.
-// g.JudgedByAI is the persisted guess.Verdict.ByAI, so an AI-judged guess
-// still gets the AI-Quizmaster phrasing here instead of a match percent.
+// describeGuessPublic is how a judged guess reads in chat at reveal.
+// g.JudgedByAI is the persisted guess.Verdict.ByAI, so an AI-judged guess gets the
+// AI-Quizmaster phrasing here instead of a match percent.
 func describeGuessPublic(g database.Guess) string {
+	if !g.Judged {
+		return "couldn't be judged"
+	}
 	titleWord := correctWord(g.TitleCorrect)
 	artistWord := correctWord(g.ArtistCorrect)
 	if g.JudgedByAI {
@@ -971,6 +922,22 @@ func describeGuessPublic(g database.Guess) string {
 	}
 	return fmt.Sprintf("title %s (%d%% match), artist %s (%d%% match)",
 		titleWord, g.TitleMatchPercent, artistWord, g.ArtistMatchPercent)
+}
+
+// announceGuesses puts every judged guess of the round in chat, in the order the
+// songs were played. A guess about a song skipped earlier in the round says which
+// song it was about, since several songs can share one round.
+func announceGuesses(lobbyId uuid.UUID, guesses []database.Guess) {
+	for _, g := range guesses {
+		on := ""
+		if !g.IsCurrentSong {
+			on = fmt.Sprintf(" on the skipped “%s”", esc(g.SongTitle))
+		}
+		announce(lobbyId, fmt.Sprintf(
+			"<blue>%s</> guessed “%s”%s — %s",
+			esc(g.PlayerName), esc(g.GuessText), on, describeGuessPublic(g),
+		))
+	}
 }
 
 // SkipCard spends a token to abandon the song in play and draw a replacement.
@@ -1032,7 +999,9 @@ func ReportDeadVideo(w http.ResponseWriter, r *http.Request) {
 		log.Println("failed to prune dead video from draw pile:", err)
 	}
 
-	if err := database.SkipCurrentCard(ctx.Game.Id); err != nil {
+	// A song that would not play was nobody's fault and never really played,
+	// so guesses made on it are dropped rather than judged.
+	if err := database.SkipCurrentCard(ctx.Game.Id, false); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to replace the song."))
 		return
@@ -1104,7 +1073,9 @@ func SkipCard(w http.ResponseWriter, r *http.Request) {
 	// telling the table what it was gives away nothing.
 	skipped, skippedErr := database.GetCurrentCardAnswer(ctx.Game.Id)
 
-	if err := database.SkipCurrentCard(ctx.Game.Id); err != nil {
+	// The song was played, so what everyone guessed about it stays on file and
+	// is judged, and paid, with the rest of the round.
+	if err := database.SkipCurrentCard(ctx.Game.Id, true); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to skip the song."))
 		return
@@ -1154,35 +1125,72 @@ func TimeoutPass(w http.ResponseWriter, r *http.Request) {
 		}
 		// The player on turn never committed, so there is nothing to judge and
 		// nobody can win the card. Discard it and move on.
-		gsWebsocket.LobbyBroadcast(ctx.LobbyId, "songStop")
-		apiRoom.MirrorBroadcast(ctx.LobbyId, "songStop")
-		announce(ctx.LobbyId, fmt.Sprintf("<red>%s</> ran out of time", esc(ctx.Player.Name)))
-		if card, err := database.GetCurrentCard(ctx.Game.Id); err == nil && card.CardId != uuid.Nil {
-			if logErr := database.LogCardEvent(card.CardId, database.CardEventDiscarded); logErr != nil {
-				log.Println(logErr)
-			}
-		}
-		if err := database.ClearPlacements(ctx.Game.Id); err != nil {
-			log.Println(err)
-		}
-		if err := database.ClearGuesses(ctx.Game.Id); err != nil {
-			log.Println(err)
-		}
-		if err := database.AdvanceToNextPlayer(ctx.Game.Id); err != nil {
-			log.Println(err)
-			announce(ctx.LobbyId, "<red>The draw pile is empty</> — no more songs to play")
-			gsWebsocket.LobbyBroadcast(ctx.LobbyId, "reload")
-			apiRoom.MirrorBroadcast(ctx.LobbyId, "reload")
+		if !discardTurn(ctx, ctx.Player.Name, fmt.Sprintf("<red>%s</> ran out of time", esc(ctx.Player.Name)), ctx.Player.Name+" ran out of time.") {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("Out of songs."))
 			return
 		}
-		sendStatus(ctx.LobbyId, fmt.Sprintf("%s ran out of time. %s is up.", ctx.Player.Name, currentPlayerName(ctx.Game.Id)))
-		refresh(ctx.LobbyId)
 	}
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("Turn passed."))
+}
+
+// discardTurn ends the player-on-turn's turn without a placement: the song is
+// discarded, the round's guesses are judged and paid, and the turn moves to the
+// next active player. Shared by the turn timer running out and by the player on
+// turn leaving. Returns false when there was no next song to draw (the game is
+// then told to reload).
+func discardTurn(ctx gameContext, name string, announceLine string, statusPrefix string) bool {
+	gsWebsocket.LobbyBroadcast(ctx.LobbyId, "songStop")
+	apiRoom.MirrorBroadcast(ctx.LobbyId, "songStop")
+	announce(ctx.LobbyId, announceLine)
+	if card, err := database.GetCurrentCard(ctx.Game.Id); err == nil && card.CardId != uuid.Nil {
+		if logErr := database.LogCardEvent(card.CardId, database.CardEventDiscarded); logErr != nil {
+			log.Println(logErr)
+		}
+	}
+	if err := database.ClearPlacements(ctx.Game.Id); err != nil {
+		log.Println(err)
+	}
+	announceGuessesAtTimeout(ctx)
+	if err := database.ClearGuesses(ctx.Game.Id); err != nil {
+		log.Println(err)
+	}
+	if err := database.AdvanceToNextPlayer(ctx.Game.Id); err != nil {
+		log.Println(err)
+		announce(ctx.LobbyId, "<red>The draw pile is empty</> — no more songs to play")
+		gsWebsocket.LobbyBroadcast(ctx.LobbyId, "reload")
+		apiRoom.MirrorBroadcast(ctx.LobbyId, "reload")
+		return false
+	}
+	sendStatus(ctx.LobbyId, fmt.Sprintf("%s %s is up.", statusPrefix, currentPlayerName(ctx.Game.Id)))
+	refresh(ctx.LobbyId)
+	return true
+}
+
+// announceGuessesAtTimeout settles a round that ended with nobody placing the
+// song. The guesses typed along the way are still the table's attempts, so they
+// are judged, paid and put in chat like any round's, and the song they were about
+// is named so the verdicts mean something.
+func announceGuessesAtTimeout(ctx gameContext) {
+	guesses, err := database.SettleGuesses(ctx.Game.Id)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	if len(guesses) == 0 {
+		return
+	}
+	if card, err := database.GetCurrentCardAnswer(ctx.Game.Id); err == nil && card.CardId != uuid.Nil {
+		announce(ctx.LobbyId, fmt.Sprintf("The song was %s — “%s” (%d)", esc(card.Artist), esc(card.Title), card.ReleaseYear))
+	}
+	announceGuesses(ctx.LobbyId, guesses)
+	for _, g := range guesses {
+		if earned := database.GuessTokensEarned(g); g.Judged && earned > 0 {
+			announce(ctx.LobbyId, fmt.Sprintf("<green>%s</> earned %s for their guess", esc(g.PlayerName), tokenCount(earned)))
+		}
+	}
 }
 
 // SetLobbyMessage updates the pinned lobby note.

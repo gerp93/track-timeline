@@ -83,6 +83,17 @@ func TestClaudePromptAllowsMissingFeaturedArtist(t *testing.T) {
 	}
 }
 
+// TestClaudePromptIgnoresCapitalisation guards against "dance" and "Dance"
+// reaching the model as different strings and being judged differently.
+func TestClaudePromptIgnoresCapitalisation(t *testing.T) {
+	in := Input{Title: "Let's Dance", Artist: "David Bowie"}
+	lower := claudePrompt(Input{Title: in.Title, Artist: in.Artist, Guess: "dance by david bowie"}, "dance", "david bowie")
+	upper := claudePrompt(Input{Title: in.Title, Artist: in.Artist, Guess: "Dance by David Bowie"}, "Dance", "David Bowie")
+	if lower != upper {
+		t.Fatalf("prompts differ by capitalisation:\n%s\n---\n%s", lower, upper)
+	}
+}
+
 func TestClaudeModelMatchesConfig(t *testing.T) {
 	if ClaudeModel() == "" {
 		t.Fatal("ClaudeModel should expose the configured model id")

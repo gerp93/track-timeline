@@ -523,11 +523,6 @@ func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
 		yearRanges = nil
 	}
 
-	turnTimerSeconds, err := gsDatabase.GetLobbyTurnTimerSeconds(lobbyId)
-	if err != nil {
-		turnTimerSeconds = 0
-	}
-
 	winnerName := ""
 	if game.WinnerId.Valid {
 		if user, err := gsDatabase.GetUser(game.WinnerId.UUID); err == nil {
@@ -550,7 +545,6 @@ func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
 		DrawPileCount    int
 		DrawPileTooltip  string
 		YearRanges       []database.YearRange
-		TurnTimerSeconds int
 		WinnerName       string
 		Economy          database.Economy
 
@@ -567,7 +561,6 @@ func TrackTimelineLobby(w http.ResponseWriter, r *http.Request) {
 		DrawPileCount:    drawPile.Total,
 		DrawPileTooltip:  drawPile.Tooltip(game.FreshSongsFirst),
 		YearRanges:       yearRanges,
-		TurnTimerSeconds: turnTimerSeconds,
 		WinnerName:       winnerName,
 		Economy:          database.CurrentEconomy(),
 

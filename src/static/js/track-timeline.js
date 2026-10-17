@@ -8,8 +8,6 @@
 
 let ttConn = null;
 let ttLobbyId = null;
-let ttTurnTimerSeconds = 0;
-let ttDeferTimerStart = false;
 let ttStatusTimeout = null;
 
 let ttClipStartSeconds = 0;
@@ -21,14 +19,17 @@ let ttMuted = false;
 
 const TT_STATUS_MESSAGE_MS = 8000;
 
+// How long after the last keystroke the guess boxes are saved to the server.
+const TT_GUESS_DRAFT_DELAY_MS = 200;
+
 // ---------------------------------------------------------------- websocket
 
-function initTrackTimeline(lobbyId, turnTimerSeconds) {
+function initTrackTimeline(lobbyId) {
     ttLobbyId = lobbyId;
-    setTurnTimerSeconds(turnTimerSeconds || 0);
 
     ttInitVolume();
     loadYouTubeApi();
+    ttWatchBlockingOverlays();
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     ttConn = new WebSocket(protocol + "//" + window.location.host + "/ws/lobby/" + lobbyId);
@@ -48,17 +49,15 @@ function initTrackTimeline(lobbyId, turnTimerSeconds) {
         gsChat.wireForm(chatForm, chatInput, ttConn);
     }
 
-    // The board is what says whose turn it is, so the timer restarts whenever
-    // the board is swapped in.
     document.body.addEventListener("htmx:afterSwap", (event) => {
         if (event.detail.target && event.detail.target.id === "tt-board") {
             ttLoadChallengeOnce();
             ttSyncSelfStatus();
             syncPlaybackUI();
-            restartTurnTimer();
         }
         if (event.detail.target && event.detail.target.id === "tt-current-card") {
             syncPlaybackUI();
+            ttSyncGuessCard();
         }
     });
 }
@@ -81,6 +80,10 @@ function handleMessage(message) {
             return;
 
         case "songStop":
+            // The song is done with: a placement locked in, or it was skipped.
+            // Get whatever is still in the boxes to the server now rather than
+            // after the debounce.
+            ttFlushGuessDraft();
             stopSong();
             return;
 
@@ -175,25 +178,14 @@ function handleMessage(message) {
             return;
         }
         ttCloseStealModal();
-        ttCloseTurnTimerBanner();
         stopSong();
         showStatus(payload.bottomMessage);
 
-        // Freeze the clock straight away: it belongs to a turn that has ended
-        // and must not keep ticking behind the reveal.
-        ttDeferTimerStart = true;
-
         const afterReveal = () => {
-            ttDeferTimerStart = false;
-            // A new round starts un-held, unlistened and with Play enabled:
-            // the clip that was holding the clock belonged to the round that
-            // just ended, and stopVideo does not reliably fire ENDED, so the
-            // gates are cleared here rather than left to a state transition
-            // that may never arrive. The turn clock stays off until this
-            // round's clip ends or is paused — restartTurnTimer alone must
-            // not start it here.
-            ttTimerHeldForPlayback = false;
-            ttTimerReleasedThisRound = false;
+            // A new round starts unlistened and with Play enabled: the clip
+            // from the round that just ended is over, and stopVideo does not
+            // reliably fire ENDED, so the gates are cleared here rather than
+            // left to a state transition that may never arrive.
             ttClipReachedPlaying = false;
             ttClipListenedThisRound = false;
             ttClipFinished = false;
@@ -234,24 +226,6 @@ function handleMessage(message) {
 
     if (message.startsWith("settings:")) {
         ttApplyLiveSettings(JSON.parse(message.substring("settings:".length)));
-        return;
-    }
-
-    if (message.startsWith("turnTimer:")) {
-        setTurnTimerSeconds(message.substring("turnTimer:".length));
-        showStatus(ttTurnTimerSeconds > 0
-            ? "Turn timer set to " + ttTurnTimerSeconds + "s"
-            : "Turn timer turned off");
-        // Apply a mid-game change immediately only when the clock is already
-        // eligible to run (clip heard/paused). Otherwise just store the new
-        // duration for the eventual release.
-        if (ttTurnTimerSeconds <= 0) {
-            ttCloseTurnTimerBanner();
-            return;
-        }
-        if (!ttDeferTimerStart && !ttTimerHeldForPlayback && ttTimerReleasedThisRound) {
-            doRestartTurnTimer();
-        }
         return;
     }
 
@@ -324,7 +298,7 @@ function refreshGame() {
                 if (typeof roomPhoneSyncBoardVisibility === "function") {
                     roomPhoneSyncBoardVisibility();
                 }
-                restartTurnTimer();
+                ttRevealOwnRowForSteal();
             })
             .catch((e) => console.error("[TrackTimeline] board refresh failed:", e));
     }
@@ -354,7 +328,13 @@ function refreshControls() {
             const current = document.getElementById("tt-controls");
             if (fresh && current) {
                 current.outerHTML = fresh.outerHTML;
-                htmx.process(document.getElementById("tt-controls"));
+                const replaced = document.getElementById("tt-controls");
+                htmx.process(replaced);
+                // The game-over banner and Play Again sit below the board rows,
+                // out of sight on a shorter screen (the board scrolls inside the
+                // page). When the controls come back with something to press,
+                // bring them into view.
+                if (replaced.querySelector("button")) replaced.scrollIntoView({ block: "nearest" });
             }
         })
         .catch((e) => console.error("[TrackTimeline] controls refresh failed:", e));
@@ -422,11 +402,6 @@ window.onYouTubeIframeAPIReady = function () {
             // just the call sites that ask it to play/pause/stop, so a
             // buffered/ended video (or a fragment re-swap mid-playback) never
             // leaves the UI out of sync with what's actually audible.
-            //
-            // It is also where the held turn clock is released: the clip
-            // reaching its endSeconds fires ENDED, and a manual pause fires
-            // PAUSED, which are exactly the two moments the turn is meant to
-            // start being timed.
             onStateChange: (event) => {
                 if (event.data === YT.PlayerState.PLAYING) {
                     // Cue/load often emits PAUSED before the first PLAYING.
@@ -455,7 +430,6 @@ window.onYouTubeIframeAPIReady = function () {
                 if (ttClipReachedPlaying &&
                     (event.data === YT.PlayerState.ENDED || event.data === YT.PlayerState.PAUSED)) {
                     ttClipListenedThisRound = true;
-                    ttReleaseTimerAfterPlayback();
                 }
                 syncPlaybackUI();
             },
@@ -747,16 +721,12 @@ function playSong(videoId, startSeconds, endSeconds) {
         return;
     }
 
-    // A fresh clip means the turn hasn't started being timed yet -- the clock
-    // is held until this finishes or the player pauses it (see
-    // ttHoldTimerForPlayback).
-    ttHoldTimerForPlayback();
     ttPlaybackStartedThisRound = true;
-    // Explicit, not just relying on ttHoldTimerForPlayback's own reset: a
-    // paid Restart (ReplaySong) calls playSong() again for the exact same
-    // round, and both of these gate real UI actions (the Play/Pause click
-    // handler and the clip-progress ring) on being accurate right now, not
-    // eventually once some event fires.
+    // A paid Restart (ReplaySong) calls playSong() again for the exact same
+    // round, and these gate real UI actions (the Play/Pause click handler and
+    // the clip-progress ring) on being accurate right now, not eventually once
+    // some event fires.
+    ttClipListenedThisRound = false;
     ttClipFinished = false;
     ttClipReachedPlaying = false;
     // Only arm the listen gate on this round's first play. A paid Restart is
@@ -778,7 +748,7 @@ function playSong(videoId, startSeconds, endSeconds) {
 
     try {
         // endSeconds is the IFrame API's own clip support: it stops there and
-        // fires ENDED, which is what releases the turn timer. 0/undefined
+        // fires ENDED. 0/undefined
         // means play to the end of the video ('full' playback mode).
         const request = { videoId: videoId, startSeconds: startSeconds || 0 };
         if (endSeconds > 0) request.endSeconds = endSeconds;
@@ -807,25 +777,10 @@ function playSong(videoId, startSeconds, endSeconds) {
 }
 
 function stopSong() {
-    // Clear the hold gate BEFORE stopVideo so a lagged ENDED/PAUSED from the
-    // forced stop cannot release and flash the turn timer as the round ends.
-    // ttTimerReleasedThisRound must clear too, not just the hold flag: a
-    // round that ends without a reveal (timeout discard, skip) never runs
-    // afterReveal's reset, so a released flag from a clip heard earlier in
-    // this same turn would otherwise survive into the next song/turn and let
-    // restartTurnTimer start the clock again before anyone has pressed Play.
-    ttTimerHeldForPlayback = false;
-    ttTimerReleasedThisRound = false;
     ttClipReachedPlaying = false;
     // An explicit stop is not a playhead that merely stopped moving: drop the
     // movement backstop so the record halts now, not up to 400ms later.
     ttLastSpinMoved = 0;
-    // A round that ends here without a reveal never reaches the "result:"
-    // handler's own ttCloseTurnTimerBanner() call, so a banner already shown
-    // for the round that just got discarded (e.g. "ran out of time") would
-    // otherwise linger on screen, frozen, into the next player's turn.
-    ttCloseTurnTimerBanner();
-    ttTurnTimerDeadlineMs = 0;
 
     ttStopClipProgressTimer();
     ttResetClipProgress();
@@ -876,26 +831,9 @@ function ttUnlockAudio() {
     hideAudioUnlock();
 }
 
-// ------------------------------------------------------------------- timer
+// ------------------------------------------------------------- playback state
 
-// The turn clock does not run while the clip is playing. A player shouldn't
-// be spending their thinking time listening — the timer is for deciding where
-// the song goes, so it starts once the clip finishes on its own or the player
-// pauses it, whichever comes first. ttHoldTimerForPlayback stops and holds it;
-// ttReleaseTimerAfterPlayback starts it (idempotent — the release fires from
-// both the ENDED and PAUSED transitions, and repeated calls after the first
-// are no-ops rather than restarts, so pausing a second time doesn't hand the
-// player a fresh full clock).
-//
-// Display matches the steal countdown: a fixed top-of-screen banner with a
-// large bare number, driven by a deadline so board refreshes (guesses, token
-// changes) do not reset the remaining time. Unlike steal, the deadline is
-// client-local — the server has no turn-timer authority of its own.
-let ttTimerHeldForPlayback = false;
-let ttTimerReleasedThisRound = false;
 let ttClipReachedPlaying = false;
-let ttTurnTimerInterval = null;
-let ttTurnTimerDeadlineMs = 0;
 
 // ttClipListenedThisRound gates the paid restart button: it appears only once
 // the clip has been heard through or deliberately paused, never before the
@@ -960,161 +898,142 @@ function ttListenGateRemainingSeconds() {
     return Math.max(0, Math.ceil((ttListenGateDeadlineMs - Date.now()) / 1000));
 }
 
-// setTurnTimerSeconds keeps the tracked duration and the header badge's
-// visibility in sync. The badge element is always in the DOM (even when the
-// lobby loaded with the timer off) so a mid-game enable can show it without
-// a reload — same approach timeline-trivia uses.
-function setTurnTimerSeconds(seconds) {
-    ttTurnTimerSeconds = parseInt(seconds, 10) || 0;
-    const statEl = document.getElementById("tt-turn-timer-stat");
-    if (statEl) {
-        statEl.style.display = ttTurnTimerSeconds > 0 ? "" : "none";
-    }
-    if (ttTurnTimerSeconds <= 0) {
-        const timerEl = document.getElementById("tt-turn-timer");
-        if (timerEl) timerEl.textContent = "";
-    }
-}
-
-function ttCloseTurnTimerBanner() {
-    if (ttTurnTimerInterval) {
-        clearInterval(ttTurnTimerInterval);
-        ttTurnTimerInterval = null;
-    }
-    const existing = document.getElementById("tt-turn-timer-modal");
-    if (existing) existing.remove();
-
-    // The header badge is only ever written by the banner's own tick, so
-    // without this it keeps showing whatever number the ordinary countdown
-    // last wrote — frozen and increasingly wrong — all the way through a
-    // steal window/turn (which suppress the ordinary timer entirely) and
-    // into the next round, until a fresh ordinary countdown happens to
-    // start and overwrite it again.
-    const badgeEl = document.getElementById("tt-turn-timer");
-    if (badgeEl) badgeEl.textContent = "";
-}
-
-function ttHoldTimerForPlayback() {
-    ttTimerHeldForPlayback = true;
-    ttTimerReleasedThisRound = false;
-    ttClipReachedPlaying = false;
-    ttClipListenedThisRound = false;
-    ttClipFinished = false;
-    ttCloseTurnTimerBanner();
-    ttTurnTimerDeadlineMs = 0;
-}
-
-function ttReleaseTimerAfterPlayback() {
-    if (!ttTimerHeldForPlayback || ttTimerReleasedThisRound) return;
-    if (ttDeferTimerStart) return;
-    ttTimerHeldForPlayback = false;
-    ttTimerReleasedThisRound = true;
-    doRestartTurnTimer();
-}
-
-function restartTurnTimer() {
-    if (ttDeferTimerStart) return;
-    // A board refresh mid-clip must not sneak the clock back on behind the
-    // song that is still playing.
-    if (ttTimerHeldForPlayback) return;
-    // The clock only becomes eligible after clip end/pause. Board swaps and
-    // the post-reveal refresh must not start it early.
-    if (!ttTimerReleasedThisRound) return;
-    // Already ticking — keep the existing deadline (refresh must not reset).
-    if (ttTurnTimerInterval) return;
-    doRestartTurnTimer();
-}
-
-function doRestartTurnTimer() {
-    if (ttTurnTimerSeconds <= 0) {
-        ttCloseTurnTimerBanner();
-        ttTurnTimerDeadlineMs = 0;
-        return;
-    }
-
-    // Whose turn it is comes from the DOM rather than from JS state, so a
-    // refreshed board is always the source of truth.
-    const currentCard = document.querySelector("#tt-board .player-card.is-current");
-    if (!currentCard) {
-        ttCloseTurnTimerBanner();
-        ttTurnTimerDeadlineMs = 0;
-        return;
-    }
-
-    const deadlineMs = Date.now() + ttTurnTimerSeconds * 1000;
-    ttShowTurnTimerBanner(deadlineMs);
-}
-
-// ttShowTurnTimerBanner mirrors the steal attempt banner: non-blocking so the
-// board's placement buttons stay clickable, large centered countdown, short
-// instructional heading. Everyone sees the same clock; only the player on
-// turn reports the timeout when it hits zero.
-function ttShowTurnTimerBanner(deadlineMs) {
-    ttCloseTurnTimerBanner();
-    if (ttTurnTimerSeconds <= 0 || !deadlineMs) return;
-    ttTurnTimerDeadlineMs = deadlineMs;
-
-    const currentCard = document.querySelector("#tt-board .player-card.is-current");
-    if (!currentCard) return;
-    const mine = currentCard.classList.contains("is-me");
-    const nameEl = currentCard.querySelector(".player-name");
-    const name = nameEl ? nameEl.textContent.trim() : "Someone";
-
-    const wrap = document.createElement("div");
-    wrap.id = "tt-turn-timer-modal";
-    wrap.className = "tt-steal-banner-wrap";
-
-    const popup = document.createElement("div");
-    popup.className = "tt-steal-banner";
-
-    const heading = document.createElement("div");
-    heading.className = "tt-popup-title";
-    heading.textContent = mine ? "Your turn!" : (name + "'s turn");
-    popup.appendChild(heading);
-
-    if (mine) {
-        const hint = document.createElement("div");
-        hint.className = "tt-popup-artist";
-        hint.textContent = "Place it on your timeline before time runs out.";
-        popup.appendChild(hint);
-    }
-
-    const ringObj = ttCreateCountdownRing();
-    popup.appendChild(ringObj.element);
-
-    wrap.appendChild(popup);
-    document.body.appendChild(wrap);
-
-    const badgeEl = document.getElementById("tt-turn-timer");
-    let expired = false;
-
-    const totalTurnMs = (ttTurnTimerSeconds || 30) * 1000;
-    const tick = () => {
-        const remainingMs = ttTurnTimerDeadlineMs - Date.now();
-        ringObj.update(remainingMs, totalTurnMs);
-        const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
-        if (badgeEl) badgeEl.textContent = seconds + "s";
-
-        if (remainingMs <= 0) {
-            clearInterval(ttTurnTimerInterval);
-            ttTurnTimerInterval = null;
-            if (expired) return;
-            expired = true;
-            // Only the player whose turn it is reports the timeout; the server
-            // re-checks anyway, so a stale call cannot end somebody else's turn.
-            if (mine && ttLobbyId) {
-                fetch("/api/track-timeline/" + ttLobbyId + "/timeout", { method: "POST" })
-                    .catch(() => {});
-            }
-        }
-    };
-    tick();
-    if (!expired) {
-        ttTurnTimerInterval = setInterval(tick, 200);
-    }
-}
-
 // ------------------------------------------------------------------ display
+
+// ------------------------------------------------------- blocking overlays
+//
+// The steal countdown, the reveal popup, the challenge dialogs and the rest of
+// the full-screen .tt-popup-backdrop family dim the page and swallow mouse
+// clicks, but they are plain divs, so the page underneath stayed live to the
+// keyboard: a guess box that already had focus kept taking keystrokes (and
+// saving them as drafts) behind the overlay, and Tab walked straight through
+// it. While one is up, the game page is made inert -- unfocusable, untypable, and
+// hidden from assistive tech, which is what "blocking" should mean. The overlays
+// are direct children of <body>, outside #tt-page, so they stay usable
+// themselves. The non-blocking banners (the active stealer's own turn, the turn
+// timer) are not .tt-popup-backdrop and deliberately leave the page alone.
+
+function ttSyncBlockingOverlay() {
+    const page = document.getElementById("tt-page");
+    if (!page) return;
+    const blocked = !!document.querySelector("body > .tt-popup-backdrop");
+    if (blocked && !page.hasAttribute("inert")) {
+        // Whatever was typed before the overlay came up still counts.
+        ttFlushGuessDraft();
+        page.setAttribute("inert", "");
+    } else if (!blocked && page.hasAttribute("inert")) {
+        page.removeAttribute("inert");
+    }
+}
+
+function ttWatchBlockingOverlays() {
+    new MutationObserver(ttSyncBlockingOverlay).observe(document.body, { childList: true });
+    ttSyncBlockingOverlay();
+}
+
+// ------------------------------------------------------------ guess drafts
+//
+// A guess is judged when the round ends, not when it is typed, and a round can
+// outlive the song it started with: a skip moves everyone on to a new song but
+// keeps the guesses made on the old one. So the boxes are saved to the server as
+// they are typed, tagged with the song they were typed for. Whatever is in them
+// when a song is skipped or a placement locks in then counts as the player's
+// guess for that song, whether or not they got as far as pressing Guess, and a
+// guess that reaches the server a beat after the skip is still filed against the
+// song it was for.
+
+let ttGuessCardId = "";
+let ttGuessDirty = false;
+let ttGuessTimer = null;
+
+function ttGuessBox(name) {
+    return document.querySelector('#tt-current-card input[name="' + name + '"]');
+}
+
+function ttGuessBoxes() {
+    return { title: ttGuessBox("guessTitle"), artist: ttGuessBox("guessArtist") };
+}
+
+function ttGuessCurrentCardId() {
+    const marker = document.getElementById("tt-guess-card");
+    return marker ? marker.dataset.cardId || "" : "";
+}
+
+// Saves the boxes as a draft guess for cardId. Resolves true if the server kept it.
+function ttSendGuessDraft(cardId, title, artist) {
+    if (!ttLobbyId || !cardId) return Promise.resolve(false);
+    const body = new URLSearchParams({ cardId: cardId, guessTitle: title, guessArtist: artist });
+    return fetch("/api/track-timeline/" + ttLobbyId + "/guess-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+        keepalive: true,
+    }).then((response) => response.ok).catch(() => false);
+}
+
+// Sends the boxes now if anything has changed since they were last saved.
+function ttFlushGuessDraft() {
+    if (ttGuessTimer) {
+        clearTimeout(ttGuessTimer);
+        ttGuessTimer = null;
+    }
+    if (!ttGuessDirty) return Promise.resolve(false);
+    const boxes = ttGuessBoxes();
+    if (!boxes.title || !boxes.artist) return Promise.resolve(false);
+    ttGuessDirty = false;
+    return ttSendGuessDraft(ttGuessCardId, boxes.title.value.trim(), boxes.artist.value.trim());
+}
+
+// Called whenever the current-card fragment is swapped. If the song under the
+// boxes has changed, the boxes are saved against the song they were typed for and
+// then emptied: they are hx-preserve'd, so otherwise last song's text would sit
+// in them as if it were a guess for the new one.
+function ttSyncGuessCard() {
+    const now = ttGuessCurrentCardId();
+    if (!now || now === ttGuessCardId) return;
+
+    const previous = ttGuessCardId;
+    ttGuessCardId = now;
+    if (!previous) return;
+
+    const boxes = ttGuessBoxes();
+    if (ttGuessTimer) {
+        clearTimeout(ttGuessTimer);
+        ttGuessTimer = null;
+    }
+    if (boxes.title && boxes.artist) {
+        const title = boxes.title.value.trim();
+        const artist = boxes.artist.value.trim();
+        if (title || artist) {
+            ttSendGuessDraft(previous, title, artist).then((kept) => {
+                // The server only keeps it when that song still belongs to the
+                // round in progress, i.e. it was skipped rather than finished.
+                if (kept) showStatus("Your guess was kept for the song that was skipped.");
+            });
+        }
+        boxes.title.value = "";
+        boxes.artist.value = "";
+    }
+    ttGuessDirty = false;
+}
+
+document.addEventListener("input", (event) => {
+    const name = event.target && event.target.name;
+    if (name !== "guessTitle" && name !== "guessArtist") return;
+    if (!event.target.closest("#tt-current-card")) return;
+
+    // The song the player is typing for is the one the page last rendered.
+    if (!ttGuessCardId) ttGuessCardId = ttGuessCurrentCardId();
+    ttGuessDirty = true;
+    if (ttGuessTimer) clearTimeout(ttGuessTimer);
+    ttGuessTimer = setTimeout(ttFlushGuessDraft, TT_GUESS_DRAFT_DELAY_MS);
+});
+
+// A tab being closed or backgrounded is the last chance to save what is typed.
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") ttFlushGuessDraft();
+});
+window.addEventListener("pagehide", () => { ttFlushGuessDraft(); });
 
 function showStatus(message) {
     const el = document.getElementById("tt-message");
@@ -1172,7 +1091,7 @@ function showResultPopup(payload, onDone) {
     verdict.className = "tt-popup-verdict";
     if (payload.winnerName) {
         verdict.textContent = payload.wonByChallenge
-            ? payload.winnerName + " stole it with a challenge"
+            ? payload.winnerName + " stole it"
             : payload.winnerName + " placed it correctly";
     } else {
         verdict.textContent = "Nobody placed it correctly";
@@ -1185,7 +1104,10 @@ function showResultPopup(payload, onDone) {
         const guessLine = document.createElement("div");
         guessLine.className = "tt-popup-guess";
         const quoted = winner.guessText ? " — “" + winner.guessText + "”" : "";
-        guessLine.textContent = winner.name + " named it" + quoted + " — won " + winner.tokens + (winner.tokens === 1 ? " token" : " tokens");
+        // A guess about a song skipped earlier in the round says so; without it
+        // "named it" reads as being about the song revealed above.
+        const named = winner.skippedSong ? " named the skipped “" + winner.skippedSong + "”" : " named it";
+        guessLine.textContent = winner.name + named + quoted + " — won " + winner.tokens + (winner.tokens === 1 ? " token" : " tokens");
         popup.appendChild(guessLine);
     });
 
@@ -1398,9 +1320,8 @@ function showWinVideoModal(payload, onDone) {
 
 // -------------------------------------------------------------- steal modal
 //
-// Unlike the turn timer (each client starts its own independent local
-// countdown on receipt), the steal countdown's length is server-authoritative:
-// the payload carries the time left (remainingMs), and each client counts
+// The steal countdown's length is server-authoritative: the payload carries
+// the time left (remainingMs), and each client counts
 // down from receipt using only its own clock's elapsed time — never an
 // absolute server timestamp, which a skewed client clock would misread. The
 // server enforces the deadline itself (a scheduled
@@ -1426,13 +1347,6 @@ function ttCloseStealModal() {
 // of being covered.
 function ttShowStealModal(opts) {
     ttCloseStealModal();
-
-    // Pause the ordinary turn timer while this is up, the same way the
-    // reveal popup already does — it belongs to a phase that is not "waiting
-    // on the turn player's own timer" anymore.
-    ttDeferTimerStart = true;
-    ttCloseTurnTimerBanner();
-    ttTurnTimerDeadlineMs = 0;
 
     const blocking = opts.blocking !== false;
 
@@ -1504,6 +1418,14 @@ function ttShowStealModal(opts) {
                 joinButton.disabled = true;
                 joinButton.textContent = "Time's up";
             }
+            // The server closes the round a beat after the clock hits zero --
+            // it judges every guess made this round first, which waits on the
+            // network -- so say what the overlay is waiting for instead of
+            // leaving a dead "0" on screen.
+            const waiting = document.createElement("div");
+            waiting.className = "tt-popup-artist tt-steal-waiting";
+            waiting.textContent = "Time's up — revealing…";
+            popup.appendChild(waiting);
             clearInterval(ttStealInterval);
             ttStealInterval = null;
             return;
@@ -1512,6 +1434,17 @@ function ttShowStealModal(opts) {
     };
     tick();
     ttStealInterval = setInterval(tick, 100);
+}
+
+// The board scrolls inside the page and the stealer's own row sits last in turn
+// order, so on a shorter screen it can be below the fold with a 15-second clock
+// running and the +-slots they have to click out of sight. When it is the active
+// stealer's turn (the non-blocking banner is up), bring their own row into view.
+function ttRevealOwnRowForSteal() {
+    const modal = document.getElementById("tt-steal-modal");
+    if (!modal || modal.classList.contains("tt-popup-backdrop")) return;
+    const row = document.querySelector("#tt-board .player-card.is-me");
+    if (row) row.scrollIntoView({ block: "nearest" });
 }
 
 // ttLocalDeadline turns a steal payload into a deadline on THIS browser's
@@ -1525,8 +1458,8 @@ function ttLocalDeadline(payload) {
 
 // handleStealJoin shows the join-window modal. The turn player cannot steal
 // their own placement, so they see the countdown with no Steal button — "am
-// I the turn player" is read off the already-rendered board (the same
-// technique the turn timer uses), since this broadcast is identical for
+// I the turn player" is read off the already-rendered board, since this
+// broadcast is identical for
 // everyone and carries no per-viewer eligibility of its own. Whether the
 // original placement was actually right or wrong is deliberately never
 // revealed here — see steal.go's doc comment — so the heading must not
@@ -1728,6 +1661,14 @@ function ttOpenChallengeForm() {
     document.body.appendChild(backdrop);
     reason.focus();
 }
+
+// Escape closes the challenge form. With the page behind it inert, the form's own
+// Cancel button was the only way out.
+document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const modal = document.getElementById("tt-challenge-modal");
+    if (modal && modal.dataset.mode === "form") ttCloseChallengeModal();
+});
 
 function ttPostChallengeAction(path, form) {
     return fetch("/api/track-timeline/" + ttLobbyId + "/challenge/" + path, {

@@ -796,16 +796,17 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	}
 	msgs := drain(guesserForTitle)
 	alerts := alertLines(msgs)
-	if len(alerts) == 0 || !strings.Contains(alerts[0], "title right") {
-		t.Errorf("expected a private alert confirming a full match, got %v", alerts)
+	if len(alerts) == 0 || !strings.Contains(alerts[0], "judges it when the round ends") {
+		t.Errorf("expected a private alert saying the guess is held until the round ends, got %v", alerts)
+	}
+	if len(alerts) > 0 && (strings.Contains(alerts[0], "right") || strings.Contains(alerts[0], "wrong")) {
+		t.Errorf("nothing is judged on submit, so the alert must not give a verdict: %v", alerts)
 	}
 
-	// The token is paid the moment the guess is judged (database.AwardGuessToken),
-	// not held until reveal.
+	// Nothing is judged on submit, so nothing is paid until the round ends.
 	postGuessTokens, err := database.GetPlayerTokens(gameId, guesserForTitle.playerId)
-	if err != nil || postGuessTokens != preTokens+database.CurrentEconomy().MaxGuessTokens {
-		t.Errorf("a perfect guess should pay %d tokens on submit, got %d -> %d",
-			database.CurrentEconomy().MaxGuessTokens, preTokens, postGuessTokens)
+	if err != nil || postGuessTokens != preTokens {
+		t.Errorf("a guess must not pay on submit, got %d -> %d (%v)", preTokens, postGuessTokens, err)
 	}
 
 	// A second guess from the same player this round must be refused.
@@ -822,8 +823,8 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	// window opens at all here and the round resolves immediately, cleanly
 	// isolating the guess-token award (what this section is actually
 	// testing) from the steal mechanic exercised elsewhere. This also zeroes
-	// guesserForTitle's just-earned token, so what follows checks that
-	// resolving the round does not pay a second one for the same guess.
+	// guesserForTitle's tokens, so what follows checks that resolving the round
+	// pays their guess once.
 	resolver := currentPlayer()
 	for _, p := range otherPlayers(resolver) {
 		if err := database.SetPlayerTokens(gameId, p.playerId, 0); err != nil {
@@ -853,8 +854,8 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	}
 
 	postResolveTokens, err := database.GetPlayerTokens(gameId, guesserForTitle.playerId)
-	if err != nil || postResolveTokens != preTokens {
-		t.Errorf("resolving the round must not pay the guess token again, got %d -> %d", preTokens, postResolveTokens)
+	if want := preTokens + database.CurrentEconomy().MaxGuessTokens; err != nil || postResolveTokens != want {
+		t.Errorf("resolving the round should judge and pay the guess once (%d), got %d -> %d (%v)", want, preTokens, postResolveTokens, err)
 	}
 
 	// ================= 6. only the current player may skip, and it costs a token

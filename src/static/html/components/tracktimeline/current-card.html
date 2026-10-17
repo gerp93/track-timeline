@@ -1,3 +1,7 @@
+{{/* Which song the guess boxes belong to. Re-rendered with every swap, unlike the
+     hx-preserve'd boxes themselves, so track-timeline.js can tell when the song
+     has changed under whatever the player was typing. */}}
+<div id="tt-guess-card" data-card-id="{{.CardId}}" hidden></div>
 {{if and .IsRoom (not .IsHostDisplay)}}
 {{/* Room phone controller: no turntable — TV owns audio/board chrome. */}}
 <div class="room-phone-card">
@@ -83,6 +87,7 @@
             hx-post="/api/track-timeline/{{.LobbyId}}/guess"
             hx-target="find .htmx-result"
         >
+            <input type="hidden" name="cardId" value="{{.CardId}}" />
             <div id="tt-guess-fields" class="guess-fields" hx-preserve="true">
                 <input
                     type="text"
@@ -393,6 +398,7 @@
                 hx-post="/api/track-timeline/{{.LobbyId}}/guess"
                 hx-target="find .htmx-result"
             >
+                <input type="hidden" name="cardId" value="{{.CardId}}" />
                 <!-- hx-preserve keeps this node (and whatever the player has
                      typed into it) across the frequent lobby-wide "refresh"
                      broadcasts (other placements, buys, steal windows) that
@@ -439,6 +445,7 @@
                 hx-post="/api/track-timeline/{{.LobbyId}}/guess"
                 hx-target="find .htmx-result"
             >
+                <input type="hidden" name="cardId" value="{{.CardId}}" />
                 <!-- Same hx-preserve reasoning as the turn player's fields
                      above: without it, someone else's guess/placement/buy
                      wipes out whatever this player is mid-typing. -->

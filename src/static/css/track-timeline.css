@@ -80,7 +80,7 @@
     opacity: 1;
 }
 
-/* A plain fact about the game (First to N, songs left, decks, turn timer) --
+/* A plain fact about the game (First to N, songs left, decks) --
    flat and borderless, unlike .badge/.currency-badge/.btn-buy, so at a
    glance it reads as information rather than something to click. */
 .stat-text {
@@ -755,6 +755,18 @@
     white-space: nowrap;
 }
 
+.player-challenges {
+    flex: 0 0 auto;
+    min-width: 1.6rem;
+    font-size: 0.76rem;
+    opacity: 0.8;
+    white-space: nowrap;
+}
+
+.player-challenges.is-spent {
+    opacity: 0.4;
+}
+
 .song-count {
     flex: 0 0 auto;
     font-size: 0.76rem;
@@ -1041,8 +1053,8 @@
     margin-top: 1rem;
 }
 
-/* Non-blocking variant, used for the active stealer's own turn and for the
-   regular turn timer so the board's +-slot buttons underneath (their actual
+/* Non-blocking variant, used for the active stealer's own turn so the
+   board's +-slot buttons underneath (their actual
    placement UI) stay clickable instead of being covered by a full-screen
    backdrop. */
 .tt-steal-banner-wrap {
@@ -1129,21 +1141,19 @@
 }
 
 /* The whole page is a fixed-height grid: the game area scrolls internally if
-   it overflows, and chat is a fixed-height row pinned to the bottom of the
-   viewport — same layout timeline-trivia uses, so a lobby's chat is always
-   visible and never has to be scrolled to. */
+   it overflows, and chat is pinned to the bottom of the viewport with a
+   minimum height of 12rem — so a lobby's chat is always visible and never
+   has to be scrolled to. When the game area is short, chat grows upward to
+   sit right under the last row instead of leaving a gap. */
 #tt-page {
     height: 100%;
-    display: grid;
-    grid-template-rows: 1fr 12rem;
-    grid-template-areas:
-        "main"
-        "chat";
+    display: flex;
+    flex-direction: column;
     gap: 0.35rem;
 }
 
 #tt-main {
-    grid-area: main;
+    flex: 0 1 auto;
     overflow-y: auto;
     min-height: 0;
     /* Keep bordered panels (.turntable-card, .player-card) off the scrollbar. */
@@ -1151,7 +1161,7 @@
 }
 
 #tt-chat {
-    grid-area: chat;
+    flex: 1 0 12rem;
     display: grid;
     grid-template-rows: 1fr auto;
     border: 1px solid currentColor;
@@ -1177,8 +1187,8 @@
 }
 
 @media (max-width: 32rem) {
-    #tt-page {
-        grid-template-rows: 1fr 9rem;
+    #tt-chat {
+        flex-basis: 9rem;
     }
 }
 

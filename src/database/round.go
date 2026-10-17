@@ -177,17 +177,162 @@ func AddPlayerTokens(gameId uuid.UUID, playerId uuid.UUID, delta int) (int, erro
 	return next, SetPlayerTokens(gameId, playerId, next)
 }
 
-// HasGuessed reports whether a player already guessed this song. One guess per
-// player per card is what stops someone spraying attempts until one lands.
+// Guess is one player's guess about one song of the round in progress. A round
+// can span several songs -- every song skipped before the one that is finally
+// placed -- and a guess stays on file against the song it was typed for.
+//
+// A guess is a draft (Locked false) until the player presses Guess, and the
+// browser saves drafts as they are typed so a song skipped or placed first still
+// credits whatever was in the boxes. Nothing is judged until the round resolves
+// (JudgeRoundGuesses); the verdict fields mean nothing before Judged is true.
+type Guess struct {
+	Id         uuid.UUID
+	UserId     uuid.UUID
+	PlayerId   uuid.UUID
+	PlayerName string
+
+	// CardId is the song the guess was typed for. SongTitle and SongArtist are
+	// its answer: server-side only, never for a template or a payload sent
+	// before the reveal.
+	CardId     uuid.UUID
+	SongTitle  string
+	SongArtist string
+	// IsCurrentSong is false for a song skipped earlier in the round.
+	IsCurrentSong bool
+
+	TitleGuess  string
+	ArtistGuess string
+	// GuessText is the combined "title by artist" form, for chat quoting.
+	GuessText string
+	Locked    bool
+	Judged    bool
+
+	TitleCorrect       bool
+	ArtistCorrect      bool
+	TitleMatchPercent  int
+	ArtistMatchPercent int
+	// JudgedByAI is guess.Verdict.ByAI, persisted so it survives past the
+	// moment of judging -- the reveal chat line only has this stored row.
+	JudgedByAI bool
+}
+
+// CombineGuess is the one "title by artist" form of a split guess, used for
+// storage and chat quoting.
+func CombineGuess(title, artist string) string {
+	switch {
+	case title != "" && artist != "":
+		return title + " by " + artist
+	case title != "":
+		return title
+	default:
+		return artist
+	}
+}
+
+// guessSelect is the SELECT list shared by every query that reads a Guess,
+// scanned by scanGuess. The answer columns come from CARD, never from what the
+// player typed.
+const guessSelect = `
+	SELECT G.ID, U.ID, G.PLAYER_ID, U.NAME, G.CARD_ID, C.TITLE, C.ARTIST,
+		COALESCE(G.CARD_ID = CC.CARD_ID, 0),
+		G.TITLE_GUESS, G.ARTIST_GUESS, G.GUESS_TEXT, G.LOCKED, G.JUDGED,
+		G.TITLE_CORRECT, G.ARTIST_CORRECT, G.TITLE_MATCH_PERCENT, G.ARTIST_MATCH_PERCENT, G.JUDGED_BY_AI
+	FROM TRACK_TIMELINE_TITLE_GUESS G
+		INNER JOIN PLAYER P ON P.ID = G.PLAYER_ID
+		INNER JOIN USER U ON U.ID = P.USER_ID
+		INNER JOIN CARD C ON C.ID = G.CARD_ID
+		LEFT JOIN TRACK_TIMELINE_CURRENT_CARD CC ON CC.TRACK_TIMELINE_GAME_ID = G.TRACK_TIMELINE_GAME_ID
+		LEFT JOIN TRACK_TIMELINE_SKIPPED_CARD SK
+			ON SK.TRACK_TIMELINE_GAME_ID = G.TRACK_TIMELINE_GAME_ID AND SK.CARD_ID = G.CARD_ID
+`
+
+// guessOrder lists songs in the order they were played -- skipped ones as they
+// were skipped, the song in play last -- then guesses in the order they began.
+const guessOrder = `
+	ORDER BY COALESCE(G.CARD_ID = CC.CARD_ID, 0) ASC, SK.CREATED_ON_DATE ASC, G.CREATED_ON_DATE ASC
+`
+
+func scanGuesses(rows *sql.Rows) ([]Guess, error) {
+	result := make([]Guess, 0)
+	for rows.Next() {
+		var g Guess
+		if err := rows.Scan(
+			&g.Id, &g.UserId, &g.PlayerId, &g.PlayerName, &g.CardId, &g.SongTitle, &g.SongArtist,
+			&g.IsCurrentSong,
+			&g.TitleGuess, &g.ArtistGuess, &g.GuessText, &g.Locked, &g.Judged,
+			&g.TitleCorrect, &g.ArtistCorrect, &g.TitleMatchPercent, &g.ArtistMatchPercent, &g.JudgedByAI,
+		); err != nil {
+			log.Println(err)
+			return nil, errors.New("failed to scan row in query results")
+		}
+		result = append(result, g)
+	}
+	return result, nil
+}
+
+// GetGuesses returns every guess of the round in progress that has something in
+// it, across every song of the round, in the order the songs were played.
+func GetGuesses(gameId uuid.UUID) ([]Guess, error) {
+	rows, err := query(guessSelect+" WHERE G.TRACK_TIMELINE_GAME_ID = ? AND G.GUESS_TEXT <> ''"+guessOrder, gameId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanGuesses(rows)
+}
+
+// GetPlayerGuess returns this player's guess about the song in play, with ok
+// false when they have none (no draft, no lock).
+func GetPlayerGuess(gameId uuid.UUID, playerId uuid.UUID) (Guess, bool, error) {
+	rows, err := query(
+		guessSelect+" WHERE G.TRACK_TIMELINE_GAME_ID = ? AND G.PLAYER_ID = ? AND G.CARD_ID = CC.CARD_ID",
+		gameId, playerId,
+	)
+	if err != nil {
+		return Guess{}, false, err
+	}
+	defer rows.Close()
+	guesses, err := scanGuesses(rows)
+	if err != nil || len(guesses) == 0 {
+		return Guess{}, false, err
+	}
+	return guesses[0], true, nil
+}
+
+// HasGuessed reports whether a player has locked in a guess about the song in
+// play. One locked guess per player per song is what stops someone spraying
+// attempts until one lands; a guess about a song skipped earlier in the round is
+// a different song's, and does not count.
 func HasGuessed(gameId uuid.UUID, playerId uuid.UUID) (bool, error) {
 	sqlString := `
 		SELECT COUNT(*)
-		FROM TRACK_TIMELINE_TITLE_GUESS
-		WHERE TRACK_TIMELINE_GAME_ID = ? AND PLAYER_ID = ?
+		FROM TRACK_TIMELINE_TITLE_GUESS G
+			INNER JOIN TRACK_TIMELINE_CURRENT_CARD CC
+				ON CC.TRACK_TIMELINE_GAME_ID = G.TRACK_TIMELINE_GAME_ID AND CC.CARD_ID = G.CARD_ID
+		WHERE G.TRACK_TIMELINE_GAME_ID = ? AND G.PLAYER_ID = ? AND G.LOCKED = 1
 	`
-	rows, err := query(sqlString, gameId, playerId)
+	count, err := countRows(sqlString, gameId, playerId)
+	return count > 0, err
+}
+
+// CountLockedGuesses is how many players have locked in a guess about the song
+// in play, for the "N of M guessed so far" banner. It says who has guessed, never
+// what.
+func CountLockedGuesses(gameId uuid.UUID) (int, error) {
+	sqlString := `
+		SELECT COUNT(*)
+		FROM TRACK_TIMELINE_TITLE_GUESS G
+			INNER JOIN TRACK_TIMELINE_CURRENT_CARD CC
+				ON CC.TRACK_TIMELINE_GAME_ID = G.TRACK_TIMELINE_GAME_ID AND CC.CARD_ID = G.CARD_ID
+		WHERE G.TRACK_TIMELINE_GAME_ID = ? AND G.LOCKED = 1
+	`
+	return countRows(sqlString, gameId)
+}
+
+func countRows(sqlString string, params ...any) (int, error) {
+	rows, err := query(sqlString, params...)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	defer rows.Close()
 
@@ -195,61 +340,75 @@ func HasGuessed(gameId uuid.UUID, playerId uuid.UUID) (bool, error) {
 	for rows.Next() {
 		if err := rows.Scan(&count); err != nil {
 			log.Println(err)
-			return false, errors.New("failed to scan row in query results")
+			return 0, errors.New("failed to scan row in query results")
 		}
 	}
-
-	return count > 0, nil
+	return count, nil
 }
 
-// Guess is one player's judged title/artist guess against the song in play.
-type Guess struct {
-	PlayerId           uuid.UUID
-	PlayerName         string
-	GuessText          string
-	TitleCorrect       bool
-	ArtistCorrect      bool
-	TitleMatchPercent  int
-	ArtistMatchPercent int
-	// JudgedByAI is guess.Verdict.ByAI, persisted so it survives past the
-	// moment of judging — the live "alert:" message has the real Verdict to
-	// read it from, but the reveal chat line and a re-rendered "already
-	// guessed" fragment only have this stored row.
-	JudgedByAI bool
-}
-
-// GetGuesses returns this round's guesses oldest first, for reveal-chat
-// announcement order.
-func GetGuesses(gameId uuid.UUID) ([]Guess, error) {
+// IsRoundCard reports whether a song belongs to the round in progress: the one in
+// play, or one skipped earlier in the round. A guess tagged with anything else is
+// for a song that is over, and is refused rather than being judged against the
+// wrong one.
+func IsRoundCard(gameId uuid.UUID, cardId uuid.UUID) (bool, error) {
 	sqlString := `
-		SELECT G.PLAYER_ID, U.NAME, G.GUESS_TEXT, G.TITLE_CORRECT, G.ARTIST_CORRECT,
-			G.TITLE_MATCH_PERCENT, G.ARTIST_MATCH_PERCENT, G.JUDGED_BY_AI
-		FROM TRACK_TIMELINE_TITLE_GUESS G
-			INNER JOIN PLAYER P ON P.ID = G.PLAYER_ID
-			INNER JOIN USER U ON U.ID = P.USER_ID
-		WHERE G.TRACK_TIMELINE_GAME_ID = ?
-		ORDER BY G.CREATED_ON_DATE ASC
+		SELECT COUNT(*) FROM (
+			SELECT CARD_ID FROM TRACK_TIMELINE_CURRENT_CARD WHERE TRACK_TIMELINE_GAME_ID = ? AND CARD_ID = ?
+			UNION ALL
+			SELECT CARD_ID FROM TRACK_TIMELINE_SKIPPED_CARD WHERE TRACK_TIMELINE_GAME_ID = ? AND CARD_ID = ?
+		) ROUND_CARDS
 	`
-	rows, err := query(sqlString, gameId)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+	count, err := countRows(sqlString, gameId, cardId, gameId, cardId)
+	return count > 0, err
+}
 
-	result := make([]Guess, 0)
-	for rows.Next() {
-		var g Guess
-		if err := rows.Scan(
-			&g.PlayerId, &g.PlayerName, &g.GuessText, &g.TitleCorrect, &g.ArtistCorrect,
-			&g.TitleMatchPercent, &g.ArtistMatchPercent, &g.JudgedByAI,
+// ErrGuessLocked means the player already locked in a guess about this song.
+var ErrGuessLocked = errors.New("already guessed")
+
+// SaveGuess stores what a player has typed about a song. With lock false it is a
+// draft: it replaces any earlier draft, and an empty one removes the row. With
+// lock true it is the player pressing Guess: it replaces the draft and locks it,
+// and ErrGuessLocked comes back if they had already locked one. A locked or
+// already-judged guess is never changed by a later draft, so a browser saving a
+// draft a moment late cannot rewrite what was submitted.
+//
+// Nothing is judged here; see JudgeRoundGuesses.
+func SaveGuess(gameId, playerId, cardId uuid.UUID, titleGuess, artistGuess string, lock bool) error {
+	combined := CombineGuess(titleGuess, artistGuess)
+
+	if lock {
+		if existing, err := countRows(
+			"SELECT COUNT(*) FROM TRACK_TIMELINE_TITLE_GUESS WHERE TRACK_TIMELINE_GAME_ID = ? AND PLAYER_ID = ? AND CARD_ID = ? AND (LOCKED = 1 OR JUDGED = 1)",
+			gameId, playerId, cardId,
 		); err != nil {
-			log.Println(err)
-			return nil, errors.New("failed to scan row in query results")
+			return err
+		} else if existing > 0 {
+			return ErrGuessLocked
 		}
-		result = append(result, g)
+	} else if combined == "" {
+		return execute(
+			"DELETE FROM TRACK_TIMELINE_TITLE_GUESS WHERE TRACK_TIMELINE_GAME_ID = ? AND PLAYER_ID = ? AND CARD_ID = ? AND LOCKED = 0 AND JUDGED = 0",
+			gameId, playerId, cardId,
+		)
 	}
 
-	return result, nil
+	id, err := uuid.NewUUID()
+	if err != nil {
+		log.Println(err)
+		return errors.New("failed to generate new id")
+	}
+
+	sqlString := `
+		INSERT INTO TRACK_TIMELINE_TITLE_GUESS
+			(ID, TRACK_TIMELINE_GAME_ID, PLAYER_ID, CARD_ID, TITLE_GUESS, ARTIST_GUESS, GUESS_TEXT, LOCKED)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			TITLE_GUESS = IF(LOCKED = 1 OR JUDGED = 1, TITLE_GUESS, VALUES(TITLE_GUESS)),
+			ARTIST_GUESS = IF(LOCKED = 1 OR JUDGED = 1, ARTIST_GUESS, VALUES(ARTIST_GUESS)),
+			GUESS_TEXT = IF(LOCKED = 1 OR JUDGED = 1, GUESS_TEXT, VALUES(GUESS_TEXT)),
+			LOCKED = IF(JUDGED = 1, LOCKED, LOCKED OR VALUES(LOCKED))
+	`
+	return execute(sqlString, id, gameId, playerId, cardId, titleGuess, artistGuess, combined, lock)
 }
 
 // GuessTokensEarned is how many tokens a judged guess pays: GuessTokensPerPart
@@ -266,10 +425,11 @@ func GuessTokensEarned(g Guess) int {
 	return earned
 }
 
-// GuessTokenWinners lists this round's guesses that earned their player at
-// least a token, oldest first. It only reads: the tokens were already paid the
-// moment each guess was judged (see AwardGuessToken), so this exists for the
-// reveal, which announces who earned what (GuessTokensEarned on each one).
+// GuessTokenWinners lists this round's judged guesses that earned their player
+// at least a token, in the order the songs were played. It only reads: the
+// tokens were already paid when the guesses were judged (see
+// JudgeRoundGuesses), so this exists for the reveal, which announces who earned
+// what (GuessTokensEarned on each one).
 func GuessTokenWinners(gameId uuid.UUID) ([]Guess, error) {
 	guesses, err := GetGuesses(gameId)
 	if err != nil {
@@ -278,17 +438,15 @@ func GuessTokenWinners(gameId uuid.UUID) ([]Guess, error) {
 
 	var winners []Guess
 	for _, g := range guesses {
-		if GuessTokensEarned(g) > 0 {
+		if g.Judged && GuessTokensEarned(g) > 0 {
 			winners = append(winners, g)
 		}
 	}
 	return winners, nil
 }
 
-// AwardGuessToken pays a judged guess its tokens the moment it is recorded:
-// independent of turn order or submit time — there is no race, and no waiting
-// for the reveal. It returns how many were paid (0, 1 or 2), and does nothing
-// for a guess that earned none.
+// AwardGuessToken pays a judged guess its tokens. It returns how many were paid
+// (0, 1 or 2), and does nothing for a guess that earned none.
 //
 // This is deliberately separate from ResolveRound's placement/card judging:
 // the guess-token economy and the card economy are independent.
@@ -303,42 +461,33 @@ func AwardGuessToken(gameId uuid.UUID, playerId uuid.UUID, g Guess) (int, error)
 	return earned, nil
 }
 
-// RecordGuess stores a judged guess. tokensAwarded is how many tokens the
-// guess paid out, granted by AwardGuessToken right after this insert (the row's
-// unique constraint is what stops a second guess, and so a second token, from
-// the same player this round). judgedByAI is guess.Verdict.ByAI, persisted so later
-// renderings of this guess (reveal chat, a re-fetched "already guessed"
-// fragment) can still skip match-percent phrasing for an AI verdict.
-func RecordGuess(
-	gameId uuid.UUID,
-	playerId uuid.UUID,
-	guessText string,
-	titleCorrect bool,
-	artistCorrect bool,
-	titleMatchPercent int,
-	artistMatchPercent int,
-	judgedByAI bool,
-	tokensAwarded int,
-) error {
+// AddSkippedCard records a song as skipped during the round in progress, so the
+// guesses made on it stay valid and are judged with the rest of the round.
+func AddSkippedCard(gameId uuid.UUID, cardId uuid.UUID) error {
 	id, err := uuid.NewUUID()
 	if err != nil {
 		log.Println(err)
 		return errors.New("failed to generate new id")
 	}
-
-	sqlString := `
-		INSERT INTO TRACK_TIMELINE_TITLE_GUESS
-			(ID, TRACK_TIMELINE_GAME_ID, PLAYER_ID, GUESS_TEXT, TITLE_CORRECT, ARTIST_CORRECT,
-			TITLE_MATCH_PERCENT, ARTIST_MATCH_PERCENT, JUDGED_BY_AI, TOKENS_AWARDED)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
-	return execute(sqlString, id, gameId, playerId, guessText, titleCorrect, artistCorrect,
-		titleMatchPercent, artistMatchPercent, judgedByAI, tokensAwarded)
+	return execute(
+		"INSERT INTO TRACK_TIMELINE_SKIPPED_CARD (ID, TRACK_TIMELINE_GAME_ID, CARD_ID) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE CARD_ID = CARD_ID",
+		id, gameId, cardId,
+	)
 }
 
-// ClearGuesses empties the round's guesses.
+// DiscardGuessesForCard drops every guess made about one song, for a song that
+// never really played (a dead video), where judging them would be unfair.
+func DiscardGuessesForCard(gameId uuid.UUID, cardId uuid.UUID) error {
+	return execute("DELETE FROM TRACK_TIMELINE_TITLE_GUESS WHERE TRACK_TIMELINE_GAME_ID = ? AND CARD_ID = ?", gameId, cardId)
+}
+
+// ClearGuesses empties the round's guesses and its list of skipped songs, ready
+// for the next round.
 func ClearGuesses(gameId uuid.UUID) error {
-	return execute("DELETE FROM TRACK_TIMELINE_TITLE_GUESS WHERE TRACK_TIMELINE_GAME_ID = ?", gameId)
+	if err := execute("DELETE FROM TRACK_TIMELINE_TITLE_GUESS WHERE TRACK_TIMELINE_GAME_ID = ?", gameId); err != nil {
+		return err
+	}
+	return execute("DELETE FROM TRACK_TIMELINE_SKIPPED_CARD WHERE TRACK_TIMELINE_GAME_ID = ?", gameId)
 }
 
 // IsPlacementCorrect reports whether inserting a song of releaseYear at position
@@ -944,10 +1093,21 @@ func resolveRound(gameId uuid.UUID, winnerPlayerId uuid.UUID, winnerName string,
 	return outcome, nil
 }
 
+// judgeBeforeResolving judges the round's guesses ahead of resolveRound, which
+// snapshots them for the reveal. Deliberately not inside resolveRound: that holds
+// a process-wide lock, and judging waits on the network. A failure is logged and
+// the round resolves anyway, since the round must end either way.
+func judgeBeforeResolving(gameId uuid.UUID) {
+	if err := JudgeRoundGuesses(gameId); err != nil {
+		log.Println(err)
+	}
+}
+
 // ResolveRoundWon awards the card to winnerPlayerId at winPosition.
 // wonBySteal distinguishes a stealer's win from the turn player's own
 // correct placement, for the announcement and the reveal popup.
 func ResolveRoundWon(gameId uuid.UUID, winnerPlayerId uuid.UUID, winnerName string, winPosition int, wonBySteal bool) (RoundOutcome, error) {
+	judgeBeforeResolving(gameId)
 	return resolveRound(gameId, winnerPlayerId, winnerName, winPosition, wonBySteal)
 }
 
@@ -965,6 +1125,7 @@ func ResolveRoundWon(gameId uuid.UUID, winnerPlayerId uuid.UUID, winnerName stri
 // (the stealer, if there was one, already spent their token finding out);
 // otherwise the card is discarded.
 func ResolveRoundFallbackToOriginal(gameId uuid.UUID) (RoundOutcome, error) {
+	judgeBeforeResolving(gameId)
 	placement, err := GetPlacement(gameId)
 	if err != nil {
 		return RoundOutcome{}, err
@@ -1048,7 +1209,13 @@ func AdvanceToNextPlayer(gameId uuid.UUID) error {
 // replacement for the same player. This is the escape hatch for a video that is
 // dead, region-locked, or simply will not load — without it one bad link wedges
 // the round for everyone.
-func SkipCurrentCard(gameId uuid.UUID) error {
+//
+// keepGuesses says what becomes of the guesses made on the abandoned song. True
+// is an ordinary skip: the song was heard and played, so its guesses stay on file
+// against it and are judged, and paid, with the rest of the round. False is for a
+// song that never really played (a dead video), where judging them would be
+// unfair, so they are dropped.
+func SkipCurrentCard(gameId uuid.UUID, keepGuesses bool) error {
 	card, err := GetCurrentCard(gameId)
 	if err != nil {
 		return err
@@ -1061,12 +1228,16 @@ func SkipCurrentCard(gameId uuid.UUID) error {
 		log.Println(logErr)
 	}
 
-	// The skip was nobody's fault, so the round restarts clean rather than
-	// carrying over placements or guesses made against the abandoned song.
+	// Placements belong to the abandoned song and are dropped. Its guesses are
+	// not: they stay against it, and the round is judged song by song.
 	if err := ClearPlacements(gameId); err != nil {
 		return err
 	}
-	if err := ClearGuesses(gameId); err != nil {
+	if keepGuesses {
+		if err := AddSkippedCard(gameId, card.CardId); err != nil {
+			return err
+		}
+	} else if err := DiscardGuessesForCard(gameId, card.CardId); err != nil {
 		return err
 	}
 	// The replacement song has not been heard at all yet, so a replay already
