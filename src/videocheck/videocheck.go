@@ -66,6 +66,10 @@ type videosListResponse struct {
 		ContentDetails struct {
 			Duration string `json:"duration"`
 		} `json:"contentDetails"`
+		Snippet struct {
+			Title        string `json:"title"`
+			ChannelTitle string `json:"channelTitle"`
+		} `json:"snippet"`
 	} `json:"items"`
 }
 
@@ -142,6 +146,11 @@ type VideoInfo struct {
 	// premieres come back as "P0D"). Callers must treat 0 as "no usable
 	// duration", never as a zero-length video.
 	DurationSeconds int
+	// Title and Channel are what YouTube calls the video and who uploaded it,
+	// empty when the video wasn't returned. They let an admin spot a link that
+	// points at the wrong song.
+	Title   string
+	Channel string
 }
 
 // iso8601DurationPattern matches the subset of ISO 8601 durations YouTube
@@ -170,9 +179,9 @@ func parseISO8601Duration(value string) int {
 // not return at all (deleted, private) or that comes back with embedding
 // explicitly disabled is unavailable; anything else is available.
 //
-// Duration rides along on the same request: videos.list costs one quota unit
-// per call regardless of how many parts it asks for, so fetching
-// contentDetails alongside status is free.
+// Duration and title ride along on the same request: videos.list costs one
+// quota unit per call regardless of how many parts it asks for, so fetching
+// contentDetails and snippet alongside status is free.
 //
 // Requires TRACK_TIMELINE_YT_API_KEY. Unlike guess.Adjudicate, this returns
 // an error rather than degrading — there is no sensible fallback for "is
@@ -199,7 +208,7 @@ func CheckAvailable(ctx context.Context, videoIds []string) (map[string]VideoInf
 		}
 
 		reqUrl := "https://www.googleapis.com/youtube/v3/videos?" + url.Values{
-			"part": {"status,contentDetails"},
+			"part": {"status,contentDetails,snippet"},
 			"id":   {strings.Join(batch, ",")},
 			"key":  {apiKey},
 		}.Encode()
@@ -232,6 +241,8 @@ func CheckAvailable(ctx context.Context, videoIds []string) (map[string]VideoInf
 			result[item.Id] = VideoInfo{
 				Available:       item.Status.Embeddable == nil || *item.Status.Embeddable,
 				DurationSeconds: parseISO8601Duration(item.ContentDetails.Duration),
+				Title:           item.Snippet.Title,
+				Channel:         item.Snippet.ChannelTitle,
 			}
 		}
 	}

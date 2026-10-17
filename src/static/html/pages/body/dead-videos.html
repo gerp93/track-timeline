@@ -19,8 +19,219 @@
         href="/videos?tab=genres"
         class="library-tab{{if eq .Tab "genres"}} library-tab-active{{end}}"
     >Ungenred ({{.UngenredTabCount}})</a>
+    <a
+        href="/videos?tab=mismatches"
+        class="library-tab{{if eq .Tab "mismatches"}} library-tab-active{{end}}"
+    >Mismatches ({{.MismatchTabCount}})</a>
 </nav>
 
+{{if eq .Tab "mismatches"}}
+<p>
+    Each song as the deck has it, beside what YouTube calls the video linked to
+    it. Rows are the ones where the song's title or artist barely appears in the
+    video's title or channel, worst first. Mark one <em>Looks fine</em> if the
+    video is right (it comes back only if the link changes), or <em>Wrong
+    video</em> to send it to Dead Videos so you can replace the link.
+</p>
+
+{{if gt .UntitledCount 0}}
+<p class="hint">
+    {{.UntitledCount}} song(s) have no YouTube title recorded yet, so they can't
+    be compared. Titles are fetched with the same YouTube check that finds dead
+    videos (no extra quota): run <em>Check Not Checked in 24 hrs</em> on the
+    Dead Videos tab{{if gt .StaleCount 0}} ({{.StaleCount}} song(s) due){{end}}.
+</p>
+{{end}}
+
+<form method="get" action="/videos" class="dead-video-filters">
+    <input type="hidden" name="tab" value="mismatches" />
+    <span>
+        <label for="mismatch-search">Search</label>
+        <input
+            type="text"
+            id="mismatch-search"
+            name="search"
+            maxlength="255"
+            placeholder="Title, artist, deck, or video title"
+            value="{{.Search}}"
+            autocomplete="off"
+        />
+    </span>
+    <button type="submit"><span class="bi bi-search"></span></button>
+    <label class="dead-video-toolbar-toggle">
+        <input type="checkbox" id="tt-mismatch-show-embeds" onchange="ttApplyMismatchEmbeds(this.checked)" />
+        Show video previews
+    </label>
+</form>
+
+{{if eq .RowCount 0}}
+<p>No mismatches{{if .Search}} matching that search{{end}}.</p>
+{{else}}
+<div class="dead-video-toolbar">
+    <div class="dead-video-toolbar-group">
+        <span class="dead-video-toolbar-label">Selected</span>
+        <button type="button" class="tt-mismatch-bulk" onclick="ttMismatchBulk('/api/videos/dismiss-mismatches', 'Mark the selected videos as the right song?')" disabled>
+            Looks fine (<span class="tt-mismatch-count">0</span>)
+        </button>
+        <button type="button" class="tt-mismatch-bulk" onclick="ttMismatchBulk('/api/videos/mark-incorrect', 'Mark the selected videos as the wrong song? They move to Dead Videos.')" disabled>
+            Wrong video (<span class="tt-mismatch-count">0</span>)
+        </button>
+        <button type="button" class="tt-mismatch-bulk" onclick="ttMismatchBulk('/api/videos/delete', 'Delete the selected songs?')" disabled>
+            Delete (<span class="tt-mismatch-count">0</span>)
+        </button>
+    </div>
+</div>
+<div id="tt-mismatch-toolbar-result" class="htmx-result"></div>
+
+<p class="hint">{{.RowCount}} song(s) &mdash; page {{.Page}} of {{.LastPage}}</p>
+<table class="mismatch-table">
+    <thead>
+        <tr>
+            <th class="dead-col-check">
+                <input type="checkbox" onchange="ttMismatchSelectAll(this)" title="Select page" />
+            </th>
+            <th>In the deck</th>
+            <th>On YouTube</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .MismatchCards}}
+        <tr>
+            <td class="dead-col-check">
+                <input type="checkbox" class="tt-mismatch-row" value="{{.CardId}}" onchange="ttMismatchSync()" />
+            </td>
+            <td>
+                <div class="mismatch-main{{if .TitleBad}} mismatch-bad{{end}}">{{.Title}}</div>
+                <div class="mismatch-sub{{if .ArtistBad}} mismatch-bad{{end}}">{{.Artist}}</div>
+                <div class="hint">
+                    {{if .ReleaseYear.Valid}}{{.ReleaseYear.Int32}} &middot; {{end}}<a href="/deck/{{.DeckId}}">{{.DeckName}}</a>
+                </div>
+            </td>
+            <td>
+                <div class="mismatch-main">{{.VideoTitle}}</div>
+                <div class="mismatch-sub">{{if .VideoChannel}}{{.VideoChannel}}{{else}}&mdash;{{end}}</div>
+                <div class="hint">
+                    title {{printf "%.0f" .TitlePercent}}% &middot; artist {{printf "%.0f" .ArtistPercent}}%
+                    &middot;
+                    <a href="https://www.youtube.com/watch?v={{.YouTubeVideoId}}" target="_blank">
+                        open <span class="bi bi-box-arrow-up-right"></span>
+                    </a>
+                </div>
+                <div
+                    class="tt-mismatch-preview"
+                    data-video-id="{{.YouTubeVideoId}}"
+                    data-video-title="{{.Title}} by {{.Artist}}"
+                ></div>
+            </td>
+            <td class="mismatch-actions">
+                <button type="button" class="btn-small"
+                    hx-post="/api/card/{{.CardId}}/dismiss-mismatch"
+                    hx-target="#tt-mismatch-result-{{.CardId}}"
+                >Looks fine</button>
+                <button type="button" class="btn-small"
+                    hx-post="/api/card/{{.CardId}}/mark-incorrect"
+                    hx-target="#tt-mismatch-result-{{.CardId}}"
+                    hx-confirm="Mark this video as the wrong song? It moves to Dead Videos."
+                >Wrong video</button>
+                <button type="button" class="btn-small"
+                    hx-delete="/api/card/{{.CardId}}"
+                    hx-target="#tt-mismatch-result-{{.CardId}}"
+                    hx-confirm="Delete {{.Title}} from {{.DeckName}}?"
+                >Delete</button>
+                <div id="tt-mismatch-result-{{.CardId}}" class="htmx-result"></div>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+
+<div>
+    {{if gt .Page 1}}
+    <a href="/videos?tab=mismatches&amp;search={{urlquery .Search}}&amp;page={{add .Page -1}}"><button type="button">Previous</button></a>
+    {{end}}
+    {{if lt .Page .LastPage}}
+    <a href="/videos?tab=mismatches&amp;search={{urlquery .Search}}&amp;page={{add .Page 1}}"><button type="button">Next</button></a>
+    {{end}}
+</div>
+
+<script>
+    function ttMismatchSelected() {
+        return Array.from(document.querySelectorAll(".tt-mismatch-row:checked")).map((el) => el.value);
+    }
+
+    function ttMismatchSync() {
+        const n = ttMismatchSelected().length;
+        document.querySelectorAll(".tt-mismatch-count").forEach((el) => { el.textContent = String(n); });
+        document.querySelectorAll(".tt-mismatch-bulk").forEach((el) => { el.disabled = n === 0; });
+    }
+
+    function ttMismatchSelectAll(box) {
+        document.querySelectorAll(".tt-mismatch-row").forEach((el) => { el.checked = box.checked; });
+        ttMismatchSync();
+    }
+
+    function ttMismatchBulk(url, confirmation) {
+        const ids = ttMismatchSelected();
+        if (ids.length === 0 || !confirm(confirmation)) {
+            return;
+        }
+        const body = new URLSearchParams();
+        ids.forEach((id) => body.append("cardId", id));
+        const dest = document.getElementById("tt-mismatch-toolbar-result");
+        fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: body,
+        })
+            .then((r) => r.text().then((text) => ({ text: text, refresh: r.headers.get("HX-Refresh") })))
+            .then((result) => {
+                if (dest) dest.textContent = result.text;
+                if (result.refresh === "true") location.reload();
+            })
+            .catch((e) => {
+                if (dest) dest.textContent = "Action failed.";
+                console.error(e);
+            });
+    }
+
+    function ttApplyMismatchEmbeds(show) {
+        try {
+            localStorage.setItem("tt-mismatch-show-embeds", show ? "1" : "0");
+        } catch (e) {
+            // The preference is optional when storage is unavailable.
+        }
+        document.querySelectorAll(".tt-mismatch-preview").forEach((host) => {
+            host.replaceChildren();
+            if (!show) return;
+            const iframe = document.createElement("iframe");
+            iframe.src = "https://www.youtube.com/embed/" + encodeURIComponent(host.dataset.videoId);
+            iframe.title = host.dataset.videoTitle;
+            iframe.width = "320";
+            iframe.height = "180";
+            iframe.loading = "lazy";
+            iframe.allow = "encrypted-media";
+            iframe.allowFullscreen = true;
+            host.appendChild(iframe);
+        });
+    }
+
+    (function () {
+        let show = false;
+        try {
+            show = localStorage.getItem("tt-mismatch-show-embeds") === "1";
+        } catch (e) {
+            // Default off when storage is unavailable.
+        }
+        const box = document.getElementById("tt-mismatch-show-embeds");
+        if (box) box.checked = show;
+        ttApplyMismatchEmbeds(show);
+        ttMismatchSync();
+    })();
+</script>
+{{end}}
+
+{{else}}
 {{if eq .Tab "duplicates"}}
 <p>
     Songs across every deck that share the same title and artist after
@@ -828,5 +1039,6 @@
     ttRestoreDeadEmbeds();
     ttSyncDeadSelectedCounts();
 </script>
+{{end}}
 {{end}}
 {{end}}

@@ -790,7 +790,7 @@ func DeadVideos(w http.ResponseWriter, r *http.Request) {
 
 	tab := r.URL.Query().Get("tab")
 	switch tab {
-	case "duplicates", "genres":
+	case "duplicates", "genres", "mismatches":
 	default:
 		tab = "dead"
 	}
@@ -826,6 +826,9 @@ func DeadVideos(w http.ResponseWriter, r *http.Request) {
 		DupView                     string
 		GenreView                   string
 		Cards                       []database.DeadVideoCard
+		MismatchCards               []database.VideoMismatchCard
+		MismatchTabCount            int
+		UntitledCount               int
 		UngenredCards               []database.UngenredCard
 		GenreAssignLogs             []database.GenreAssignLog
 		DuplicateGroups             []database.DuplicateGroup
@@ -871,6 +874,14 @@ func DeadVideos(w http.ResponseWriter, r *http.Request) {
 	}
 	out.DeadTabCount = deadTabCount
 
+	mismatchTabCount, err := database.CountVideoMismatches()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to count title mismatches."))
+		return
+	}
+	out.MismatchTabCount = mismatchTabCount
+
 	duplicateTabCount, err := database.CountDuplicateGroups()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -904,6 +915,40 @@ func DeadVideos(w http.ResponseWriter, r *http.Request) {
 	out.GenreLogTabCount = genreLogTabCount
 
 	switch tab {
+	case "mismatches":
+		mismatches, err := database.ListVideoMismatches(search)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to list title mismatches."))
+			return
+		}
+		untitled, err := database.CountVideosWithoutTitle()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to count songs without a YouTube title."))
+			return
+		}
+		staleCount, err := database.CountStaleVideoChecks(apiCard.StaleVideoCutoff())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("Failed to count stale video checks."))
+			return
+		}
+		out.RowCount = len(mismatches)
+		lastPage := int(math.Ceil(float64(out.RowCount) / 10))
+		if lastPage < 1 {
+			lastPage = 1
+		}
+		if page > lastPage {
+			page = lastPage
+		}
+		out.Page = page
+		out.LastPage = lastPage
+		start := min((page-1)*10, len(mismatches))
+		end := min(start+10, len(mismatches))
+		out.MismatchCards = mismatches[start:end]
+		out.UntitledCount = untitled
+		out.StaleCount = staleCount
 	case "duplicates":
 		candidates, err := database.ListDuplicateCandidates()
 		if err != nil {

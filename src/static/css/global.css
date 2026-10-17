@@ -432,6 +432,46 @@ a.no-style {
     border-bottom-color: currentColor;
 }
 
+.mismatch-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.mismatch-table th,
+.mismatch-table td {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.5rem 0.6rem;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.35);
+}
+
+.mismatch-main {
+    font-weight: bold;
+    overflow-wrap: anywhere;
+}
+
+.mismatch-sub {
+    overflow-wrap: anywhere;
+}
+
+/* The half of the comparison that fell under its match bar. */
+.mismatch-bad {
+    color: #d9534f;
+}
+
+.mismatch-actions {
+    white-space: nowrap;
+}
+
+.mismatch-actions .btn-small {
+    margin: 0 0.15rem 0.25rem 0;
+}
+
+.tt-mismatch-preview iframe {
+    margin-top: 0.4rem;
+    max-width: 100%;
+}
+
 .library-subtabs {
     display: flex;
     gap: 0.35rem;
