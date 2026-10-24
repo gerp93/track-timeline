@@ -3,6 +3,7 @@ package apiRoom
 import (
 	"database/sql"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -74,6 +75,9 @@ func JoinGuest(w http.ResponseWriter, r *http.Request) {
 	gsAuth.SetUserId(w, userId)
 	setGuestNightCookie(w, room.Code, userId)
 	Broadcast(room.LobbyId, "log:"+displayName+" sat down")
+	if logErr := database.LogChat(room.LobbyId, displayName+" sat down"); logErr != nil {
+		log.Println(logErr)
+	}
 	Broadcast(room.LobbyId, "refresh")
 	w.Header().Add("HX-Redirect", "/room/"+room.Code+"/play")
 	w.WriteHeader(http.StatusOK)
@@ -115,6 +119,9 @@ func JoinAccount(w http.ResponseWriter, r *http.Request) {
 	gsAuth.SetUserId(w, userId)
 	setGuestNightCookie(w, room.Code, userId)
 	Broadcast(room.LobbyId, "log:"+name+" sat down")
+	if logErr := database.LogChat(room.LobbyId, name+" sat down"); logErr != nil {
+		log.Println(logErr)
+	}
 	Broadcast(room.LobbyId, "refresh")
 	w.Header().Add("HX-Redirect", "/room/"+room.Code+"/play")
 	w.WriteHeader(http.StatusOK)

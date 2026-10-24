@@ -1,33 +1,63 @@
 {{define "body"}}
-<h2>Leaderboard</h2>
+{{template "stats-nav" "leaderboard"}}
+{{with .Stats}}
 {{if eq (len .Rows) 0}}
-<p>No games have been won yet.</p>
+<p>No game against an opponent has been finished yet.</p>
 {{else}}
-<table>
+<p class="stat-hint">
+    Ranked by wins, then win rate. {{.TotalGames}} finished game(s) with at least one opponent{{if .SoloGames}} (plus {{.SoloGames}} solo, which don't count){{end}}.
+</p>
+<table class="stat-table">
     <thead>
         <tr>
-            <th>#</th>
+            <th class="stat-num">#</th>
             <th>Player</th>
-            <th>Wins</th>
-            <th>Placement Accuracy</th>
+            <th class="stat-num">Wins</th>
+            <th class="stat-num">Games</th>
+            <th>Win rate</th>
+            <th class="stat-num" title="Wins minus the wins you'd expect if everyone at each table had equal odds">vs. chance</th>
+            <th>Placement accuracy</th>
+            <th>Recent games</th>
+            <th>Last win</th>
         </tr>
     </thead>
     <tbody>
         {{range .Rows}}
         <tr>
-            <td>{{.Rank}}</td>
-            <td><a href="/stats/user/{{.UserId}}">{{.UserName}}</a></td>
-            <td>{{.Wins}}</td>
-            <td>
-                {{if gt .Placements 0}}
-                {{.CorrectPlaces}} / {{.Placements}}
-                {{else}}
-                <em>no data</em>
-                {{end}}
+            <td class="stat-num stat-nowrap">
+                {{if and (eq .Rank 1) (gt .Wins 0)}}<i class="bi bi-trophy-fill" title="Top of the table"></i> {{end}}{{.Rank}}
             </td>
+            <td class="stat-wrap"><a href="/stats/user/{{.UserId}}">{{.UserName}}</a></td>
+            <td class="stat-num"><strong>{{.Wins}}</strong></td>
+            <td class="stat-num">{{.Games}}</td>
+            <td>{{template "stats-rate" .WinRate}}</td>
+            <td class="stat-num">
+                <span
+                    class="{{if gt .Edge 0.049}}stat-pos{{else if lt .Edge -0.049}}stat-neg{{end}}"
+                    title="Expected {{.ExpectedLabel}} wins from the tables they sat at"
+                >{{.EdgeLabel}}</span>
+            </td>
+            <td>{{template "stats-rate" .Turn}}</td>
+            <td>{{template "stats-form" .Form}}</td>
+            <td class="stat-nowrap">{{template "stats-date" .LastWin}}</td>
         </tr>
         {{end}}
     </tbody>
 </table>
+{{if .NotYetRanked}}
+<p class="stat-hint">
+    Not ranked yet (no finished game against an opponent):
+    {{range $i, $p := .NotYetRanked}}{{if $i}}, {{end}}<a href="/stats/user/{{$p.UserId}}">{{$p.UserName}}</a>{{end}}.
+</p>
+{{end}}
+<details class="stat-notes">
+    <summary>How to read this</summary>
+    <ul>
+        <li><strong>Win rate</strong> is wins out of finished games. With only a handful of games, one result moves it a lot &mdash; the faded bars are the ones to take lightly.</li>
+        <li><strong>vs. chance</strong> compares wins with the wins a player would be expected to have if everyone at each table had equal odds (a quarter of the wins at a four-player table, half at a two-player one). Positive means winning more than the seat alone explains.</li>
+        <li>Placement accuracy is own-turn only.</li>
+    </ul>
+</details>
+{{end}}
 {{end}}
 {{end}}

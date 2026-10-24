@@ -62,14 +62,16 @@ src/
     round.go                 placement, tokens, guesses, ResolveRound, turn
                              advancement, challenge-window bookkeeping
     log.go                   FK-free append-only stats logs
-    stats.go                 leaderboard/user/card stats queries
+    stats.go, stats-games.go, stats-rate.go
+                             the statistics engine (see "Statistics" below)
     seed.go                  SeedAdminIfNoUsers
     youtube.go                ParseYouTubeVideoId
   static/                 embedded assets (//go:embed)
     static.go              embed.FS + SQLFiles (ORDERED game schema
                            manifest, runs AFTER the framework schema)
     sql/                   game tables/triggers under src/static/sql/
-    html/                  pages/body/* (this game's own pages — NOT
+    html/                  components/stats/stats.html (shared stats pieces)
+                           pages/body/* (this game's own pages — NOT
                            base.html, login/users/decks/deck-access/account,
                            which are framework-owned, see below) and
                            components/tracktimeline/ (HTMX fragments)
@@ -263,6 +265,66 @@ the rules live in `database/challenge.go`; the HTTP side is
 - **A card claim is a free draw from the pile** (`GrantChallengeCard`), not a
   specific song, and is refused when it would reach `CardsToWin`.
 
+## Statistics
+
+The `/stats` pages (Overview, Leaderboard, Players, Songs) are **computed, not
+stored**. `loadStatsSnapshot` reads the append-only `LOG_*` tables in a handful of
+queries, the pure `buildStatsReport` (`database/stats.go`) turns that into one
+`StatsReport`, and each `Get*` function picks the slice a page needs. Keeping the
+arithmetic in a pure function is what lets `database/stats_test.go` cover it with no
+database. Definitions that hold on every page:
+
+- **Placement accuracy is own-turn only.** A steal is only possible after someone
+  else missed, so steals are a harder, self-selected sample and get their own line.
+- **Every rate is a `Rate{Hit, Total}`** (`stats-rate.go`), never a bare percentage,
+  so the sample size is always printed and the tooltip can show a 95% Wilson range.
+  Below `SmallSample` (10) a rate renders dimmed. Songs are ranked on a *shrunk*
+  accuracy (`Rate.Smoothed`) with a minimum of `minSongTries`, so a 2-for-2 miss
+  cannot outrank a long record of misses. Don't replace these with raw percentages.
+- **Games are rebuilt, not logged.** The log tables carry no game id (and must stay
+  FK-free), so `reconstructGames` (`stats-games.go`) treats each `LOG_WIN` row as
+  closing a game and the placements since the previous win (capped at
+  `gameLookback`, and cut at the last quiet spell of `gameIdleGap`, 15 minutes,
+  because a lobby reset and restarted leaves an unfinished game before the gap
+  that must not be glued onto the one that was won) as its contents. This is cross-checked in practice: distinct
+  players found per game match the win row's own `PLAYER_COUNT`. Games nobody
+  finished leave no trace; solo games count toward accuracy but not wins. If a
+  `GAME_ID` is ever added to the logs, replace this inference with it.
+- **Song rankings follow one rule set** (`songView`): Hardest/Easiest need
+  `minSongTries` own-turn tries and list only songs below/above the table average;
+  Most/Least recognised need `minGuessesForRecognition` guesses and the same
+  above/below split on pooled title+artist hits. Both order by the *shrunk* rate so
+  a long record outranks a short one. A tab's text must state its own rule.
+- **Some stats exist only from when they began being logged.** `LOG_WIN.IS_ROOM`
+  (online vs in-person, set in `CheckWinner` via `LobbyModeForLog`), the buyer on
+  `bought` rows of `LOG_CARD` (`LogCardBought`) and `TRACK_TIMELINE_LOG_WAGER`
+  (written at lock-in in `PlaceCard`: stake, year named, right/wrong; net is
+  +stake when right, -stake when wrong) have no history. Older rows are `NULL`/absent
+  and the pages say "not recorded" instead of guessing; never infer them (a room
+  row is deleted with its lobby). If a mode is added to the logs, record it at the
+  moment it happens.
+- **`TRACK_TIMELINE_LOG_CHAT` keeps every line the game writes to chat** (not
+  what players type): `announce` (`api/tracktimeline/track-timeline.go`) logs each
+  line via `database.LogChat`, and the room host's "sat down" lines are logged
+  where they are written (`api/room/join.go`). It stores the raw text (colour
+  markup included), a `SEQ` total order, and the game and room flag snapshotted
+  in the same INSERT. It feeds no page: it exists so a statistic wanted later can
+  be rebuilt from what the game said at the time. A new place that writes game
+  chat must go through `announce` (or call `LogChat`) so it is kept. Private
+  `alert:` notices and the status line are not chat and are not logged.
+- **Timeline size at placement is deliberately not shown.** It is the biggest
+  confounder of placement difficulty, but bought and dealt cards are not attributed
+  to a player in the log, so reconstructing it is off by several cards.
+- **Only approved accounts get a player row/page** (guests and deleted users still
+  count in table-wide and per-song figures). Wins in solo games are not on the board.
+- **Pages use no chart library.** Bars and the era heat map are plain CSS built from
+  the theme variables (`--color-accent-*`), and every shaded element also prints its
+  number, so no theme or colour-blind reader depends on colour alone. Shared markup
+  lives in `html/components/stats/stats.html` (`stats-nav`, `stats-rate`,
+  `stats-num`, `stats-heat`, `stats-date`); it needs no template FuncMap because the
+  figures are methods on `Rate`/`HeatCell`. Moments are emitted as UTC `<time>`
+  elements and localised by `global.js`.
+
 ## Metadata hiding
 
 `database.CurrentCard` has no `Title`/`Artist`/`ReleaseYear` field at all —
@@ -347,7 +409,7 @@ boundary. See "Real-time" below for the same caveat applied to the DOM.
   as timeline-trivia's flagged-card/stats tables: a lobby (and everything
   hanging off it) is deleted when the last websocket client disconnects
   (framework behavior), but stats have to outlive that. A card's stats page
-  (`GetCardStats`) still resolves after the card itself is deleted — it
+  (`GetSongStats`) still resolves after the card itself is deleted — it
   shows "(deleted song)" rather than erroring. Do not add a foreign key to
   any `LOG_` table without removing this guarantee first.
 

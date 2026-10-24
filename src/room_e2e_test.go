@@ -117,6 +117,9 @@ func TestRoomModeEndToEnd(t *testing.T) {
 		t.Fatalf("host was seated as player %s; host display must be seatless", hostPlayer.Id)
 	}
 
+	if mode := database.LobbyModeForLog(room.LobbyId); !mode.Valid || !mode.Bool {
+		t.Fatalf("a room's lobby should read as in person for the win log, got %+v", mode)
+	}
 	isRoom, err := database.LobbyIsRoom(room.LobbyId)
 	if err != nil || !isRoom {
 		t.Fatalf("LobbyIsRoom = %v, %v", isRoom, err)
@@ -182,6 +185,27 @@ func TestRoomModeEndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(guestRec.Header().Get("HX-Redirect"), "/room/"+code+"/play") {
 		t.Fatalf("join guest redirect = %q", guestRec.Header().Get("HX-Redirect"))
+	}
+	// The host-screen "sat down" line is a game-written chat line, so it is kept
+	// in the chat log, flagged as a room line and tied to the room's lobby.
+	{
+		room, roomErr := database.GetRoomByCode(code)
+		if roomErr != nil {
+			t.Fatalf("read the room: %v", roomErr)
+		}
+		var lines int
+		var inRoom bool
+		chatRows, err := gsDatabase.Query("SELECT COUNT(*), COALESCE(MIN(IS_ROOM), 0) FROM TRACK_TIMELINE_LOG_CHAT WHERE LOBBY_ID = ? AND MESSAGE = 'Sam sat down'", room.LobbyId)
+		if err != nil {
+			t.Fatalf("read the chat log: %v", err)
+		}
+		if chatRows.Next() {
+			_ = chatRows.Scan(&lines, &inRoom)
+		}
+		chatRows.Close()
+		if lines != 1 || !inRoom {
+			t.Errorf("expected one logged room line \"Sam sat down\", got %d (in room: %v)", lines, inRoom)
+		}
 	}
 	var guestNight *http.Cookie
 	for _, c := range guestRec.Result().Cookies() {
@@ -286,7 +310,7 @@ func TestRoomModeEndToEnd(t *testing.T) {
 	if approved, err := gsDatabase.GetUserIsApproved(guestUserId); err != nil || approved {
 		t.Fatalf("guest approved = %v, %v; want an unapproved account", approved, err)
 	}
-	if err := database.LogWin(guestUserId, 5, 2); err != nil {
+	if err := database.LogWin(guestUserId, 5, 2, sql.NullBool{Bool: true, Valid: true}); err != nil {
 		t.Fatalf("log guest win: %v", err)
 	}
 	guestCardId := uuid.New()
@@ -294,26 +318,29 @@ func TestRoomModeEndToEnd(t *testing.T) {
 		t.Fatalf("log guest placement: %v", err)
 	}
 	// ...but what the guest did still counts toward the card's own stats.
-	if card, err := database.GetCardStats(guestCardId); err != nil || card.Attempts != 1 || card.CorrectPlaces != 1 {
-		t.Fatalf("card stats should still count the guest's placement: %+v, %v", card, err)
+	if page, found, err := database.GetSongStats(guestCardId); err != nil || !found || page.Song.Turn.Total != 1 || page.Song.Turn.Hit != 1 {
+		t.Fatalf("song stats should still count the guest's placement: %+v, found=%v, %v", page.Song.Turn, found, err)
 	}
 	if board, err := database.GetLeaderboard(); err != nil {
 		t.Fatalf("GetLeaderboard: %v", err)
 	} else {
-		for _, row := range board {
+		for _, row := range append(board.Rows, board.NotYetRanked...) {
 			if row.UserId == guestUserId {
 				t.Fatalf("leaderboard lists the guest %q", row.UserName)
 			}
 		}
 	}
-	if list, err := database.GetUserStatsList(); err != nil {
-		t.Fatalf("GetUserStatsList: %v", err)
+	if list, err := database.GetPlayerList(); err != nil {
+		t.Fatalf("GetPlayerList: %v", err)
 	} else {
-		for _, row := range list {
+		for _, row := range list.Rows {
 			if row.UserId == guestUserId {
-				t.Fatalf("user stats list includes the guest %q", row.UserName)
+				t.Fatalf("player list includes the guest %q", row.UserName)
 			}
 		}
+	}
+	if _, found, err := database.GetPlayerStats(guestUserId); err != nil || found {
+		t.Fatalf("a guest should have no player page: found=%v, %v", found, err)
 	}
 
 	guestPlayer, err := gsDatabase.GetLobbyUserPlayer(room.LobbyId, guestUserId)

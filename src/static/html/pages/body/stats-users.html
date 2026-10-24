@@ -1,27 +1,116 @@
 {{define "body"}}
-<h2>Players</h2>
+{{template "stats-nav" "players"}}
+{{with .Stats}}
 {{if eq (len .Rows) 0}}
 <p>Nobody has played yet.</p>
 {{else}}
-<table>
-    <thead>
-        <tr>
-            <th>Player</th>
-            <th>Wins</th>
-            <th>Placements</th>
-            <th>Guesses</th>
-        </tr>
-    </thead>
-    <tbody>
-        {{range .Rows}}
-        <tr>
-            <td><a href="/stats/user/{{.UserId}}">{{.UserName}}</a></td>
-            <td>{{.Wins}}</td>
-            <td>{{.CorrectPlaces}} / {{.Placements}}</td>
-            <td>{{.CorrectGuesses}} / {{.Guesses}}</td>
-        </tr>
-        {{end}}
-    </tbody>
-</table>
+<section class="stat-section">
+    <h3>Skills</h3>
+    <p class="stat-hint">Open a player for their full record.</p>
+    <table class="stat-table">
+        <thead>
+            <tr>
+                <th>Player</th>
+                <th class="stat-num">Games</th>
+                <th class="stat-num">Wins</th>
+                <th>Placement accuracy</th>
+                <th>Steals landed</th>
+                <th>Title named</th>
+                <th>Artist named</th>
+                <th class="stat-num" title="Longest run of correct own-turn placements">Best streak</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Rows}}
+            <tr>
+                <td class="stat-wrap"><a href="/stats/user/{{.UserId}}">{{.UserName}}</a></td>
+                <td class="stat-num">{{.Games}}</td>
+                <td class="stat-num">{{.Wins}}</td>
+                <td>{{template "stats-rate" .Turn}}</td>
+                <td>{{template "stats-rate" .Steal}}</td>
+                <td>{{template "stats-rate" .Title}}</td>
+                <td>{{template "stats-rate" .Artist}}</td>
+                <td class="stat-num">{{.LongestStreak}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</section>
+
+<section class="stat-section">
+    <h3>Tokens: buys and wagers</h3>
+    <p class="stat-hint">
+        Cards bought with tokens, and exact-year wagers (stake tokens on a song&rsquo;s exact year; right pays the stake
+        back doubled, wrong loses it). Both are recorded from when they were added to the stats, so earlier games are not in these numbers.
+    </p>
+    <table class="stat-table">
+        <thead>
+            <tr>
+                <th>Player</th>
+                <th class="stat-num">Songs bought</th>
+                <th class="stat-num">Wagers</th>
+                <th>Wagers right</th>
+                <th class="stat-num">Biggest wager</th>
+                <th class="stat-num">Biggest win</th>
+                <th class="stat-num">Biggest loss</th>
+                <th class="stat-num" title="Tokens won minus tokens lost on wagers">Net tokens</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Rows}}
+            <tr>
+                <td class="stat-wrap"><a href="/stats/user/{{.UserId}}">{{.UserName}}</a></td>
+                <td class="stat-num">{{if $.Stats.BuysTracked}}{{.Bought}}{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
+                <td class="stat-num">{{if .Wagers.Has}}{{.Wagers.Total}}{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
+                <td>{{template "stats-rate" .Wagers}}</td>
+                <td class="stat-num">{{if .BiggestWager}}{{.BiggestWager}}{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
+                <td class="stat-num">{{if .BiggestWin}}{{.BiggestWin}}{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
+                <td class="stat-num">{{if .BiggestLoss}}{{.BiggestLoss}}{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
+                <td class="stat-num">{{if .Wagers.Has}}<span class="{{if gt .WagerNet 0}}stat-pos{{else if lt .WagerNet 0}}stat-neg{{end}}">{{.WagerNetLabel}}</span>{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
+            </tr>
+            {{end}}
+            <tr>
+                <td class="stat-nowrap"><strong>Everyone</strong></td>
+                <td class="stat-num"><strong>{{.Totals.Bought}}</strong></td>
+                <td class="stat-num">{{if .Totals.Wagers.Has}}<strong>{{.Totals.Wagers.Total}}</strong>{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
+                <td>{{template "stats-rate" .Totals.Wagers}}</td>
+                <td class="stat-num stat-none">&ndash;</td>
+                <td class="stat-num stat-none">&ndash;</td>
+                <td class="stat-num stat-none">&ndash;</td>
+                <td class="stat-num">{{if .Totals.Wagers.Has}}{{.Totals.WagerNetLabel}}{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
+            </tr>
+        </tbody>
+    </table>
+</section>
+
+<section class="stat-section">
+    <h3>Strength by era</h3>
+    <p class="stat-hint">
+        Own-turn placement accuracy by decade, compared with everyone that decade: green is better than the
+        table, red is worse (a gap of 3 points or more, with at least 5 placements). The small line gives the
+        gap in points and how many placements the cell rests on; a dashed outline marks fewer than 10.
+    </p>
+    <table class="stat-table">
+        <thead>
+            <tr>
+                <th>Player</th>
+                {{range .AxisLabels}}<th class="stat-num">{{.}}</th>{{end}}
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Rows}}
+            <tr>
+                <td class="stat-wrap"><a href="/stats/user/{{.UserId}}">{{.UserName}}</a></td>
+                {{range .Cells}}{{template "stats-heat" .}}{{end}}
+            </tr>
+            {{end}}
+            <tr>
+                <td class="stat-nowrap"><strong>Everyone</strong></td>
+                {{range .Everyone}}{{template "stats-heat" .}}{{end}}
+            </tr>
+        </tbody>
+    </table>
+</section>
+{{end}}
 {{end}}
 {{end}}

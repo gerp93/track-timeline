@@ -1,18 +1,96 @@
 {{define "body"}}
-<h2>{{.Stats.Title}}</h2>
-<h4>{{.Stats.Artist}}{{if .Stats.ReleaseYear}} &mdash; {{.Stats.ReleaseYear}}{{end}}</h4>
-<table>
-    <tbody>
-        <tr>
-            <th>Placement Accuracy</th>
-            <td>
-                {{if gt .Stats.Attempts 0}}
-                {{.Stats.CorrectPlaces}} / {{.Stats.Attempts}}
-                {{else}}
-                <em>never attempted</em>
+{{template "stats-nav" "songs"}}
+{{with .Stats}}
+{{$s := .Song}}
+<a class="stat-back" href="/stats/cards"><i class="bi bi-arrow-left"></i> All songs</a>
+<div class="stat-title-row">
+    <h3>{{$s.Title}}</h3>
+    {{if $s.Known}}<span>{{$s.Artist}}{{if $s.Year}} &mdash; {{$s.Year}}{{end}}</span>{{end}}
+    {{if $s.Genre}}<span class="stat-badge">{{$s.Genre}}</span>{{end}}
+</div>
+
+<section class="stat-tiles" aria-label="Headline numbers">
+    <div class="stat-tile" title="{{$s.Turn.Tip}}">
+        <span class="stat-tile-label">Placement accuracy</span>
+        <span class="stat-tile-value">{{$s.Turn.Percent}}</span>
+        <span class="stat-tile-note">
+            {{if $s.Turn.Has}}{{$s.Turn.Fraction}} own-turn &middot; table {{.Table.Turn.Percent}}{{else}}never placed on a turn{{end}}
+        </span>
+    </div>
+    <div class="stat-tile" title="{{$s.Steal.Tip}}">
+        <span class="stat-tile-label">Steals landed</span>
+        <span class="stat-tile-value">{{$s.Steal.Percent}}</span>
+        <span class="stat-tile-note">{{if $s.Steal.Has}}{{$s.Steal.Fraction}} attempted{{else}}nobody has tried to steal it{{end}}</span>
+    </div>
+    <div class="stat-tile">
+        <span class="stat-tile-label">Harder than</span>
+        <span class="stat-tile-value">{{if ge $s.Percentile 0}}{{$s.Percentile}}%{{else}}&ndash;{{end}}</span>
+        <span class="stat-tile-note">
+            {{if ge $s.Percentile 0}}of {{.Rankable}} ranked songs{{else}}needs {{.MinTries}} own-turn tries to rank{{end}}
+        </span>
+    </div>
+    <div class="stat-tile">
+        <span class="stat-tile-label">Guesses</span>
+        <span class="stat-tile-value">{{$s.Guesses}}</span>
+        <span class="stat-tile-note">
+            {{if $s.Guesses}}title right {{$s.NamedTitle.Fraction}} &middot; artist right {{$s.NamedArtist.Fraction}}{{else}}nobody has guessed it{{end}}
+        </span>
+    </div>
+    <div class="stat-tile">
+        <span class="stat-tile-label">Times drawn</span>
+        <span class="stat-tile-value">{{$s.Draws}}</span>
+        <span class="stat-tile-note">skipped {{$s.Skips}} &middot; bought {{$s.Bought}} &middot; discarded {{$s.Discards}}</span>
+    </div>
+</section>
+
+<div class="stat-columns">
+    <section class="stat-section">
+        <h3>Every attempt</h3>
+        {{if $s.Attempts}}
+        <table class="stat-table">
+            <thead>
+                <tr><th>When</th><th>Player</th><th>How</th><th>Result</th></tr>
+            </thead>
+            <tbody>
+                {{range $s.Attempts}}
+                <tr>
+                    <td class="stat-nowrap">{{template "stats-datetime" .At}}</td>
+                    <td class="stat-wrap">{{.UserName}}</td>
+                    <td class="stat-nowrap">{{if .Steal}}Steal{{else}}Own turn{{end}}</td>
+                    <td class="stat-nowrap">
+                        {{if .Correct}}<span class="stat-pos"><i class="bi bi-check-lg"></i> Right</span>{{else}}<span class="stat-neg"><i class="bi bi-x-lg"></i> Wrong</span>{{end}}
+                    </td>
+                </tr>
                 {{end}}
-            </td>
-        </tr>
-    </tbody>
-</table>
+            </tbody>
+        </table>
+        {{else}}
+        <p class="stat-hint">Nobody has placed this song yet.</p>
+        {{end}}
+    </section>
+
+    <section class="stat-section">
+        <h3>What players typed</h3>
+        {{if $s.History}}
+        <table class="stat-table">
+            <thead>
+                <tr><th>Player</th><th>Guess</th><th>Title</th><th>Artist</th></tr>
+            </thead>
+            <tbody>
+                {{range $s.History}}
+                <tr>
+                    <td class="stat-wrap">{{.UserName}}</td>
+                    <td class="stat-wrap">{{.Text}}</td>
+                    <td>{{if .Title}}<span class="stat-pos"><i class="bi bi-check-lg"></i> Yes</span>{{else}}<span class="stat-neg"><i class="bi bi-x-lg"></i> No</span>{{end}}</td>
+                    <td>{{if .Artist}}<span class="stat-pos"><i class="bi bi-check-lg"></i> Yes</span>{{else}}<span class="stat-neg"><i class="bi bi-x-lg"></i> No</span>{{end}}</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+        {{else}}
+        <p class="stat-hint">No guesses recorded for this song.</p>
+        {{end}}
+    </section>
+</div>
+{{end}}
 {{end}}

@@ -38,6 +38,8 @@ var SQLFiles = []string{
 	"sql/tables/TRACK_TIMELINE_LOG_TITLE_GUESS.sql",
 	"sql/tables/TRACK_TIMELINE_LOG_CARD.sql",
 	"sql/tables/TRACK_TIMELINE_LOG_WIN.sql",
+	"sql/tables/TRACK_TIMELINE_LOG_WAGER.sql",
+	"sql/tables/TRACK_TIMELINE_LOG_CHAT.sql",
 	"sql/tables/TRACK_TIMELINE_LOG_GENRE_ASSIGN.sql",
 
 	// migrations
@@ -47,6 +49,7 @@ var SQLFiles = []string{
 	"sql/migrations/MIG_TRACK_TIMELINE_LOG_CARD_ADD_BOUGHT_EVENT.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_LOG_CARD_ADD_DEALT_EVENT.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_LOG_CARD_ADD_CARD_ID_INDEX.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_LOG_WIN_ADD_IS_ROOM.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_FRESH_SONGS_FIRST.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_GAME_CLEAR_LEGACY_CHALLENGE_PHASE.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ROUND_PHASE_STEAL_ENUM.sql",

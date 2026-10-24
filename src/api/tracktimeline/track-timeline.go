@@ -134,6 +134,12 @@ func announce(lobbyId uuid.UUID, message string) {
 	gsWebsocket.LobbyBroadcast(lobbyId, message)
 	apiRoom.MirrorBroadcast(lobbyId, "log:"+message)
 	apiRoom.MirrorBroadcast(lobbyId, message)
+
+	// Every line the game writes to chat is also kept in TRACK_TIMELINE_LOG_CHAT,
+	// so a statistic that is wanted later can be rebuilt from what was said then.
+	if logErr := database.LogChat(lobbyId, message); logErr != nil {
+		log.Println(logErr)
+	}
 }
 
 // chatDivider is a plain line of dashes marking the end of one turn's chat

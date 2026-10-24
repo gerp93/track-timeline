@@ -1491,7 +1491,7 @@ func CheckWinner(gameId uuid.UUID) (uuid.UUID, error) {
 					activeCount++
 				}
 			}
-			if logErr := LogWin(player.UserId, game.CardsToWin, activeCount); logErr != nil {
+			if logErr := LogWin(player.UserId, game.CardsToWin, activeCount, LobbyModeForLog(game.LobbyId)); logErr != nil {
 				log.Println(logErr)
 			}
 			return player.UserId, nil

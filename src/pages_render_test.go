@@ -72,7 +72,7 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 
 	// Give the stats pages something to render: a win, a correct placement,
 	// and a correct guess.
-	if err := database.LogWin(userId, 10, 2); err != nil {
+	if err := database.LogWin(userId, 10, 2, sql.NullBool{Bool: false, Valid: true}); err != nil {
 		t.Fatalf("log win: %v", err)
 	}
 	if err := database.LogPlacement(userId, cardId, 1969, false, true); err != nil {
@@ -153,15 +153,16 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 			func(r *http.Request) { r.SetPathValue("lobbyId", lobbyId.String()) },
 			[]string{"render lobby", `id="tt-live-settings"`, `hx-put="/api/track-timeline/`, "Never-Played Songs First"},
 		},
-		{"Stats", apiPages.Stats, "/stats", false, nil, []string{"Leaderboard", "Hardest Songs"}},
-		{"StatsLeaderboard", apiPages.StatsLeaderboard, "/stats/leaderboard", false, nil, []string{"render_admin", "1"}},
-		{"StatsUsers", apiPages.StatsUsers, "/stats/users", false, nil, []string{"render_admin"}},
+		{"Stats", apiPages.Stats, "/stats", false, nil, []string{"Statistics", "Leaderboard", "Placement accuracy", "Online vs. in person", "Songs bought", "Exact-year wagers", "How to read these numbers"}},
+		{"StatsLeaderboard", apiPages.StatsLeaderboard, "/stats/leaderboard", false, nil, []string{"render_admin", "Win rate", "vs. chance"}},
+		{"StatsUsers", apiPages.StatsUsers, "/stats/users", false, nil, []string{"render_admin", "Strength by era", "Tokens: buys and wagers"}},
 		{
 			"StatsUser", apiPages.StatsUser, "/stats/user/{userId}", false,
 			func(r *http.Request) { r.SetPathValue("userId", userId.String()) },
-			[]string{"render_admin", "Wins", "1"},
+			[]string{"render_admin", "Wins", "Placement accuracy", "Naming songs", "Songs bought", "Exact-year wagers"},
 		},
-		{"StatsCards", apiPages.StatsCards, "/stats/cards", false, nil, []string{"Hardest Songs"}},
+		{"StatsCards", apiPages.StatsCards, "/stats/cards", false, nil, []string{"Hardest to place", "Most recognised", "Least recognised", "Most skipped"}},
+		{"StatsCardsPlayed", apiPages.StatsCards, "/stats/cards?view=played", false, nil, []string{"Most placed", "Render Song", "Render Artist", "1969"}},
 		{
 			"StatsCard", apiPages.StatsCard, "/stats/card/{cardId}", false,
 			func(r *http.Request) { r.SetPathValue("cardId", cardId.String()) },

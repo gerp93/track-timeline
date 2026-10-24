@@ -1,28 +1,69 @@
 {{define "body"}}
-<h2>Hardest Songs</h2>
-<p class="hint">Songs attempted at least 3 times, sorted by lowest placement accuracy.</p>
+{{template "stats-nav" "songs"}}
+{{with .Stats}}
+<nav class="library-subtabs" aria-label="Song rankings">
+    <a href="/stats/cards?view=hardest" class="library-subtab{{if eq .View "hardest"}} library-subtab-active{{end}}">Hardest to place</a>
+    <a href="/stats/cards?view=easiest" class="library-subtab{{if eq .View "easiest"}} library-subtab-active{{end}}">Easiest to place</a>
+    <a href="/stats/cards?view=known" class="library-subtab{{if eq .View "known"}} library-subtab-active{{end}}">Most recognised</a>
+    <a href="/stats/cards?view=unknown" class="library-subtab{{if eq .View "unknown"}} library-subtab-active{{end}}">Least recognised</a>
+    <a href="/stats/cards?view=skipped" class="library-subtab{{if eq .View "skipped"}} library-subtab-active{{end}}">Most skipped</a>
+    <a href="/stats/cards?view=played" class="library-subtab{{if eq .View "played"}} library-subtab-active{{end}}">Most placed</a>
+</nav>
+
+<p class="stat-hint">
+    {{if eq .View "hardest"}}Songs placed wrong more often than the table average ({{.Average.Percent}}) on a player's own turn. A song needs at least {{.MinTries}} tries to be ranked, and the order weighs how many tries there were: a song missed 8 of 10 times outranks one missed 3 of 3.
+    {{else if eq .View "easiest"}}Songs placed right more often than the table average ({{.Average.Percent}}) on a player's own turn. A song needs at least {{.MinTries}} tries to be ranked, and the order weighs how many tries there were: a song placed right 10 of 10 times outranks one placed right 3 of 3.
+    {{else if eq .View "known"}}Songs whose title and artist were named more often than the table average ({{.Naming.Percent}}, title and artist results averaged). A song needs at least {{.MinGuesses}} guesses to be ranked, and the order weighs how many guesses there were: a song named right 20 of 20 times outranks one named right 6 of 6.
+    {{else if eq .View "unknown"}}Songs whose title and artist were named less often than the table average ({{.Naming.Percent}}, title and artist results averaged). A song needs at least {{.MinGuesses}} guesses to be ranked, and the order weighs how many guesses there were: a song missed 20 of 20 times outranks one missed 6 of 6.
+    {{else if eq .View "skipped"}}Songs players skipped when they came up. Skipped songs are often a video that won't play &mdash; worth a look in the library.
+    {{else}}Songs with the most placement attempts: every own-turn placement and every steal attempt counts once. A song that was only skipped, or came up but was never placed, doesn't count.
+    {{end}}
+</p>
+
 {{if eq (len .Rows) 0}}
-<p>Not enough games played yet to have a ranking.</p>
+{{if or (eq .View "hardest") (eq .View "easiest")}}
+<p>No song qualifies yet: it needs at least {{.MinTries}} own-turn tries and to sit {{if eq .View "hardest"}}below{{else}}above{{end}} the table average ({{.Average.Percent}}). This fills in as more games are played.</p>
+{{else if or (eq .View "known") (eq .View "unknown")}}
+<p>No song qualifies yet: it needs at least {{.MinGuesses}} guesses and to sit {{if eq .View "unknown"}}below{{else}}above{{end}} the table average ({{.Naming.Percent}}). This fills in as more games are played.</p>
 {{else}}
-<table>
+<p>Nothing to rank yet &mdash; this fills in as more games are played.</p>
+{{end}}
+{{else}}
+<table class="stat-table">
     <thead>
         <tr>
+            <th class="stat-num">#</th>
             <th>Song</th>
             <th>Artist</th>
-            <th>Year</th>
-            <th>Accuracy</th>
+            <th class="stat-num">Year</th>
+            <th>Placement accuracy</th>
+            <th>Steals landed</th>
+            <th>Title named</th>
+            <th>Artist named</th>
+            <th class="stat-num">Skipped</th>
         </tr>
     </thead>
     <tbody>
         {{range .Rows}}
         <tr>
-            <td><a href="/stats/card/{{.CardId}}">{{.Title}}</a></td>
-            <td>{{.Artist}}</td>
-            <td>{{.ReleaseYear}}</td>
-            <td>{{.CorrectPlaces}} / {{.Attempts}}</td>
+            <td class="stat-num">{{.Rank}}</td>
+            <td class="stat-wrap"><a href="/stats/card/{{.CardId}}">{{.Title}}</a></td>
+            <td class="stat-wrap">{{.Artist}}</td>
+            <td class="stat-num">{{if .Year}}{{.Year}}{{end}}</td>
+            <td>{{template "stats-rate" .Turn}}</td>
+            <td>{{template "stats-num" .Steal}}</td>
+            <td>{{template "stats-num" .NamedTitle}}</td>
+            <td>{{template "stats-num" .NamedArtist}}</td>
+            <td class="stat-num">{{if .Skips}}{{.Skips}}{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
         </tr>
         {{end}}
     </tbody>
 </table>
+<p class="stat-hint">
+    Showing {{len .Rows}} of {{.Total}} qualifying songs.
+    {{if or (eq .View "hardest") (eq .View "easiest")}}Of the {{.Played}} songs played, only {{.Eligible}} have the {{.MinTries}}+ own-turn tries needed to be ranked &mdash; most songs have only come up once or twice, so this list firms up as more games are played.{{end}}
+    {{if or (eq .View "known") (eq .View "unknown")}}Of the {{.Played}} songs played, {{.Guessed}} have been guessed on {{.MinGuesses}}+ times and can be ranked.{{end}}
+    The title and artist columns count guesses: &ldquo;3 / 4&rdquo; means 3 of the 4 guesses on that song got it right. One guess is one entry, checked separately for the title and for the artist. The recognition rankings average the title and artist results.</p>
+{{end}}
 {{end}}
 {{end}}

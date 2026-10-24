@@ -696,6 +696,26 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("place card (correct exact year): %d %s", rec.Code, rec.Body.String())
 	}
+	// The wager is logged for the stats pages: who, the stake, and that it was right.
+	{
+		var tokens int
+		var correct bool
+		wrows, err := gsDatabase.Query("SELECT TOKENS, IS_CORRECT FROM TRACK_TIMELINE_LOG_WAGER WHERE USER_ID = ? AND CARD_ID = ?", exactPlacer.userId, exactCard.CardId)
+		if err != nil {
+			t.Fatalf("read the logged wager: %v", err)
+		}
+		found := false
+		if wrows.Next() {
+			found = true
+			if err := wrows.Scan(&tokens, &correct); err != nil {
+				t.Fatalf("scan the logged wager: %v", err)
+			}
+		}
+		wrows.Close()
+		if !found || tokens != 1 || !correct {
+			t.Errorf("expected a logged right wager of 1 token, got found=%v tokens=%d correct=%v", found, tokens, correct)
+		}
+	}
 	if g, _ := database.GetGameById(gameId); g.RoundPhase != database.PhaseStealJoin {
 		t.Fatalf("expected steal_join after a correct exact-year lock-in with eligible stealers, got %q", g.RoundPhase)
 	}
@@ -976,6 +996,21 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	for _, p := range players {
 		drain(p)
 	}
+	// The buy is logged with its buyer, so the stats can credit the right player.
+	{
+		boughtRows, err := gsDatabase.Query("SELECT COUNT(*) FROM TRACK_TIMELINE_LOG_CARD WHERE EVENT_TYPE = 'bought' AND USER_ID = ?", buyer.userId)
+		if err != nil {
+			t.Fatalf("read the logged buy: %v", err)
+		}
+		var boughtByBuyer int
+		if boughtRows.Next() {
+			_ = boughtRows.Scan(&boughtByBuyer)
+		}
+		boughtRows.Close()
+		if boughtByBuyer < 1 {
+			t.Errorf("expected the buy to be logged with the buyer's user id, found %d", boughtByBuyer)
+		}
+	}
 
 	buyerTimelineAfter, err := database.GetPlayerTimeline(gameId, buyer.playerId)
 	if err != nil || len(buyerTimelineAfter) != len(buyerTimelineBefore)+1 {
@@ -1203,8 +1238,60 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	if finalGame.GameStatus != database.StatusFinished {
 		t.Fatalf("expected the game to be finished, got %q", finalGame.GameStatus)
 	}
+	// Everything the game said in chat while it ran was kept in the chat log,
+	// attributed to this game, in order -- including the public reveal of the
+	// exact-year wager, which is what lets wagers be rebuilt from it later.
+	{
+		var lines, wagerLines, outOfOrder int
+		chatRows, err := gsDatabase.Query(`
+			SELECT COUNT(*), COALESCE(SUM(MESSAGE LIKE '%nailed the exact year%'), 0)
+			FROM TRACK_TIMELINE_LOG_CHAT WHERE GAME_ID = ? AND IS_ROOM = 0`, gameId)
+		if err != nil {
+			t.Fatalf("read the chat log: %v", err)
+		}
+		if chatRows.Next() {
+			_ = chatRows.Scan(&lines, &wagerLines)
+		}
+		chatRows.Close()
+		orderRows, err := gsDatabase.Query(`
+			SELECT COUNT(*) FROM (
+				SELECT CREATED_ON_DATE, LAG(CREATED_ON_DATE) OVER (ORDER BY SEQ) prev
+				FROM TRACK_TIMELINE_LOG_CHAT WHERE GAME_ID = ?
+			) x WHERE prev IS NOT NULL AND CREATED_ON_DATE < prev`, gameId)
+		if err != nil {
+			t.Fatalf("check the chat log order: %v", err)
+		}
+		if orderRows.Next() {
+			_ = orderRows.Scan(&outOfOrder)
+		}
+		orderRows.Close()
+		if lines < 5 || wagerLines < 1 {
+			t.Errorf("expected the game's chat to be logged (incl. the wager reveal), got %d lines, %d wager lines", lines, wagerLines)
+		}
+		if outOfOrder != 0 {
+			t.Errorf("chat log SEQ order disagrees with time for %d lines", outOfOrder)
+		}
+	}
 	if !finalGame.WinnerId.Valid || finalGame.WinnerId.UUID != alice.userId {
 		t.Errorf("expected alice as the winner, got %+v", finalGame.WinnerId)
+	}
+	// The win was logged as an online game (this lobby is not a room).
+	var loggedRoom sql.NullBool
+	winRows, err := gsDatabase.Query("SELECT IS_ROOM FROM TRACK_TIMELINE_LOG_WIN WHERE USER_ID = ? ORDER BY CREATED_ON_DATE DESC LIMIT 1", alice.userId)
+	if err != nil {
+		t.Fatalf("read the logged win: %v", err)
+	}
+	if winRows.Next() {
+		if err := winRows.Scan(&loggedRoom); err != nil {
+			t.Fatalf("scan the logged win: %v", err)
+		}
+	}
+	winRows.Close()
+	if !loggedRoom.Valid || loggedRoom.Bool {
+		t.Errorf("a win in an ordinary lobby should be logged as online (IS_ROOM = 0), got %+v", loggedRoom)
+	}
+	if mode := database.LobbyModeForLog(lobbyId); !mode.Valid || mode.Bool {
+		t.Errorf("an ordinary lobby should read as online, got %+v", mode)
 	}
 	if !sawGameOverCelebration {
 		t.Errorf("every client should have received Alice's win celebration on the game-over payload")

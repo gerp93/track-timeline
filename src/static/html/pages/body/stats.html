@@ -1,8 +1,293 @@
 {{define "body"}}
-<h2>Stats</h2>
-<div class="stats-links">
-    <a href="/stats/leaderboard"><button>Leaderboard</button></a>
-    <a href="/stats/users"><button>Players</button></a>
-    <a href="/stats/cards"><button>Hardest Songs</button></a>
+{{template "stats-nav" "overview"}}
+{{with .Stats}}
+{{if .Empty}}
+<p>
+    No games have been played yet. Once a game is under way this page fills in
+    with how the table is doing: who wins, which eras trip people up, and which
+    songs nobody can place.
+</p>
+{{else}}
+<p class="stat-lede">
+    Everything the table has played since {{template "stats-date" .Totals.FirstOn}}.
+</p>
+
+<section class="stat-tiles" aria-label="Headline numbers">
+    <div class="stat-tile">
+        <span class="stat-tile-label">Games finished</span>
+        <span class="stat-tile-value">{{.Totals.Games}}</span>
+        <span class="stat-tile-note">
+            {{if .Totals.MedianMinutes}}typically {{.Totals.MedianMinutes}} min, {{.Totals.MedianPlaces}} placements{{else}}across {{.Totals.Sessions}} play sessions{{end}}
+        </span>
+    </div>
+    <div class="stat-tile">
+        <span class="stat-tile-label">Online vs. in person</span>
+        {{if or .Totals.OnlineGames .Totals.RoomGames}}
+        <span class="stat-tile-value">{{.Totals.OnlineGames}} / {{.Totals.RoomGames}}</span>
+        <span class="stat-tile-note">online / in person{{if .Totals.UnrecordedGames}} &middot; {{.Totals.UnrecordedGames}} earlier not recorded{{end}}</span>
+        {{else}}
+        <span class="stat-tile-value">&ndash;</span>
+        <span class="stat-tile-note">{{if .Totals.UnrecordedGames}}not recorded for the {{.Totals.UnrecordedGames}} earlier games{{else}}no finished games yet{{end}}</span>
+        {{end}}
+    </div>
+    <div class="stat-tile">
+        <span class="stat-tile-label">Players</span>
+        <span class="stat-tile-value">{{.Totals.Players}}</span>
+        <span class="stat-tile-note">
+            {{if .Records.BiggestTable}}biggest table: {{.Records.BiggestTable}}{{else}}no finished games yet{{end}}
+        </span>
+    </div>
+    <div class="stat-tile" title="{{.Totals.Turn.Tip}}">
+        <span class="stat-tile-label">Placement accuracy</span>
+        <span class="stat-tile-value">{{.Totals.Turn.Percent}}</span>
+        <span class="stat-tile-note">{{.Totals.Turn.Fraction}} on a player's own turn</span>
+    </div>
+    <div class="stat-tile" title="{{.Totals.Steal.Tip}}">
+        <span class="stat-tile-label">Steal success</span>
+        <span class="stat-tile-value">{{.Totals.Steal.Percent}}</span>
+        <span class="stat-tile-note">{{.Totals.Steal.Fraction}} steals landed</span>
+    </div>
+    <div class="stat-tile" title="{{.Totals.Both.Tip}}">
+        <span class="stat-tile-label">Songs fully named</span>
+        <span class="stat-tile-value">{{.Totals.Both.Percent}}</span>
+        <span class="stat-tile-note">title {{.Totals.Title.Percent}} &middot; artist {{.Totals.Artist.Percent}}</span>
+    </div>
+    <div class="stat-tile">
+        <span class="stat-tile-label">Songs bought</span>
+        <span class="stat-tile-value">{{.Totals.Bought}}</span>
+        <span class="stat-tile-note">
+            paid for with tokens{{if and .Totals.Bought (ne .Totals.BoughtByName .Totals.Bought)}} &middot; {{if .Totals.BoughtByName}}{{.Totals.BoughtByName}} with a buyer on record{{else}}buyers not recorded yet{{end}}{{end}}
+        </span>
+    </div>
+    <div class="stat-tile" title="{{.Totals.Wagers.Tip}}">
+        <span class="stat-tile-label">Exact-year wagers</span>
+        {{if .Totals.Wagers.Has}}
+        <span class="stat-tile-value">{{.Totals.Wagers.Total}}</span>
+        <span class="stat-tile-note">{{.Totals.Wagers.Hit}} right ({{.Totals.Wagers.Percent}}) &middot; net {{.Totals.WagerNetLabel}} tokens</span>
+        {{else}}
+        <span class="stat-tile-value">&ndash;</span>
+        <span class="stat-tile-note">none on record yet &mdash; tracked from now on</span>
+        {{end}}
+    </div>
+    <div class="stat-tile" title="{{.Totals.SkipRate.Tip}}">
+        <span class="stat-tile-label">Songs played</span>
+        <span class="stat-tile-value">{{.Totals.Songs}}</span>
+        <span class="stat-tile-note">{{.Totals.SkipRate.Percent}} of draws skipped</span>
+    </div>
+</section>
+
+<section class="stat-section">
+    <h3>By era</h3>
+    <p class="stat-hint">
+        How well each decade of music is placed, and how often it is named.
+        Placement is own-turn only; steals are shown apart because they only
+        happen on songs someone just missed.
+    </p>
+    <table class="stat-table">
+        <thead>
+            <tr>
+                <th>Era</th>
+                <th>Placement accuracy</th>
+                <th>Steals</th>
+                <th>Title named</th>
+                <th>Artist named</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Eras}}
+            <tr>
+                <td class="stat-nowrap"><strong>{{.Label}}</strong></td>
+                <td>{{template "stats-rate" .Turn}}</td>
+                <td>{{template "stats-rate" .Steal}}</td>
+                <td>{{template "stats-rate" .Title}}</td>
+                <td>{{template "stats-rate" .Artist}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</section>
+
+<div class="stat-columns">
+    <section class="stat-section">
+        <h3>Recent games</h3>
+        {{if eq (len .Recent) 0}}
+        <p class="stat-hint">No game has been finished yet.</p>
+        {{else}}
+        <table class="stat-table">
+            <thead>
+                <tr>
+                    <th>Played</th>
+                    <th>Winner</th>
+                    <th class="stat-num">Players</th>
+                    <th class="stat-num">Length</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Recent}}
+                <tr>
+                    <td class="stat-nowrap">{{template "stats-date" .WonOn}}</td>
+                    <td class="stat-wrap">
+                        {{if .WinnerKnown}}<a href="/stats/user/{{.WinnerId}}">{{.WinnerName}}</a>{{else}}{{.WinnerName}}{{end}}
+                        {{if .Solo}}<span class="stat-badge">solo</span>{{else if ne .CardsToWin $.Stats.Totals.StandardCards}}<span class="stat-badge">first to {{.CardsToWin}}</span>{{end}}
+                    </td>
+                    <td class="stat-num">{{.PlayerCount}}</td>
+                    <td class="stat-num stat-nowrap">{{.Minutes}} min</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+        {{end}}
+    </section>
+
+    <section class="stat-section">
+        <h3>Recent play sessions</h3>
+        <p class="stat-hint">A session is a run of play with no gap longer than four hours.</p>
+        <table class="stat-table">
+            <thead>
+                <tr>
+                    <th>Started</th>
+                    <th class="stat-num">Games</th>
+                    <th class="stat-num">Players</th>
+                    <th>Placement accuracy</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Sessions}}
+                <tr>
+                    <td class="stat-nowrap">{{template "stats-date" .StartedOn}}</td>
+                    <td class="stat-num">{{.Games}}</td>
+                    <td class="stat-num">{{.Players}}</td>
+                    <td>{{template "stats-rate" .Turn}}</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </section>
 </div>
+
+<div class="stat-columns">
+    {{if .Genres}}
+    <section class="stat-section">
+        <h3>By genre</h3>
+        <p class="stat-hint">Own-turn placement accuracy for the genres with at least 10 placements. Compound genres count under their first part.</p>
+        <table class="stat-table">
+            <thead>
+                <tr><th>Genre</th><th>Placement accuracy</th></tr>
+            </thead>
+            <tbody>
+                {{range .Genres}}
+                <tr>
+                    <td class="stat-nowrap">{{.Name}}</td>
+                    <td>{{template "stats-rate" .Rate}}</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </section>
+    {{end}}
+
+    <section class="stat-section">
+        <h3>Records</h3>
+        <dl class="stat-records">
+            {{if .Records.StreakLength}}
+            <dt>Longest streak</dt>
+            <dd>
+                <a href="/stats/user/{{.Records.StreakPlayerId}}">{{.Records.StreakPlayerName}}</a>
+                &mdash; {{.Records.StreakLength}} right in a row
+            </dd>
+            {{end}}
+            {{with .Records.LongestGame}}
+            <dt>Longest game</dt>
+            <dd>{{.Minutes}} min &mdash; won by {{.WinnerName}}, {{template "stats-date" .WonOn}}</dd>
+            {{end}}
+            {{with .Records.ShortestGame}}
+            <dt>Quickest game</dt>
+            <dd>{{.Minutes}} min &mdash; won by {{.WinnerName}}, {{template "stats-date" .WonOn}}</dd>
+            {{end}}
+            {{if .Records.BiggestTable}}
+            <dt>Biggest table</dt>
+            <dd>{{.Records.BiggestTable}} players</dd>
+            {{end}}
+            {{with .Records.BiggestWager}}
+            <dt>Biggest wager</dt>
+            <dd>{{template "stats-wager" .}}</dd>
+            {{end}}
+            {{with .Records.BiggestWagerWin}}
+            <dt>Biggest wager win</dt>
+            <dd>{{template "stats-wager" .}} &mdash; won</dd>
+            {{end}}
+            {{with .Records.BiggestWagerLoss}}
+            <dt>Biggest wager loss</dt>
+            <dd>{{template "stats-wager" .}} &mdash; lost</dd>
+            {{end}}
+            {{if or (not .Records.StreakLength) (not .Records.BiggestTable)}}
+            <dt>&nbsp;</dt>
+            <dd class="stat-none">More records appear once a game has been finished.</dd>
+            {{end}}
+        </dl>
+        {{if .Totals.StandardCards}}
+        <p class="stat-hint">Game lengths compare first-to-{{.Totals.StandardCards}} games only.</p>
+        {{end}}
+    </section>
+</div>
+
+<section class="stat-section">
+    <h3>Songs to know</h3>
+    <div class="stat-columns">
+        <div>
+            <strong><a href="/stats/cards?view=hardest">Hardest to place</a></strong>
+            {{if .Hardest}}
+            <ol class="stat-spotlight">
+                {{range .Hardest}}
+                <li>
+                    <a href="/stats/card/{{.CardId}}">{{.Title}}</a> &mdash; {{.Artist}}
+                    <small>missed {{.Turn.Misses}} of {{.Turn.Total}} own-turn tries</small>
+                </li>
+                {{end}}
+            </ol>
+            {{else}}<p class="stat-hint">Needs songs placed at least {{.MinTries}} times.</p>{{end}}
+        </div>
+        <div>
+            <strong><a href="/stats/cards?view=unknown">Least recognised</a></strong>
+            {{if .Unknown}}
+            <ol class="stat-spotlight">
+                {{range .Unknown}}
+                <li>
+                    <a href="/stats/card/{{.CardId}}">{{.Title}}</a> &mdash; {{.Artist}}
+                    <small>title {{.NamedTitle.Fraction}} &middot; artist {{.NamedArtist.Fraction}}</small>
+                </li>
+                {{end}}
+            </ol>
+            {{else}}<p class="stat-hint">Needs songs guessed at least 3 times.</p>{{end}}
+        </div>
+        <div>
+            <strong><a href="/stats/cards?view=skipped">Most skipped</a></strong>
+            {{if .Skipped}}
+            <ol class="stat-spotlight">
+                {{range .Skipped}}
+                <li>
+                    <a href="/stats/card/{{.CardId}}">{{.Title}}</a> &mdash; {{.Artist}}
+                    <small>skipped {{.Skips}} of {{.Draws}} draws</small>
+                </li>
+                {{end}}
+            </ol>
+            {{else}}<p class="stat-hint">Nothing has been skipped.</p>{{end}}
+        </div>
+    </div>
+</section>
+
+<details class="stat-notes">
+    <summary>How to read these numbers</summary>
+    <ul>
+        <li><strong>Placement accuracy</strong> counts a player's own-turn placements only. A <strong>steal</strong> is only possible after someone else missed, so steals are a harder, self-selected group and are reported on their own.</li>
+        <li>Every percentage shows how many tries it rests on. Bars with a dashed or faded look rest on fewer than 10 tries &mdash; treat them as hints. Hover any bar for the range the true figure plausibly lies in (95%).</li>
+        <li><strong>Games</strong> are finished games with at least one opponent, rebuilt from the win log. Games nobody finished leave no record, and solo games count toward accuracy but not toward wins.</li>
+        <li><strong>Online vs. in person</strong> counts finished games by how they were played. The mode is recorded when a game is won, so games finished before that was tracked show as &ldquo;not recorded&rdquo; rather than a guess.</li>
+        <li><strong>Exact-year wagers</strong> are the tokens a player stakes on naming a song&rsquo;s exact year: a right year pays the stake back doubled (net +stake), a wrong one loses it. <strong>Songs bought</strong> are cards bought with tokens. Both started being recorded after the stats pages first shipped, so earlier games have no wagers, and earlier buys have no buyer on record.</li>
+        <li><strong>Named</strong> means the guess got the title (or the artist) right, as judged when the round ended.</li>
+        <li>Players who joined as room guests, and accounts that have since been deleted, are counted in table-wide figures but have no page of their own.</li>
+    </ul>
+</details>
+{{end}}
+{{end}}
 {{end}}

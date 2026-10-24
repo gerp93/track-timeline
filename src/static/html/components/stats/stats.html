@@ -1,0 +1,76 @@
+{{/* Shared pieces of the statistics pages. Every name here is prefixed
+     "stats-" so it can never collide with a page's own {{define "body"}}.
+     Nothing in this file needs a template FuncMap: the figures come from
+     database.Rate's methods, so the pages parse with the plain chrome. */}}
+
+{{/* The tab row across the top of every stats page. Pass the active tab:
+     {{template "stats-nav" "leaderboard"}} */}}
+{{define "stats-nav"}}
+<div style="display: grid; grid-auto-flow: column">
+    <h2>Statistics</h2>
+    <div style="text-align: right;">
+        <a href="/"><button type="button">Home</button></a>
+    </div>
+</div>
+<nav class="library-tabs" aria-label="Statistics sections">
+    <a href="/stats" class="library-tab{{if eq . "overview"}} library-tab-active{{end}}">Overview</a>
+    <a href="/stats/leaderboard" class="library-tab{{if eq . "leaderboard"}} library-tab-active{{end}}">Leaderboard</a>
+    <a href="/stats/users" class="library-tab{{if eq . "players"}} library-tab-active{{end}}">Players</a>
+    <a href="/stats/cards" class="library-tab{{if eq . "songs"}} library-tab-active{{end}}">Songs</a>
+</nav>
+{{end}}
+
+{{/* A rate as a bar with its percentage and the raw counts. Takes a
+     database.Rate. The tooltip carries the 95% range; a small sample is
+     dimmed so it does not read as firmly as a big one. */}}
+{{define "stats-rate"}}
+{{if .Has}}
+<div class="stat-rate{{if .Small}} stat-small{{end}}" title="{{.Tip}}">
+    <div class="stat-bar"><div class="stat-bar-fill" style="width: {{.Width}}%"></div></div>
+    <span class="stat-rate-pct">{{.Percent}}</span>
+    <span class="stat-rate-n">{{.Fraction}}</span>
+</div>
+{{else}}
+<span class="stat-none">&ndash;</span>
+{{end}}
+{{end}}
+
+{{/* A rate as plain numbers, for secondary columns where a bar per row would
+     bury the column that matters. Takes a database.Rate. */}}
+{{define "stats-num"}}
+{{if .Has}}
+<span class="stat-num-rate{{if .Small}} stat-small{{end}}" title="{{.Tip}}"><span class="stat-rate-pct">{{.Percent}}</span> <span class="stat-rate-n">{{.Fraction}}</span></span>
+{{else}}
+<span class="stat-none">&ndash;</span>
+{{end}}
+{{end}}
+
+{{/* A player's rate for an era as a shaded table cell, shaded by how far it sits
+     from the table's rate for that era (green above, red below). The number and
+     the gap in points are always printed, so colour is never the only carrier.
+     Takes a database.HeatCell. */}}
+{{define "stats-heat"}}
+{{if .Has}}
+<td class="stat-heat {{.Class}}{{if .Small}} stat-small{{end}}" style="--tint: {{.Tint}}" title="{{.Tip}}">
+    <span class="stat-heat-pct">{{.Percent}}</span><span class="stat-heat-n">{{.Sub}}</span>
+</td>
+{{else}}
+<td class="stat-heat stat-none">&ndash;</td>
+{{end}}
+{{end}}
+
+{{/* A moment, rendered in the viewer's own time zone by global.js; the text
+     inside is the UTC fallback. Takes a time.Time. */}}
+{{define "stats-date"}}{{if not .IsZero}}<time class="stat-time" data-style="date" datetime="{{.Format "2006-01-02T15:04:05Z"}}">{{.Format "Jan 2, 2006"}}</time>{{else}}&ndash;{{end}}{{end}}
+{{define "stats-datetime"}}{{if not .IsZero}}<time class="stat-time" data-style="datetime" datetime="{{.Format "2006-01-02T15:04:05Z"}}">{{.Format "Jan 2, 2006 15:04"}} UTC</time>{{else}}&ndash;{{end}}{{end}}
+
+{{/* The "form" strip: one square per recent game, newest on the right. */}}
+{{define "stats-form"}}
+<span class="stat-form" aria-label="Recent games, oldest first">
+    {{range .}}<span class="stat-form-pip{{if .Won}} stat-form-win{{end}}" title="{{if .Won}}Won{{else}}Lost{{end}} &middot; {{.Players}} players">{{if .Won}}W{{else}}L{{end}}</span>{{end}}
+</span>
+{{end}}
+
+{{/* One standout wager as a line: who, how many tokens, on which song, when.
+     Takes a database.WagerRecord. */}}
+{{define "stats-wager"}}{{if .Known}}<a href="/stats/user/{{.UserId}}">{{.UserName}}</a>{{else}}{{.UserName}}{{end}}, {{.Tokens}} token{{if ne .Tokens 1}}s{{end}}{{if .Title}} on &ldquo;{{.Title}}&rdquo;{{end}}, {{template "stats-date" .At}}{{end}}
