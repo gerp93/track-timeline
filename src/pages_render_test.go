@@ -78,6 +78,12 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 	if err := database.LogPlacement(userId, cardId, 1969, false, true); err != nil {
 		t.Fatalf("log placement: %v", err)
 	}
+	if err := database.LogWager(userId, cardId, 1969, 1969, 3, true); err != nil {
+		t.Fatalf("log wager win: %v", err)
+	}
+	if err := database.LogWager(userId, cardId, 1970, 1969, 5, false); err != nil {
+		t.Fatalf("log wager loss: %v", err)
+	}
 	if err := database.LogTitleGuess(userId, cardId, "render song by render artist", true, true); err != nil {
 		t.Fatalf("log guess: %v", err)
 	}
@@ -153,7 +159,7 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 			func(r *http.Request) { r.SetPathValue("lobbyId", lobbyId.String()) },
 			[]string{"render lobby", `id="tt-live-settings"`, `hx-put="/api/track-timeline/`, "Never-Played Songs First"},
 		},
-		{"Stats", apiPages.Stats, "/stats", false, nil, []string{"Statistics", "Leaderboard", "Placement accuracy", "Online vs. in person", "Songs bought", "Exact-year wagers", "How to read these numbers"}},
+		{"Stats", apiPages.Stats, "/stats", false, nil, []string{"Statistics", "Leaderboard", "Placement accuracy", "Online vs. in person", "Songs bought", "Exact-year wagers", "Broke the House", "Most Degenerate Gambler", "How to read these numbers"}},
 		{"StatsLeaderboard", apiPages.StatsLeaderboard, "/stats/leaderboard", false, nil, []string{"render_admin", "Win rate", "vs. chance"}},
 		{"StatsUsers", apiPages.StatsUsers, "/stats/users", false, nil, []string{"render_admin", "Strength by era", "Tokens: buys and wagers"}},
 		{

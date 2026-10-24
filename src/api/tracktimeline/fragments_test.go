@@ -2,6 +2,7 @@ package apiTrackTimeline
 
 import (
 	"bytes"
+	"fmt"
 	"html/template"
 	"strings"
 	"testing"
@@ -488,7 +489,7 @@ func TestCurrentCardNewClipButton(t *testing.T) {
 	if !strings.Contains(got, `id="tt-newclip-btn"`) {
 		t.Fatalf("expected a New Clip button for the player on turn: %s", got)
 	}
-	if !strings.Contains(got, "New Clip (2)") || !strings.Contains(got, "/new-clip") {
+	if !strings.Contains(got, fmt.Sprintf("New Clip (%d)", database.NewClipCost)) || !strings.Contains(got, "/new-clip") {
 		t.Errorf("New Clip button should show its price and post to /new-clip: %s", got)
 	}
 

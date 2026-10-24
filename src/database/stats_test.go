@@ -488,9 +488,6 @@ func TestWagersAndBuysAreTalliedPerPlayerAndOverall(t *testing.T) {
 
 	// Table-wide records include the guest's wager, and say whose it was.
 	rec := report.Records
-	if rec.BiggestWager == nil || rec.BiggestWager.Tokens != 5 || rec.BiggestWager.UserName != "Bob" || rec.BiggestWager.Title != "Hurt" {
-		t.Fatalf("biggest wager wrong: %+v", rec.BiggestWager)
-	}
 	if rec.BiggestWagerWin == nil || rec.BiggestWagerWin.Tokens != 5 {
 		t.Fatalf("biggest wager win wrong: %+v", rec.BiggestWagerWin)
 	}

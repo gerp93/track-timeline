@@ -302,7 +302,6 @@ type WagerRecord struct {
 
 // StatsRecords are the standout single results.
 type StatsRecords struct {
-	BiggestWager     *WagerRecord // largest stake, right or wrong
 	BiggestWagerWin  *WagerRecord // largest stake on a year that was right (net + that many tokens)
 	BiggestWagerLoss *WagerRecord // largest stake on a year that was wrong (net - that many tokens)
 	StreakPlayerId   uuid.UUID
@@ -737,7 +736,6 @@ func buildStatsReport(s statsSnapshot) *StatsReport {
 			}
 			*slot = rec
 		}
-		record(&report.Records.BiggestWager)
 		if w.Correct {
 			record(&report.Records.BiggestWagerWin)
 		} else {

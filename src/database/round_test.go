@@ -231,17 +231,25 @@ func TestGuessTokensEarned(t *testing.T) {
 	}
 }
 
-// One perfect guess pays for one skip, replay or steal, and the buy price is a
-// whole number of those: the ratio the economy is balanced around.
+// The prices are a deliberate design choice, so they are pinned here: a skip
+// or a replay costs one perfect guess (title and artist), a new clip one part of
+// one, and a steal five. Changing a price means changing this test on purpose.
+// The buy price stays a whole number of perfect guesses.
 func TestEconomyIsInternallyConsistent(t *testing.T) {
 	e := CurrentEconomy()
 	if e.MaxGuessTokens != 2*e.GuessTokensPerPart {
 		t.Errorf("MaxGuessTokens %d should be title + artist = %d", e.MaxGuessTokens, 2*e.GuessTokensPerPart)
 	}
-	for name, cost := range map[string]int{"skip": e.SkipCost, "replay": e.ReplayCost, "steal": e.StealCost} {
+	for name, cost := range map[string]int{"skip": e.SkipCost, "replay": e.ReplayCost} {
 		if cost != e.MaxGuessTokens {
 			t.Errorf("%s costs %d, want one perfect guess (%d)", name, cost, e.MaxGuessTokens)
 		}
+	}
+	if e.NewClipCost != 1 {
+		t.Errorf("a new clip costs %d, want 1", e.NewClipCost)
+	}
+	if e.StealCost != 5 {
+		t.Errorf("a steal costs %d, want 5", e.StealCost)
 	}
 	if e.BuyCardCost%e.MaxGuessTokens != 0 {
 		t.Errorf("buy price %d should be a whole number of perfect guesses (%d each)", e.BuyCardCost, e.MaxGuessTokens)
