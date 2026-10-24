@@ -176,10 +176,11 @@ which just passes a missed card to the next player with no cost. Here:
   player holds a token and has not already placed — see
   `database.ChallengersOutstanding`. If nobody can act, the round resolves
   immediately instead of opening a window nobody can use.
-- A challenge costs exactly one token (`database.Challenge` in
-  `api/tracktimeline/round.go` deducts it) and commits a placement the same
-  way the original guess did (`TRACK_TIMELINE_PLACEMENT.IS_CHALLENGE = 1`).
-  You cannot challenge your own placement.
+- A steal costs `StealCost` tokens (the whole price list is the constants next
+  to `Economy` in `database/round.go`: skip, replay, new clip, steal, buy) and
+  commits a placement the same way the original guess did
+  (`TRACK_TIMELINE_PLACEMENT.IS_CHALLENGE = 1`). You cannot steal your own
+  placement. The prices are pinned by `TestEconomyIsInternallyConsistent`.
 - `ResolveRound` (`database/round.go`) judges the original placement first,
   then challengers **in the order they committed** (`ORDER BY
   CREATED_ON_DATE ASC`). The first placement that is correct wins the card;

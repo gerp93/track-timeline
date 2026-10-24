@@ -682,16 +682,17 @@ func cardAlreadyOnAnyTimeline(gameId uuid.UUID, cardId uuid.UUID) (bool, error) 
 }
 
 // The token economy, in whole tokens. A guess pays GuessTokensPerPart for each
-// of the title and the artist (so up to twice that per round); everything a
-// player can spend tokens on costs a multiple of it, so one perfect guess pays
-// for one skip, replay or steal.
+// of the title and the artist (so up to twice that per round). A skip or a
+// replay costs one perfect guess, a new clip costs a single part of one, and a
+// steal costs five: more than two perfect guesses, so stealing is a move a
+// player saves up for.
 const (
 	GuessTokensPerPart = 1
 
 	SkipCost    = 2
 	ReplayCost  = 2
-	NewClipCost = 2
-	StealCost   = 2
+	NewClipCost = 1
+	StealCost   = 5
 	BuyCardCost = 10
 )
 

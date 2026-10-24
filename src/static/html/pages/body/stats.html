@@ -208,16 +208,12 @@
             <dt>Biggest table</dt>
             <dd>{{.Records.BiggestTable}} players</dd>
             {{end}}
-            {{with .Records.BiggestWager}}
-            <dt>Biggest wager</dt>
-            <dd>{{template "stats-wager" .}}</dd>
-            {{end}}
             {{with .Records.BiggestWagerWin}}
-            <dt>Biggest wager win</dt>
+            <dt title="The most tokens won on a single exact-year wager">Broke the House</dt>
             <dd>{{template "stats-wager" .}} &mdash; won</dd>
             {{end}}
             {{with .Records.BiggestWagerLoss}}
-            <dt>Biggest wager loss</dt>
+            <dt title="The most tokens lost on a single exact-year wager">Most Degenerate Gambler</dt>
             <dd>{{template "stats-wager" .}} &mdash; lost</dd>
             {{end}}
             {{if or (not .Records.StreakLength) (not .Records.BiggestTable)}}

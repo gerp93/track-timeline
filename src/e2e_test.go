@@ -262,7 +262,9 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 		}
 		p.playerId = pid
 	}
-	gameId, err := database.CreateGame(lobbyId, 5, 2, false, database.PlaybackIntro, 20)
+	// Everyone starts with exactly a steal's price, so a wrong placement opens a
+	// steal window and a claim empties the stealer's balance.
+	gameId, err := database.CreateGame(lobbyId, 5, database.StealCost, false, database.PlaybackIntro, 20)
 	if err != nil {
 		t.Fatalf("create game: %v", err)
 	}
@@ -419,8 +421,8 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 			t.Fatalf("%s: expected 1 dealt card, got %d (%v)", p.name, len(tl), err)
 		}
 		tokens, err := database.GetPlayerTokens(gameId, p.playerId)
-		if err != nil || tokens != 2 {
-			t.Errorf("%s: expected 2 starting tokens, got %d (%v)", p.name, tokens, err)
+		if err != nil || tokens != database.StealCost {
+			t.Errorf("%s: expected %d starting tokens, got %d (%v)", p.name, database.StealCost, tokens, err)
 		}
 	}
 
@@ -491,8 +493,8 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	rightPos := correctPosition(stealerTimeline, card.ReleaseYear)
 
 	preClaimTokens, err := database.GetPlayerTokens(gameId, stealer.playerId)
-	if err != nil || preClaimTokens != 2 {
-		t.Fatalf("stealer pre-claim tokens: %d (%v)", preClaimTokens, err)
+	if err != nil || preClaimTokens != database.StealCost {
+		t.Fatalf("stealer pre-claim tokens: %d, want %d (%v)", preClaimTokens, database.StealCost, err)
 	}
 	rec = serve(apiTrackTimeline.ClaimSteal, authedRequest(t, "POST",
 		"/api/track-timeline/"+lobbyId.String()+"/claim-steal", url.Values{}, stealer.userId))
