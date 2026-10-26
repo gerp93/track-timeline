@@ -86,7 +86,7 @@ func newPlaytestFixesGame(t *testing.T, namePrefix string, cardCount, cardsToWin
 		}
 		p.playerId = pid
 	}
-	gameId, err = database.CreateGame(lobbyId, cardsToWin, startingTokens, false, database.PlaybackIntro, 20)
+	gameId, err = database.CreateGame(lobbyId, cardsToWin, startingTokens, false, false, database.PlaybackIntro, 20)
 	if err != nil {
 		t.Fatalf("create game: %v", err)
 	}
@@ -1009,6 +1009,156 @@ func TestCreateLobbyPassesFreshSongsFirstSetting(t *testing.T) {
 	}
 }
 
+// TestCreateLobbyPassesJasonAldeenMode posts the real create-lobby form and
+// checks the Jason Aldeen mode choice lands on the game: on for "1", and off for
+// "0" or for a client that never sends the field. The live settings form can then
+// flip it mid-game.
+func TestCreateLobbyPassesJasonAldeenMode(t *testing.T) {
+	gameId, lobbyId, deckId, players, srv := newPlaytestFixesGame(t, "jasonform", 30, 10, 2)
+	defer closePlaytestFixesGame(players, srv)
+
+	create := func(name, value string) database.Game {
+		form := url.Values{
+			"name":       {name},
+			"cardsToWin": {"5"},
+			"deckId":     {deckId.String()},
+		}
+		if value != "" {
+			form.Set("jasonAldeenMode", value)
+		}
+		rec := serve(apiTrackTimeline.Create, authedRequest(t, "POST",
+			"/api/track-timeline/create", form, players[0].userId))
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create lobby %q: %d %s", name, rec.Code, rec.Body.String())
+		}
+		lobbyId, err := uuid.Parse(strings.TrimPrefix(rec.Header().Get("HX-Redirect"), "/track-timeline/"))
+		if err != nil {
+			t.Fatalf("read lobby id from redirect %q: %v", rec.Header().Get("HX-Redirect"), err)
+		}
+		game, err := database.GetGame(lobbyId)
+		if err != nil || game.Id == uuid.Nil {
+			t.Fatalf("read the created game: %v", err)
+		}
+		return game
+	}
+
+	if game := create("jason on", "1"); !game.JasonAldeenMode {
+		t.Error("jasonAldeenMode=1 should turn the mode on")
+	}
+	if game := create("jason off", "0"); game.JasonAldeenMode {
+		t.Error("jasonAldeenMode=0 should leave the mode off")
+	}
+	if game := create("jason absent", ""); game.JasonAldeenMode {
+		t.Error("a request without the field should leave the mode off")
+	}
+
+	// Flip it on from the in-game settings of the lobby the players are in, then
+	// back off.
+	put := func(value string) *httptest.ResponseRecorder {
+		return serve(apiTrackTimeline.UpdateSettings, authedRequest(t, "PUT",
+			"/api/track-timeline/"+lobbyId.String()+"/settings",
+			url.Values{"jasonAldeenMode": {value}}, players[0].userId))
+	}
+	if rec := put("1"); rec.Code != http.StatusOK {
+		t.Fatalf("turn the mode on: %d %s", rec.Code, rec.Body.String())
+	}
+	if current, _ := database.GetGameById(gameId); !current.JasonAldeenMode {
+		t.Error("the settings form should turn the mode on")
+	}
+	if rec := put("0"); rec.Code != http.StatusOK {
+		t.Fatalf("turn the mode off: %d %s", rec.Code, rec.Body.String())
+	}
+	if current, _ := database.GetGameById(gameId); current.JasonAldeenMode {
+		t.Error("the settings form should turn the mode off")
+	}
+}
+
+// TestJasonAldeenGuessIsFilledInJudgedAndCounted follows the checkbox end to end:
+// a guess made with it gets "Jason Aldeen" as its artist even though a disabled
+// box submits nothing, is flagged, is judged like any other artist guess, and
+// shows up in the user's stats. A guess without it, or with it in a lobby that
+// has the mode off, is not counted.
+func TestJasonAldeenGuessIsFilledInJudgedAndCounted(t *testing.T) {
+	gameId, lobbyId, _, players, srv := newPlaytestFixesGame(t, "jasonguess", 20, 10, 0)
+	defer closePlaytestFixesGame(players, srv)
+
+	current := gamePlayerByUserId(players, mustCurrentPlayerUserId(t, gameId))
+	var others []*player
+	for _, p := range players {
+		if p != current {
+			others = append(others, p)
+		}
+	}
+	card, err := database.GetCurrentCardAnswer(gameId)
+	if err != nil || card.CardId == uuid.Nil {
+		t.Fatalf("current card: %v", err)
+	}
+	guess := func(p *player, form url.Values) {
+		t.Helper()
+		rec := serve(apiTrackTimeline.SubmitGuess, authedRequest(t, "POST",
+			"/api/track-timeline/"+lobbyId.String()+"/guess", form, p.userId))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("submit guess: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	read := func(p *player) database.Guess {
+		t.Helper()
+		g, ok, err := database.GetPlayerGuess(gameId, p.playerId)
+		if err != nil || !ok {
+			t.Fatalf("read %s's guess: %v (%v)", p.name, err, ok)
+		}
+		return g
+	}
+
+	// Mode off: the tick is ignored and the typed artist stands.
+	guess(others[0], url.Values{"guessTitle": {card.Title}, "guessArtist": {"typed artist"}, "jasonAldeen": {"1"}})
+	if g := read(others[0]); g.ArtistGuess != "typed artist" || g.JasonAldeen {
+		t.Errorf("mode off must ignore the tick: %+v", g)
+	}
+
+	game, err := database.GetGameById(gameId)
+	if err != nil {
+		t.Fatalf("game: %v", err)
+	}
+	if err := database.UpdateGameSettings(gameId, game.PlaybackMode, game.ClipSeconds, game.FreshSongsFirst, true); err != nil {
+		t.Fatalf("turn the mode on: %v", err)
+	}
+
+	// Mode on, ticked: no artist field is sent at all, as with a disabled input.
+	guess(others[1], url.Values{"guessTitle": {card.Title}, "jasonAldeen": {"1"}})
+	if g := read(others[1]); g.ArtistGuess != database.JasonAldeenName || !g.JasonAldeen {
+		t.Errorf("the tick should fill in the artist and flag the guess: %+v", g)
+	}
+
+	// Mode on, not ticked: an ordinary guess.
+	guess(current, url.Values{"guessTitle": {card.Title}, "guessArtist": {card.Artist}})
+	if g := read(current); g.ArtistGuess != card.Artist || g.JasonAldeen {
+		t.Errorf("an unticked guess must not be flagged: %+v", g)
+	}
+
+	if err := database.JudgeRoundGuesses(gameId); err != nil {
+		t.Fatalf("judge: %v", err)
+	}
+
+	usage := func(p *player) database.Rate {
+		t.Helper()
+		page, found, err := database.GetPlayerStats(p.userId)
+		if err != nil || !found {
+			t.Fatalf("stats for %s: %v (%v)", p.name, err, found)
+		}
+		return page.Player.JasonAldeen
+	}
+	if got := usage(others[1]); got.Total != 1 || got.Hit != 0 {
+		t.Errorf("the ticked guess should count once, and the artist was wrong: %+v", got)
+	}
+	if got := usage(others[0]); got.Has() {
+		t.Errorf("a guess made with the mode off must not count: %+v", got)
+	}
+	if got := usage(current); got.Has() {
+		t.Errorf("an unticked guess must not count: %+v", got)
+	}
+}
+
 // TestGuessPaysEachPartOnItsOwn guards the token rule: the right title and the
 // right artist are worth GuessTokensPerPart each, scored independently and paid
 // when the round's guesses are judged, so half a guess pays half and a wrong one
@@ -1493,7 +1643,7 @@ func TestDeadVideoDropsGuessesButASkipKeepsThem(t *testing.T) {
 		t.Fatalf("current card: %v", err)
 	}
 
-	if err := database.SaveGuess(gameId, voter.playerId, first.CardId, "a title", "", false); err != nil {
+	if err := database.SaveGuess(gameId, voter.playerId, first.CardId, "a title", "", false, false); err != nil {
 		t.Fatalf("save draft: %v", err)
 	}
 	if err := database.SkipCurrentCard(gameId, false); err != nil {
@@ -1510,7 +1660,7 @@ func TestDeadVideoDropsGuessesButASkipKeepsThem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("current card: %v", err)
 	}
-	if err := database.SaveGuess(gameId, voter.playerId, second.CardId, "a title", "an artist", false); err != nil {
+	if err := database.SaveGuess(gameId, voter.playerId, second.CardId, "a title", "an artist", false, false); err != nil {
 		t.Fatalf("save draft: %v", err)
 	}
 	if err := database.SkipCurrentCard(gameId, true); err != nil {
@@ -1549,7 +1699,7 @@ func TestGuessDraftsReplaceUntilLocked(t *testing.T) {
 	}
 
 	for _, typed := range []string{"z", "zom", "zombie"} {
-		if err := database.SaveGuess(gameId, p.playerId, card.CardId, typed, "", false); err != nil {
+		if err := database.SaveGuess(gameId, p.playerId, card.CardId, typed, "", false, false); err != nil {
 			t.Fatalf("draft %q: %v", typed, err)
 		}
 	}
@@ -1557,23 +1707,23 @@ func TestGuessDraftsReplaceUntilLocked(t *testing.T) {
 		t.Fatalf("the latest draft should win and stay unlocked: %+v (%v)", g, ok)
 	}
 
-	if err := database.SaveGuess(gameId, p.playerId, card.CardId, "", "", false); err != nil {
+	if err := database.SaveGuess(gameId, p.playerId, card.CardId, "", "", false, false); err != nil {
 		t.Fatalf("empty draft: %v", err)
 	}
 	if _, ok := read(); ok {
 		t.Fatal("clearing the boxes should remove the draft")
 	}
 
-	if err := database.SaveGuess(gameId, p.playerId, card.CardId, "zombie", "cranberries", true); err != nil {
+	if err := database.SaveGuess(gameId, p.playerId, card.CardId, "zombie", "cranberries", false, true); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
-	if err := database.SaveGuess(gameId, p.playerId, card.CardId, "something else", "", false); err != nil {
+	if err := database.SaveGuess(gameId, p.playerId, card.CardId, "something else", "", false, false); err != nil {
 		t.Fatalf("late draft: %v", err)
 	}
 	if g, ok := read(); !ok || g.TitleGuess != "zombie" || g.ArtistGuess != "cranberries" || !g.Locked {
 		t.Errorf("a late draft must not rewrite a locked guess: %+v (%v)", g, ok)
 	}
-	if err := database.SaveGuess(gameId, p.playerId, card.CardId, "again", "", true); !errors.Is(err, database.ErrGuessLocked) {
+	if err := database.SaveGuess(gameId, p.playerId, card.CardId, "again", "", false, true); !errors.Is(err, database.ErrGuessLocked) {
 		t.Errorf("locking twice should be refused with ErrGuessLocked, got %v", err)
 	}
 }

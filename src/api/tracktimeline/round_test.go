@@ -1,6 +1,7 @@
 package apiTrackTimeline
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -80,12 +81,46 @@ func TestGuessFieldsCapsEachBox(t *testing.T) {
 	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	title, artist, _ := guessFields(req)
+	title, artist, _, _ := guessFields(req, false)
 	if n := utf8.RuneCountInString(title); n != 250 {
 		t.Errorf("title is %d runes, want 250", n)
 	}
 	if n := utf8.RuneCountInString(artist); n != 250 {
 		t.Errorf("artist is %d runes, want 250", n)
+	}
+}
+
+// The "easy, that's Jason Aldeen" checkbox disables the artist box in the
+// browser, and a disabled input is not submitted, so the server has to fill the
+// name in itself -- but only in a lobby that has the mode on.
+func TestGuessFieldsFillsInJasonAldeen(t *testing.T) {
+	form := func(values url.Values) *http.Request {
+		req := httptest.NewRequest("POST", "/", strings.NewReader(values.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		return req
+	}
+	ticked := url.Values{"guessTitle": {"Hurt"}, "jasonAldeen": {"1"}}
+
+	title, artist, combined, used := guessFields(form(ticked), true)
+	if title != "Hurt" || artist != database.JasonAldeenName || combined != "Hurt by Jason Aldeen" || !used {
+		t.Errorf("ticked with the mode on: %q / %q / %q / %v", title, artist, combined, used)
+	}
+
+	// Whatever a hand-built request puts in the artist box, the tick wins.
+	ticked.Set("guessArtist", "Johnny Cash")
+	if _, artist, _, used := guessFields(form(ticked), true); artist != database.JasonAldeenName || !used {
+		t.Errorf("the tick should override the typed artist, got %q (%v)", artist, used)
+	}
+
+	// Mode off: the flag is ignored, so it can't be used to dodge typing an artist.
+	if _, artist, _, used := guessFields(form(ticked), false); artist != "Johnny Cash" || used {
+		t.Errorf("with the mode off the tick must be ignored, got %q (%v)", artist, used)
+	}
+
+	// Mode on but not ticked: an ordinary guess.
+	plain := url.Values{"guessTitle": {"Hurt"}, "guessArtist": {"Johnny Cash"}}
+	if _, artist, _, used := guessFields(form(plain), true); artist != "Johnny Cash" || used {
+		t.Errorf("unticked should leave the artist alone, got %q (%v)", artist, used)
 	}
 }
 

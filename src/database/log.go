@@ -40,8 +40,9 @@ func LogPlacement(userId uuid.UUID, cardId uuid.UUID, releaseYear int, isChallen
 
 // LogTitleGuess records one artist/title guess and its verdict. The raw text is
 // kept so a judge implementation can be evaluated later against what people
-// actually typed.
-func LogTitleGuess(userId uuid.UUID, cardId uuid.UUID, guessText string, titleCorrect bool, artistCorrect bool) error {
+// actually typed. jasonAldeen is whether the artist half came from the
+// "easy, that's Jason Aldeen" checkbox.
+func LogTitleGuess(userId uuid.UUID, cardId uuid.UUID, guessText string, titleCorrect bool, artistCorrect bool, jasonAldeen bool) error {
 	id, err := uuid.NewUUID()
 	if err != nil {
 		log.Println(err)
@@ -49,10 +50,10 @@ func LogTitleGuess(userId uuid.UUID, cardId uuid.UUID, guessText string, titleCo
 	}
 
 	sqlString := `
-		INSERT INTO TRACK_TIMELINE_LOG_TITLE_GUESS (ID, USER_ID, CARD_ID, GUESS_TEXT, TITLE_CORRECT, ARTIST_CORRECT)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO TRACK_TIMELINE_LOG_TITLE_GUESS (ID, USER_ID, CARD_ID, GUESS_TEXT, TITLE_CORRECT, ARTIST_CORRECT, JASON_ALDEEN)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
-	return execute(sqlString, id, userId, cardId, guessText, titleCorrect, artistCorrect)
+	return execute(sqlString, id, userId, cardId, guessText, titleCorrect, artistCorrect, jasonAldeen)
 }
 
 // LogCardEvent records a card being drawn, discarded, skipped or bought.

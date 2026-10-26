@@ -77,6 +77,9 @@ var SQLFiles = []string{
 	"sql/migrations/MIG_TRACK_TIMELINE_TITLE_GUESS_PER_CARD.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_TOTAL_CORRECT.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_TOTAL_INCORRECT.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_JASON_ALDEEN_MODE.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_TITLE_GUESS_ADD_JASON_ALDEEN.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_LOG_TITLE_GUESS_ADD_JASON_ALDEEN.sql",
 
 	// triggers
 	"sql/triggers/TR_AUDIT_CARD_DELETE.sql",

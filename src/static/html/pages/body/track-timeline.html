@@ -255,7 +255,7 @@
         </div>
 
         <div class="tt-settings-section">
-            <h4>Playback &amp; Song Order</h4>
+            <h4>Playback, Song Order &amp; Modes</h4>
             <p class="hint">Anyone in the lobby can change these. A change applies from the next song.</p>
             <form id="tt-live-settings" hx-put="/api/track-timeline/{{.Lobby.Id}}/settings" hx-target="find .htmx-result">
                 <div class="form-input">
@@ -281,6 +281,12 @@
                     <select id="tt-set-fresh" name="freshSongsFirst" autocomplete="off">
                         <option value="0"{{if not .Game.FreshSongsFirst}} selected="selected"{{end}}>No, fully random</option>
                         <option value="1"{{if .Game.FreshSongsFirst}} selected="selected"{{end}}>Yes, then random once they run out</option>
+                    </select>
+
+                    <label for="tt-set-jason">Jason Aldeen Mode</label>
+                    <select id="tt-set-jason" name="jasonAldeenMode" autocomplete="off">
+                        <option value="0"{{if not .Game.JasonAldeenMode}} selected="selected"{{end}}>Off</option>
+                        <option value="1"{{if .Game.JasonAldeenMode}} selected="selected"{{end}}>On, adds an &ldquo;easy, that's Jason Aldeen&rdquo; box to artist guesses</option>
                     </select>
                 </div>
                 <div class="htmx-result"></div>

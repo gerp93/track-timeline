@@ -282,6 +282,9 @@ type Game struct {
 	// FreshSongsFirst deals never-played songs ahead of the rest of the pile
 	// (see ShuffleDrawPile). Fixed at lobby creation.
 	FreshSongsFirst bool
+	// JasonAldeenMode puts an "easy, that's Jason Aldeen" checkbox beside the
+	// artist guess box. Can be changed mid-game (UpdateGameSettings).
+	JasonAldeenMode bool
 	PlaybackMode    string
 	ClipSeconds       int
 	// ClipStartSeconds/ClipEndSeconds are the window chosen for the song
@@ -304,6 +307,9 @@ type Game struct {
 	TotalIncorrect int
 	WinnerId   uuid.NullUUID
 }
+
+// JasonAldeenName is the artist the "easy, that's Jason Aldeen" checkbox fills in.
+const JasonAldeenName = "Jason Aldeen"
 
 // CurrentCard is everything about the song in play that is safe to send to any
 // client at any time. It deliberately has no title, artist or year field: those
@@ -428,6 +434,7 @@ func getGameByColumn(column string, value uuid.UUID) (Game, error) {
 			CARDS_TO_WIN,
 			STARTING_TOKENS,
 			FRESH_SONGS_FIRST,
+			JASON_ALDEEN_MODE,
 			PLAYBACK_MODE,
 			CLIP_SECONDS,
 			CLIP_START_SECONDS,
@@ -459,6 +466,7 @@ func getGameByColumn(column string, value uuid.UUID) (Game, error) {
 			&game.CardsToWin,
 			&game.StartingTokens,
 			&game.FreshSongsFirst,
+			&game.JasonAldeenMode,
 			&game.PlaybackMode,
 			&game.ClipSeconds,
 			&game.ClipStartSeconds,
@@ -478,7 +486,7 @@ func getGameByColumn(column string, value uuid.UUID) (Game, error) {
 }
 
 // CreateGame creates the game row for a lobby.
-func CreateGame(lobbyId uuid.UUID, cardsToWin int, startingTokens int, freshSongsFirst bool, playbackMode string, clipSeconds int) (uuid.UUID, error) {
+func CreateGame(lobbyId uuid.UUID, cardsToWin int, startingTokens int, freshSongsFirst bool, jasonAldeenMode bool, playbackMode string, clipSeconds int) (uuid.UUID, error) {
 	id, err := uuid.NewUUID()
 	if err != nil {
 		log.Println(err)
@@ -486,18 +494,18 @@ func CreateGame(lobbyId uuid.UUID, cardsToWin int, startingTokens int, freshSong
 	}
 
 	sqlString := `
-		INSERT INTO TRACK_TIMELINE_GAME(ID, LOBBY_ID, CARDS_TO_WIN, STARTING_TOKENS, FRESH_SONGS_FIRST, PLAYBACK_MODE, CLIP_SECONDS)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO TRACK_TIMELINE_GAME(ID, LOBBY_ID, CARDS_TO_WIN, STARTING_TOKENS, FRESH_SONGS_FIRST, JASON_ALDEEN_MODE, PLAYBACK_MODE, CLIP_SECONDS)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	return id, execute(sqlString, id, lobbyId, cardsToWin, startingTokens, freshSongsFirst, playbackMode, clipSeconds)
+	return id, execute(sqlString, id, lobbyId, cardsToWin, startingTokens, freshSongsFirst, jasonAldeenMode, playbackMode, clipSeconds)
 }
 
 // UpdateGameSettings writes the lobby settings that can change after the game
 // has started. Reshuffling the pile when FreshSongsFirst changes is the
 // caller's job (see ShuffleDrawPile).
-func UpdateGameSettings(gameId uuid.UUID, playbackMode string, clipSeconds int, freshSongsFirst bool) error {
-	sqlString := "UPDATE TRACK_TIMELINE_GAME SET PLAYBACK_MODE = ?, CLIP_SECONDS = ?, FRESH_SONGS_FIRST = ? WHERE ID = ?"
-	return execute(sqlString, playbackMode, clipSeconds, freshSongsFirst, gameId)
+func UpdateGameSettings(gameId uuid.UUID, playbackMode string, clipSeconds int, freshSongsFirst bool, jasonAldeenMode bool) error {
+	sqlString := "UPDATE TRACK_TIMELINE_GAME SET PLAYBACK_MODE = ?, CLIP_SECONDS = ?, FRESH_SONGS_FIRST = ?, JASON_ALDEEN_MODE = ? WHERE ID = ?"
+	return execute(sqlString, playbackMode, clipSeconds, freshSongsFirst, jasonAldeenMode, gameId)
 }
 
 // InitializeDrawPile fills a game's pile with every playable card from the

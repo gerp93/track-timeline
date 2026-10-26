@@ -116,6 +116,7 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		Economy            database.Economy
 		IsRoom             bool
 		IsHostDisplay      bool
+		JasonAldeenMode    bool
 	}
 
 	_ = tmpl.Execute(w, data{
@@ -138,6 +139,7 @@ func GetCurrentCard(w http.ResponseWriter, r *http.Request) {
 		Economy:            database.CurrentEconomy(),
 		IsRoom:             isRoom,
 		IsHostDisplay:      false,
+		JasonAldeenMode:    ctx.Game.JasonAldeenMode,
 	})
 }
 

@@ -106,6 +106,15 @@
                     autocomplete="off"
                 />
             </div>
+            {{if .JasonAldeenMode}}
+            {{/* Outside the hx-preserve'd fields on purpose: if the setting is flipped mid-game the
+                 preserved fields keep the old markup, but this label is re-evaluated on every swap
+                 and carries its own state (see ttJasonAldeenToggle in track-timeline.js). */}}
+            <label id="tt-jason-aldeen-wrap" class="checkbox-label" hx-preserve="true">
+                <input type="checkbox" id="tt-jason-aldeen" class="tt-jason-aldeen" name="jasonAldeen" value="1" data-artist="tt-guess-artist" autocomplete="off" onchange="ttJasonAldeenToggle(this)" />
+                <span>Easy, that's Jason Aldeen</span>
+            </label>
+            {{end}}
             <div id="tt-room-voice" class="tt-room-voice" hx-preserve="true">
                 <button type="button" id="tt-hold-mic" class="btn-primary" onclick="roomHoldMic(event)">
                     <span class="bi bi-mic"></span> Hold to speak
@@ -190,7 +199,7 @@
                 class="btn-primary"
                 disabled
                 hx-post="/api/track-timeline/{{.LobbyId}}/place-card"
-                hx-include="#tt-exact-year, #tt-year-wager, #tt-guess-title, #tt-guess-artist"
+                hx-include="#tt-exact-year, #tt-year-wager, #tt-guess-title, #tt-guess-artist, #tt-jason-aldeen"
                 hx-swap="none"
                 hx-confirm="Lock in this year?"
                 title="Wager must be between 1 and your tokens."
@@ -422,6 +431,15 @@
                         autocomplete="off"
                     />
                 </div>
+                {{if .JasonAldeenMode}}
+                {{/* Outside the hx-preserve'd fields on purpose: if the setting is flipped mid-game the
+                     preserved fields keep the old markup, but this label is re-evaluated on every swap
+                     and carries its own state (see ttJasonAldeenToggle in track-timeline.js). */}}
+                <label id="tt-jason-aldeen-wrap" class="checkbox-label" hx-preserve="true">
+                    <input type="checkbox" id="tt-jason-aldeen" class="tt-jason-aldeen" name="jasonAldeen" value="1" data-artist="tt-guess-artist" autocomplete="off" onchange="ttJasonAldeenToggle(this)" />
+                    <span>Easy, that's Jason Aldeen</span>
+                </label>
+                {{end}}
                 {{if .IsRoom}}
                 <div id="tt-room-voice" class="tt-room-voice" hx-preserve="true">
                     <button type="button" id="tt-hold-mic" class="btn-small" onclick="roomHoldMic(event)">
@@ -454,6 +472,15 @@
                     <span class="guess-by">by</span>
                     <input type="text" id="tt-guess-artist-other" name="guessArtist" maxlength="250" placeholder="Artist" autocomplete="off" />
                 </div>
+                {{if .JasonAldeenMode}}
+                {{/* Outside the hx-preserve'd fields on purpose: if the setting is flipped mid-game the
+                     preserved fields keep the old markup, but this label is re-evaluated on every swap
+                     and carries its own state (see ttJasonAldeenToggle in track-timeline.js). */}}
+                <label id="tt-jason-aldeen-other-wrap" class="checkbox-label" hx-preserve="true">
+                    <input type="checkbox" id="tt-jason-aldeen-other" class="tt-jason-aldeen" name="jasonAldeen" value="1" data-artist="tt-guess-artist-other" autocomplete="off" onchange="ttJasonAldeenToggle(this)" />
+                    <span>Easy, that's Jason Aldeen</span>
+                </label>
+                {{end}}
                 <button type="submit" class="btn-small">
                     <span class="bi bi-lightbulb"></span> Guess
                 </button>
@@ -521,7 +548,7 @@
                     class="btn-small exact-year-submit"
                     disabled
                     hx-post="/api/track-timeline/{{.LobbyId}}/place-card"
-                    hx-include="#tt-exact-year, #tt-year-wager, #tt-guess-title, #tt-guess-artist"
+                    hx-include="#tt-exact-year, #tt-year-wager, #tt-guess-title, #tt-guess-artist, #tt-jason-aldeen"
                     hx-swap="none"
                     hx-confirm="Lock in this year?"
                     title="Wager must be between 1 and your tokens."

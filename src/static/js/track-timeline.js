@@ -259,6 +259,12 @@ function ttApplyLiveSettings(settings) {
     if (mode) mode.value = settings.playbackMode;
     if (clip) clip.value = settings.clipSeconds;
     if (fresh) fresh.value = settings.freshSongsFirst ? "1" : "0";
+    const jasonMode = document.getElementById("tt-set-jason");
+    if (jasonMode) jasonMode.value = settings.jasonAldeenMode ? "1" : "0";
+    // Switched off while someone's box is ticked: hand them their artist box back.
+    if (!settings.jasonAldeenMode) {
+        document.querySelectorAll("input.tt-jason-aldeen:checked").forEach((box) => ttJasonAldeenApply(box, false));
+    }
     ttSyncLiveClipRow();
 }
 
@@ -958,15 +964,40 @@ function ttGuessBoxes() {
     return { title: ttGuessBox("guessTitle"), artist: ttGuessBox("guessArtist") };
 }
 
+// "Easy, that's Jason Aldeen": ticking it fills the artist box with the name and
+// disables it; unticking clears the box and enables it again. A disabled input is
+// not submitted, so the server fills the name in itself when it sees jasonAldeen=1
+// (guessFields in api/tracktimeline/round.go). The synthetic input event goes out
+// before the box is disabled so the draft is re-saved with the new state.
+const TT_JASON_ALDEEN = "Jason Aldeen";
+
+function ttJasonAldeenBox() {
+    return document.querySelector('#tt-current-card input[name="jasonAldeen"]');
+}
+
+function ttJasonAldeenApply(checkbox, on) {
+    const artist = document.getElementById(checkbox.dataset.artist);
+    checkbox.checked = on;
+    if (!artist) return;
+    artist.value = on ? TT_JASON_ALDEEN : "";
+    artist.dispatchEvent(new Event("input", { bubbles: true }));
+    artist.disabled = on;
+}
+
+function ttJasonAldeenToggle(checkbox) {
+    ttJasonAldeenApply(checkbox, checkbox.checked);
+}
+
 function ttGuessCurrentCardId() {
     const marker = document.getElementById("tt-guess-card");
     return marker ? marker.dataset.cardId || "" : "";
 }
 
 // Saves the boxes as a draft guess for cardId. Resolves true if the server kept it.
-function ttSendGuessDraft(cardId, title, artist) {
+function ttSendGuessDraft(cardId, title, artist, jasonAldeen) {
     if (!ttLobbyId || !cardId) return Promise.resolve(false);
     const body = new URLSearchParams({ cardId: cardId, guessTitle: title, guessArtist: artist });
+    if (jasonAldeen) body.set("jasonAldeen", "1");
     return fetch("/api/track-timeline/" + ttLobbyId + "/guess-draft", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -985,7 +1016,8 @@ function ttFlushGuessDraft() {
     const boxes = ttGuessBoxes();
     if (!boxes.title || !boxes.artist) return Promise.resolve(false);
     ttGuessDirty = false;
-    return ttSendGuessDraft(ttGuessCardId, boxes.title.value.trim(), boxes.artist.value.trim());
+    const jason = ttJasonAldeenBox();
+    return ttSendGuessDraft(ttGuessCardId, boxes.title.value.trim(), boxes.artist.value.trim(), !!(jason && jason.checked));
 }
 
 // Called whenever the current-card fragment is swapped. If the song under the
@@ -1005,11 +1037,12 @@ function ttSyncGuessCard() {
         clearTimeout(ttGuessTimer);
         ttGuessTimer = null;
     }
+    const jason = ttJasonAldeenBox();
     if (boxes.title && boxes.artist) {
         const title = boxes.title.value.trim();
         const artist = boxes.artist.value.trim();
         if (title || artist) {
-            ttSendGuessDraft(previous, title, artist).then((kept) => {
+            ttSendGuessDraft(previous, title, artist, !!(jason && jason.checked)).then((kept) => {
                 // The server only keeps it when that song still belongs to the
                 // round in progress, i.e. it was skipped rather than finished.
                 if (kept) showStatus("Your guess was kept for the song that was skipped.");
@@ -1017,7 +1050,9 @@ function ttSyncGuessCard() {
         }
         boxes.title.value = "";
         boxes.artist.value = "";
+        boxes.artist.disabled = false;
     }
+    if (jason) jason.checked = false;
     ttGuessDirty = false;
 }
 

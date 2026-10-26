@@ -496,6 +496,43 @@ func TestWagersAndBuysAreTalliedPerPlayerAndOverall(t *testing.T) {
 	}
 }
 
+func TestJasonAldeenUsageIsTalliedPerPlayerAndOverall(t *testing.T) {
+	ann, bob, guest := uuid.New(), uuid.New(), uuid.New()
+	song := uuid.New()
+	snapshot := statsSnapshot{
+		users: map[uuid.UUID]statsUser{
+			ann: {Name: "Ann", Approved: true}, bob: {Name: "Bob", Approved: true}, guest: {Name: "g", Approved: false},
+		},
+		cards: map[uuid.UUID]statsCard{song: {Title: "Hurt", Artist: "Johnny Cash", Year: 2002}},
+		guesses: []statsGuess{
+			{UserId: ann, CardId: song, Title: true, Artist: true, Jason: true},     // used it, and it was right
+			{UserId: ann, CardId: song, Title: false, Artist: false, Jason: true},   // used it, wrong
+			{UserId: ann, CardId: song, Title: true, Artist: false},                 // typed the artist
+			{UserId: bob, CardId: song, Title: false, Artist: false},                // never used it
+			{UserId: guest, CardId: song, Title: false, Artist: false, Jason: true}, // a guest still counts overall
+		},
+	}
+	report := buildStatsReport(snapshot)
+
+	if got := report.Totals.JasonAldeen; got != (Rate{Hit: 1, Total: 3}) {
+		t.Fatalf("overall usage wrong: %+v", got)
+	}
+	if got := report.Totals.JasonShare(); got != (Rate{Hit: 3, Total: 5}) {
+		t.Fatalf("overall share of guesses wrong: %+v", got)
+	}
+
+	byName := map[string]PlayerStats{}
+	for _, p := range report.Players {
+		byName[p.UserName] = p
+	}
+	if a := byName["Ann"]; a.JasonAldeen != (Rate{Hit: 1, Total: 2}) || a.JasonShare() != (Rate{Hit: 2, Total: 3}) {
+		t.Fatalf("Ann wrong: %+v share %+v", a.JasonAldeen, a.JasonShare())
+	}
+	if b := byName["Bob"]; b.JasonAldeen.Has() || b.JasonShare() != (Rate{Hit: 0, Total: 1}) {
+		t.Fatalf("Bob never used it: %+v share %+v", b.JasonAldeen, b.JasonShare())
+	}
+}
+
 func TestSignedTokens(t *testing.T) {
 	for n, want := range map[int]string{0: "0", 3: "+3", -2: "-2"} {
 		if got := signedTokens(n); got != want {

@@ -61,6 +61,9 @@ type statsGuess struct {
 	At     time.Time
 	Title  bool
 	Artist bool
+	// Jason is whether the artist half came from the "easy, that's Jason
+	// Aldeen" checkbox. False for guesses logged before the mode existed.
+	Jason bool
 }
 
 // statsCardEvent is one row of TRACK_TIMELINE_LOG_CARD. UserId is set for
@@ -157,6 +160,10 @@ type PlayerStats struct {
 	Title   Rate
 	Artist  Rate
 	Both    Rate
+	// JasonAldeen is how often they ticked "easy, that's Jason Aldeen": Total is
+	// the guesses made that way, Hit those where the artist then turned out to
+	// be right. Recorded only from when the mode was added.
+	JasonAldeen Rate
 
 	Bought        int  // cards bought with tokens, where the buyer was on record
 	Wagers        Rate // exact-year wagers: Hit = right, Total = placed
@@ -190,6 +197,10 @@ func (p PlayerStats) EdgeLabel() string {
 	}
 	return fmt.Sprintf("%+.1f", edge)
 }
+
+// JasonShare is the guesses made with "easy, that's Jason Aldeen" out of all of
+// this player's logged guesses.
+func (p PlayerStats) JasonShare() Rate { return Rate{Hit: p.JasonAldeen.Total, Total: p.Guesses} }
 
 // WagerNetLabel is WagerNet for display, signed: "+4", "-2", "0".
 func (p PlayerStats) WagerNetLabel() string { return signedTokens(p.WagerNet) }
@@ -269,6 +280,7 @@ type StatsTotals struct {
 	Title           Rate
 	Artist          Rate
 	Both            Rate
+	JasonAldeen     Rate // table-wide "easy, that's Jason Aldeen" guesses; Hit = the artist was right
 	Draws           int
 	Skips           int
 	Bought          int // every card bought with tokens, including buys with no buyer on record
@@ -282,6 +294,10 @@ type StatsTotals struct {
 	FirstOn         time.Time
 	LastOn          time.Time
 }
+
+// JasonShare is the guesses made with "easy, that's Jason Aldeen" out of every
+// logged guess, including those made before the mode existed.
+func (t StatsTotals) JasonShare() Rate { return Rate{Hit: t.JasonAldeen.Total, Total: t.Guesses} }
 
 // WagerNetLabel is WagerNet for display, signed.
 func (t StatsTotals) WagerNetLabel() string { return signedTokens(t.WagerNet) }
@@ -415,7 +431,7 @@ func loadStatsSnapshot() (statsSnapshot, error) {
 	rows.Close()
 
 	rows, err = query(`
-		SELECT USER_ID, CARD_ID, CREATED_ON_DATE, TITLE_CORRECT, ARTIST_CORRECT
+		SELECT USER_ID, CARD_ID, CREATED_ON_DATE, TITLE_CORRECT, ARTIST_CORRECT, JASON_ALDEEN
 		FROM TRACK_TIMELINE_LOG_TITLE_GUESS
 		ORDER BY CREATED_ON_DATE ASC, ID ASC
 	`)
@@ -424,7 +440,7 @@ func loadStatsSnapshot() (statsSnapshot, error) {
 	}
 	for rows.Next() {
 		var g statsGuess
-		if err := rows.Scan(&g.UserId, &g.CardId, &g.At, &g.Title, &g.Artist); err != nil {
+		if err := rows.Scan(&g.UserId, &g.CardId, &g.At, &g.Title, &g.Artist, &g.Jason); err != nil {
 			rows.Close()
 			log.Println(err)
 			return snapshot, errors.New("failed to scan row in query results")
@@ -666,6 +682,9 @@ func buildStatsReport(s statsSnapshot) *StatsReport {
 		totals.Title.tally(g.Title)
 		totals.Artist.tally(g.Artist)
 		totals.Both.tally(g.Title && g.Artist)
+		if g.Jason {
+			totals.JasonAldeen.tally(g.Artist)
+		}
 
 		song := songFor(g.CardId)
 		song.Guesses++
@@ -685,6 +704,9 @@ func buildStatsReport(s statsSnapshot) *StatsReport {
 			player.Title.tally(g.Title)
 			player.Artist.tally(g.Artist)
 			player.Both.tally(g.Title && g.Artist)
+			if g.Jason {
+				player.JasonAldeen.tally(g.Artist)
+			}
 		}
 	}
 

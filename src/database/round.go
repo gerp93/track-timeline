@@ -214,6 +214,9 @@ type Guess struct {
 	// JudgedByAI is guess.Verdict.ByAI, persisted so it survives past the
 	// moment of judging -- the reveal chat line only has this stored row.
 	JudgedByAI bool
+	// JasonAldeen is whether the artist half came from the "easy, that's Jason
+	// Aldeen" checkbox rather than being typed.
+	JasonAldeen bool
 }
 
 // CombineGuess is the one "title by artist" form of a split guess, used for
@@ -236,7 +239,7 @@ const guessSelect = `
 	SELECT G.ID, U.ID, G.PLAYER_ID, U.NAME, G.CARD_ID, C.TITLE, C.ARTIST,
 		COALESCE(G.CARD_ID = CC.CARD_ID, 0),
 		G.TITLE_GUESS, G.ARTIST_GUESS, G.GUESS_TEXT, G.LOCKED, G.JUDGED,
-		G.TITLE_CORRECT, G.ARTIST_CORRECT, G.TITLE_MATCH_PERCENT, G.ARTIST_MATCH_PERCENT, G.JUDGED_BY_AI
+		G.TITLE_CORRECT, G.ARTIST_CORRECT, G.TITLE_MATCH_PERCENT, G.ARTIST_MATCH_PERCENT, G.JUDGED_BY_AI, G.JASON_ALDEEN
 	FROM TRACK_TIMELINE_TITLE_GUESS G
 		INNER JOIN PLAYER P ON P.ID = G.PLAYER_ID
 		INNER JOIN USER U ON U.ID = P.USER_ID
@@ -260,7 +263,7 @@ func scanGuesses(rows *sql.Rows) ([]Guess, error) {
 			&g.Id, &g.UserId, &g.PlayerId, &g.PlayerName, &g.CardId, &g.SongTitle, &g.SongArtist,
 			&g.IsCurrentSong,
 			&g.TitleGuess, &g.ArtistGuess, &g.GuessText, &g.Locked, &g.Judged,
-			&g.TitleCorrect, &g.ArtistCorrect, &g.TitleMatchPercent, &g.ArtistMatchPercent, &g.JudgedByAI,
+			&g.TitleCorrect, &g.ArtistCorrect, &g.TitleMatchPercent, &g.ArtistMatchPercent, &g.JudgedByAI, &g.JasonAldeen,
 		); err != nil {
 			log.Println(err)
 			return nil, errors.New("failed to scan row in query results")
@@ -373,7 +376,7 @@ var ErrGuessLocked = errors.New("already guessed")
 // draft a moment late cannot rewrite what was submitted.
 //
 // Nothing is judged here; see JudgeRoundGuesses.
-func SaveGuess(gameId, playerId, cardId uuid.UUID, titleGuess, artistGuess string, lock bool) error {
+func SaveGuess(gameId, playerId, cardId uuid.UUID, titleGuess, artistGuess string, jasonAldeen bool, lock bool) error {
 	combined := CombineGuess(titleGuess, artistGuess)
 
 	if lock {
@@ -400,15 +403,16 @@ func SaveGuess(gameId, playerId, cardId uuid.UUID, titleGuess, artistGuess strin
 
 	sqlString := `
 		INSERT INTO TRACK_TIMELINE_TITLE_GUESS
-			(ID, TRACK_TIMELINE_GAME_ID, PLAYER_ID, CARD_ID, TITLE_GUESS, ARTIST_GUESS, GUESS_TEXT, LOCKED)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			(ID, TRACK_TIMELINE_GAME_ID, PLAYER_ID, CARD_ID, TITLE_GUESS, ARTIST_GUESS, GUESS_TEXT, JASON_ALDEEN, LOCKED)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE
 			TITLE_GUESS = IF(LOCKED = 1 OR JUDGED = 1, TITLE_GUESS, VALUES(TITLE_GUESS)),
 			ARTIST_GUESS = IF(LOCKED = 1 OR JUDGED = 1, ARTIST_GUESS, VALUES(ARTIST_GUESS)),
 			GUESS_TEXT = IF(LOCKED = 1 OR JUDGED = 1, GUESS_TEXT, VALUES(GUESS_TEXT)),
+			JASON_ALDEEN = IF(LOCKED = 1 OR JUDGED = 1, JASON_ALDEEN, VALUES(JASON_ALDEEN)),
 			LOCKED = IF(JUDGED = 1, LOCKED, LOCKED OR VALUES(LOCKED))
 	`
-	return execute(sqlString, id, gameId, playerId, cardId, titleGuess, artistGuess, combined, lock)
+	return execute(sqlString, id, gameId, playerId, cardId, titleGuess, artistGuess, combined, jasonAldeen, lock)
 }
 
 // GuessTokensEarned is how many tokens a judged guess pays: GuessTokensPerPart
