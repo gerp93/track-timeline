@@ -403,8 +403,8 @@ func Create(w http.ResponseWriter, r *http.Request) {
 	// including a missing field from an older client, is the plain random pile.
 	freshSongsFirst := strings.TrimSpace(r.FormValue("freshSongsFirst")) == "1"
 
-	// Same shape as freshSongsFirst: "1" turns Jason Aldeen mode on.
-	jasonAldeenMode := strings.TrimSpace(r.FormValue("jasonAldeenMode")) == "1"
+	// Same shape as freshSongsFirst: "1" turns Jason Aldean mode on.
+	jasonAldeanMode := strings.TrimSpace(r.FormValue("jasonAldeanMode")) == "1"
 
 	clipSeconds := 30
 	if raw := strings.TrimSpace(r.FormValue("clipSeconds")); raw != "" {
@@ -485,7 +485,7 @@ func Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	gameId, err := database.CreateGame(lobbyId, cardsToWin, startingTokens, freshSongsFirst, jasonAldeenMode, playbackMode, clipSeconds)
+	gameId, err := database.CreateGame(lobbyId, cardsToWin, startingTokens, freshSongsFirst, jasonAldeanMode, playbackMode, clipSeconds)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to create game."))
@@ -1064,15 +1064,15 @@ type settingsPayload struct {
 	PlaybackMode    string `json:"playbackMode"`
 	ClipSeconds     int    `json:"clipSeconds"`
 	FreshSongsFirst bool   `json:"freshSongsFirst"`
-	JasonAldeenMode bool   `json:"jasonAldeenMode"`
+	JasonAldeanMode bool   `json:"jasonAldeanMode"`
 }
 
-func sendSettings(lobbyId uuid.UUID, playbackMode string, clipSeconds int, freshSongsFirst bool, jasonAldeenMode bool) {
+func sendSettings(lobbyId uuid.UUID, playbackMode string, clipSeconds int, freshSongsFirst bool, jasonAldeanMode bool) {
 	encoded, err := json.Marshal(settingsPayload{
 		PlaybackMode:    playbackMode,
 		ClipSeconds:     clipSeconds,
 		FreshSongsFirst: freshSongsFirst,
-		JasonAldeenMode: jasonAldeenMode,
+		JasonAldeanMode: jasonAldeanMode,
 	})
 	if err != nil {
 		log.Println(err)
@@ -1129,9 +1129,9 @@ func UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		freshSongsFirst = strings.TrimSpace(r.FormValue("freshSongsFirst")) == "1"
 	}
 
-	jasonAldeenMode := ctx.Game.JasonAldeenMode
-	if _, sent := r.Form["jasonAldeenMode"]; sent {
-		jasonAldeenMode = strings.TrimSpace(r.FormValue("jasonAldeenMode")) == "1"
+	jasonAldeanMode := ctx.Game.JasonAldeanMode
+	if _, sent := r.Form["jasonAldeanMode"]; sent {
+		jasonAldeanMode = strings.TrimSpace(r.FormValue("jasonAldeanMode")) == "1"
 	}
 
 	var changes []string
@@ -1148,12 +1148,12 @@ func UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		changes = append(changes, "never-played songs first to "+state)
 	}
-	if jasonAldeenMode != ctx.Game.JasonAldeenMode {
+	if jasonAldeanMode != ctx.Game.JasonAldeanMode {
 		state := "off"
-		if jasonAldeenMode {
+		if jasonAldeanMode {
 			state = "on"
 		}
-		changes = append(changes, "Jason Aldeen mode to "+state)
+		changes = append(changes, "Jason Aldean mode to "+state)
 	}
 	if len(changes) == 0 {
 		w.WriteHeader(http.StatusOK)
@@ -1161,7 +1161,7 @@ func UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := database.UpdateGameSettings(ctx.Game.Id, playbackMode, clipSeconds, freshSongsFirst, jasonAldeenMode); err != nil {
+	if err := database.UpdateGameSettings(ctx.Game.Id, playbackMode, clipSeconds, freshSongsFirst, jasonAldeanMode); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to save the settings."))
 		return
@@ -1178,7 +1178,7 @@ func UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> changed %s", esc(ctx.Player.Name), joinPhrases(changes)))
-	sendSettings(ctx.LobbyId, playbackMode, clipSeconds, freshSongsFirst, jasonAldeenMode)
+	sendSettings(ctx.LobbyId, playbackMode, clipSeconds, freshSongsFirst, jasonAldeanMode)
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("Saved. It applies from the next song."))

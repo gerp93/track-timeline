@@ -84,10 +84,10 @@
 </section>
 
 <section class="stat-section">
-    <h3>&ldquo;Easy, that's Jason Aldeen&rdquo;</h3>
+    <h3>&ldquo;Easy, that's Jason Aldean&rdquo;</h3>
     <p class="stat-hint">
-        How often each player ticked the Jason Aldeen box instead of typing an artist, how much of their guessing that
-        is, and how often the artist then turned out to be right. Only lobbies with Jason Aldeen mode on offer it, and
+        How often each player ticked the Jason Aldean box instead of typing an artist, how much of their guessing that
+        is, and how often the artist then turned out to be right. Only lobbies with Jason Aldean mode on offer it, and
         it is recorded from when the mode was added, so earlier games are not in these numbers.
     </p>
     <table class="stat-table">
@@ -103,16 +103,16 @@
             {{range .Rows}}
             <tr>
                 <td class="stat-wrap"><a href="/stats/user/{{.UserId}}">{{.UserName}}</a></td>
-                <td class="stat-num">{{if .JasonAldeen.Has}}{{.JasonAldeen.Total}}{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
+                <td class="stat-num">{{if .JasonAldean.Has}}{{.JasonAldean.Total}}{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
                 <td>{{template "stats-rate" .JasonShare}}</td>
-                <td>{{template "stats-rate" .JasonAldeen}}</td>
+                <td>{{template "stats-rate" .JasonAldean}}</td>
             </tr>
             {{end}}
             <tr>
                 <td class="stat-nowrap"><strong>Everyone</strong></td>
-                <td class="stat-num">{{if .Totals.JasonAldeen.Has}}<strong>{{.Totals.JasonAldeen.Total}}</strong>{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
+                <td class="stat-num">{{if .Totals.JasonAldean.Has}}<strong>{{.Totals.JasonAldean.Total}}</strong>{{else}}<span class="stat-none">&ndash;</span>{{end}}</td>
                 <td>{{template "stats-rate" .Totals.JasonShare}}</td>
-                <td>{{template "stats-rate" .Totals.JasonAldeen}}</td>
+                <td>{{template "stats-rate" .Totals.JasonAldean}}</td>
             </tr>
         </tbody>
     </table>

@@ -90,25 +90,25 @@ func TestGuessFieldsCapsEachBox(t *testing.T) {
 	}
 }
 
-// The "easy, that's Jason Aldeen" checkbox disables the artist box in the
+// The "easy, that's Jason Aldean" checkbox disables the artist box in the
 // browser, and a disabled input is not submitted, so the server has to fill the
 // name in itself -- but only in a lobby that has the mode on.
-func TestGuessFieldsFillsInJasonAldeen(t *testing.T) {
+func TestGuessFieldsFillsInJasonAldean(t *testing.T) {
 	form := func(values url.Values) *http.Request {
 		req := httptest.NewRequest("POST", "/", strings.NewReader(values.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		return req
 	}
-	ticked := url.Values{"guessTitle": {"Hurt"}, "jasonAldeen": {"1"}}
+	ticked := url.Values{"guessTitle": {"Hurt"}, "jasonAldean": {"1"}}
 
 	title, artist, combined, used := guessFields(form(ticked), true)
-	if title != "Hurt" || artist != database.JasonAldeenName || combined != "Hurt by Jason Aldeen" || !used {
+	if title != "Hurt" || artist != database.JasonAldeanName || combined != "Hurt by Jason Aldean" || !used {
 		t.Errorf("ticked with the mode on: %q / %q / %q / %v", title, artist, combined, used)
 	}
 
 	// Whatever a hand-built request puts in the artist box, the tick wins.
 	ticked.Set("guessArtist", "Johnny Cash")
-	if _, artist, _, used := guessFields(form(ticked), true); artist != database.JasonAldeenName || !used {
+	if _, artist, _, used := guessFields(form(ticked), true); artist != database.JasonAldeanName || !used {
 		t.Errorf("the tick should override the typed artist, got %q (%v)", artist, used)
 	}
 

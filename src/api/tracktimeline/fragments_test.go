@@ -35,7 +35,7 @@ type currentCardView struct {
 	Economy            database.Economy
 	IsRoom             bool
 	IsHostDisplay      bool
-	JasonAldeenMode    bool
+	JasonAldeanMode    bool
 }
 
 func renderCurrentCard(t *testing.T, data currentCardView) string {
@@ -593,9 +593,9 @@ func TestCurrentCardRoomPhoneLockGuessStartsHidden(t *testing.T) {
 	}
 }
 
-// Jason Aldeen mode puts an "easy, that's Jason Aldeen" checkbox beside the
+// Jason Aldean mode puts an "easy, that's Jason Aldean" checkbox beside the
 // artist box of every guess form; with the mode off there is no trace of it.
-func TestCurrentCardJasonAldeenCheckbox(t *testing.T) {
+func TestCurrentCardJasonAldeanCheckbox(t *testing.T) {
 	views := map[string]currentCardView{
 		"turn player":  {IsCurrentPlayer: true},
 		"other player": {IsCurrentPlayer: false},
@@ -607,18 +607,18 @@ func TestCurrentCardJasonAldeenCheckbox(t *testing.T) {
 		view.RoundPhase = database.PhaseListening
 		view.LobbyId = uuid.New()
 
-		view.JasonAldeenMode = true
+		view.JasonAldeanMode = true
 		on := renderCurrentCard(t, view)
-		if !strings.Contains(on, `name="jasonAldeen"`) || !strings.Contains(on, "Easy, that's Jason Aldeen") {
+		if !strings.Contains(on, `name="jasonAldean"`) || !strings.Contains(on, "Easy, that's Jason Aldean") {
 			t.Errorf("%s: mode on should render the checkbox: %s", name, on)
 		}
 		if !strings.Contains(on, `data-artist="tt-guess-artist`) {
 			t.Errorf("%s: the checkbox must name the artist box it controls: %s", name, on)
 		}
 
-		view.JasonAldeenMode = false
+		view.JasonAldeanMode = false
 		off := renderCurrentCard(t, view)
-		if strings.Contains(off, "jasonAldeen") || strings.Contains(off, "Jason Aldeen") {
+		if strings.Contains(off, "jasonAldean") || strings.Contains(off, "Jason Aldean") {
 			t.Errorf("%s: mode off must not render the checkbox: %s", name, off)
 		}
 	}

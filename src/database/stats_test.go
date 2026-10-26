@@ -496,7 +496,7 @@ func TestWagersAndBuysAreTalliedPerPlayerAndOverall(t *testing.T) {
 	}
 }
 
-func TestJasonAldeenUsageIsTalliedPerPlayerAndOverall(t *testing.T) {
+func TestJasonAldeanUsageIsTalliedPerPlayerAndOverall(t *testing.T) {
 	ann, bob, guest := uuid.New(), uuid.New(), uuid.New()
 	song := uuid.New()
 	snapshot := statsSnapshot{
@@ -514,7 +514,7 @@ func TestJasonAldeenUsageIsTalliedPerPlayerAndOverall(t *testing.T) {
 	}
 	report := buildStatsReport(snapshot)
 
-	if got := report.Totals.JasonAldeen; got != (Rate{Hit: 1, Total: 3}) {
+	if got := report.Totals.JasonAldean; got != (Rate{Hit: 1, Total: 3}) {
 		t.Fatalf("overall usage wrong: %+v", got)
 	}
 	if got := report.Totals.JasonShare(); got != (Rate{Hit: 3, Total: 5}) {
@@ -525,11 +525,11 @@ func TestJasonAldeenUsageIsTalliedPerPlayerAndOverall(t *testing.T) {
 	for _, p := range report.Players {
 		byName[p.UserName] = p
 	}
-	if a := byName["Ann"]; a.JasonAldeen != (Rate{Hit: 1, Total: 2}) || a.JasonShare() != (Rate{Hit: 2, Total: 3}) {
-		t.Fatalf("Ann wrong: %+v share %+v", a.JasonAldeen, a.JasonShare())
+	if a := byName["Ann"]; a.JasonAldean != (Rate{Hit: 1, Total: 2}) || a.JasonShare() != (Rate{Hit: 2, Total: 3}) {
+		t.Fatalf("Ann wrong: %+v share %+v", a.JasonAldean, a.JasonShare())
 	}
-	if b := byName["Bob"]; b.JasonAldeen.Has() || b.JasonShare() != (Rate{Hit: 0, Total: 1}) {
-		t.Fatalf("Bob never used it: %+v share %+v", b.JasonAldeen, b.JasonShare())
+	if b := byName["Bob"]; b.JasonAldean.Has() || b.JasonShare() != (Rate{Hit: 0, Total: 1}) {
+		t.Fatalf("Bob never used it: %+v share %+v", b.JasonAldean, b.JasonShare())
 	}
 }
 

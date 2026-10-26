@@ -1009,11 +1009,11 @@ func TestCreateLobbyPassesFreshSongsFirstSetting(t *testing.T) {
 	}
 }
 
-// TestCreateLobbyPassesJasonAldeenMode posts the real create-lobby form and
-// checks the Jason Aldeen mode choice lands on the game: on for "1", and off for
+// TestCreateLobbyPassesJasonAldeanMode posts the real create-lobby form and
+// checks the Jason Aldean mode choice lands on the game: on for "1", and off for
 // "0" or for a client that never sends the field. The live settings form can then
 // flip it mid-game.
-func TestCreateLobbyPassesJasonAldeenMode(t *testing.T) {
+func TestCreateLobbyPassesJasonAldeanMode(t *testing.T) {
 	gameId, lobbyId, deckId, players, srv := newPlaytestFixesGame(t, "jasonform", 30, 10, 2)
 	defer closePlaytestFixesGame(players, srv)
 
@@ -1024,7 +1024,7 @@ func TestCreateLobbyPassesJasonAldeenMode(t *testing.T) {
 			"deckId":     {deckId.String()},
 		}
 		if value != "" {
-			form.Set("jasonAldeenMode", value)
+			form.Set("jasonAldeanMode", value)
 		}
 		rec := serve(apiTrackTimeline.Create, authedRequest(t, "POST",
 			"/api/track-timeline/create", form, players[0].userId))
@@ -1042,13 +1042,13 @@ func TestCreateLobbyPassesJasonAldeenMode(t *testing.T) {
 		return game
 	}
 
-	if game := create("jason on", "1"); !game.JasonAldeenMode {
-		t.Error("jasonAldeenMode=1 should turn the mode on")
+	if game := create("jason on", "1"); !game.JasonAldeanMode {
+		t.Error("jasonAldeanMode=1 should turn the mode on")
 	}
-	if game := create("jason off", "0"); game.JasonAldeenMode {
-		t.Error("jasonAldeenMode=0 should leave the mode off")
+	if game := create("jason off", "0"); game.JasonAldeanMode {
+		t.Error("jasonAldeanMode=0 should leave the mode off")
 	}
-	if game := create("jason absent", ""); game.JasonAldeenMode {
+	if game := create("jason absent", ""); game.JasonAldeanMode {
 		t.Error("a request without the field should leave the mode off")
 	}
 
@@ -1057,28 +1057,28 @@ func TestCreateLobbyPassesJasonAldeenMode(t *testing.T) {
 	put := func(value string) *httptest.ResponseRecorder {
 		return serve(apiTrackTimeline.UpdateSettings, authedRequest(t, "PUT",
 			"/api/track-timeline/"+lobbyId.String()+"/settings",
-			url.Values{"jasonAldeenMode": {value}}, players[0].userId))
+			url.Values{"jasonAldeanMode": {value}}, players[0].userId))
 	}
 	if rec := put("1"); rec.Code != http.StatusOK {
 		t.Fatalf("turn the mode on: %d %s", rec.Code, rec.Body.String())
 	}
-	if current, _ := database.GetGameById(gameId); !current.JasonAldeenMode {
+	if current, _ := database.GetGameById(gameId); !current.JasonAldeanMode {
 		t.Error("the settings form should turn the mode on")
 	}
 	if rec := put("0"); rec.Code != http.StatusOK {
 		t.Fatalf("turn the mode off: %d %s", rec.Code, rec.Body.String())
 	}
-	if current, _ := database.GetGameById(gameId); current.JasonAldeenMode {
+	if current, _ := database.GetGameById(gameId); current.JasonAldeanMode {
 		t.Error("the settings form should turn the mode off")
 	}
 }
 
-// TestJasonAldeenGuessIsFilledInJudgedAndCounted follows the checkbox end to end:
-// a guess made with it gets "Jason Aldeen" as its artist even though a disabled
+// TestJasonAldeanGuessIsFilledInJudgedAndCounted follows the checkbox end to end:
+// a guess made with it gets "Jason Aldean" as its artist even though a disabled
 // box submits nothing, is flagged, is judged like any other artist guess, and
 // shows up in the user's stats. A guess without it, or with it in a lobby that
 // has the mode off, is not counted.
-func TestJasonAldeenGuessIsFilledInJudgedAndCounted(t *testing.T) {
+func TestJasonAldeanGuessIsFilledInJudgedAndCounted(t *testing.T) {
 	gameId, lobbyId, _, players, srv := newPlaytestFixesGame(t, "jasonguess", 20, 10, 0)
 	defer closePlaytestFixesGame(players, srv)
 
@@ -1111,8 +1111,8 @@ func TestJasonAldeenGuessIsFilledInJudgedAndCounted(t *testing.T) {
 	}
 
 	// Mode off: the tick is ignored and the typed artist stands.
-	guess(others[0], url.Values{"guessTitle": {card.Title}, "guessArtist": {"typed artist"}, "jasonAldeen": {"1"}})
-	if g := read(others[0]); g.ArtistGuess != "typed artist" || g.JasonAldeen {
+	guess(others[0], url.Values{"guessTitle": {card.Title}, "guessArtist": {"typed artist"}, "jasonAldean": {"1"}})
+	if g := read(others[0]); g.ArtistGuess != "typed artist" || g.JasonAldean {
 		t.Errorf("mode off must ignore the tick: %+v", g)
 	}
 
@@ -1125,14 +1125,14 @@ func TestJasonAldeenGuessIsFilledInJudgedAndCounted(t *testing.T) {
 	}
 
 	// Mode on, ticked: no artist field is sent at all, as with a disabled input.
-	guess(others[1], url.Values{"guessTitle": {card.Title}, "jasonAldeen": {"1"}})
-	if g := read(others[1]); g.ArtistGuess != database.JasonAldeenName || !g.JasonAldeen {
+	guess(others[1], url.Values{"guessTitle": {card.Title}, "jasonAldean": {"1"}})
+	if g := read(others[1]); g.ArtistGuess != database.JasonAldeanName || !g.JasonAldean {
 		t.Errorf("the tick should fill in the artist and flag the guess: %+v", g)
 	}
 
 	// Mode on, not ticked: an ordinary guess.
 	guess(current, url.Values{"guessTitle": {card.Title}, "guessArtist": {card.Artist}})
-	if g := read(current); g.ArtistGuess != card.Artist || g.JasonAldeen {
+	if g := read(current); g.ArtistGuess != card.Artist || g.JasonAldean {
 		t.Errorf("an unticked guess must not be flagged: %+v", g)
 	}
 
@@ -1146,7 +1146,7 @@ func TestJasonAldeenGuessIsFilledInJudgedAndCounted(t *testing.T) {
 		if err != nil || !found {
 			t.Fatalf("stats for %s: %v (%v)", p.name, err, found)
 		}
-		return page.Player.JasonAldeen
+		return page.Player.JasonAldean
 	}
 	if got := usage(others[1]); got.Total != 1 || got.Hit != 0 {
 		t.Errorf("the ticked guess should count once, and the artist was wrong: %+v", got)

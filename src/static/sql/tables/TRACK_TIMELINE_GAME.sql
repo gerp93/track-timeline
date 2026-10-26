@@ -40,9 +40,9 @@ CREATE TABLE IF NOT EXISTS TRACK_TIMELINE_GAME(
     -- then the rest, also random. So once the never-played songs run out the
     -- game simply carries on at random. Off by default: a fully random pile.
     FRESH_SONGS_FIRST TINYINT(1) NOT NULL DEFAULT 0,
-    -- When set, every guess form gets an "easy, that's Jason Aldeen" checkbox
+    -- When set, every guess form gets an "easy, that's Jason Aldean" checkbox
     -- beside the artist box that fills it in. Off by default.
-    JASON_ALDEEN_MODE TINYINT(1) NOT NULL DEFAULT 0,
+    JASON_ALDEAN_MODE TINYINT(1) NOT NULL DEFAULT 0,
     -- How much of each song the lobby hears:
     --   full    the whole song, from the top, until it ends.
     --   intro   the first CLIP_SECONDS seconds.
