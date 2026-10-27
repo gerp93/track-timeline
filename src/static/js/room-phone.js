@@ -375,8 +375,9 @@ function roomApplyHeardText(transcript) {
     let heard = (transcript || "").trim();
     if (!heard) return;
 
-    // Split on " by " when both fields exist; otherwise dump into title.
-    if (artist) {
+    // Split on " by " when both fields exist; otherwise dump into title. A ticked
+    // "Jason Aldean" box has already supplied the artist, so leave it alone.
+    if (artist && !artist.disabled) {
         const match = heard.match(/^(.*?)\s+by\s+(.+)$/i);
         if (match) {
             title.value = match[1].trim();

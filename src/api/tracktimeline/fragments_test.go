@@ -35,6 +35,7 @@ type currentCardView struct {
 	Economy            database.Economy
 	IsRoom             bool
 	IsHostDisplay      bool
+	JasonAldeanMode    bool
 }
 
 func renderCurrentCard(t *testing.T, data currentCardView) string {
@@ -589,5 +590,36 @@ func TestCurrentCardRoomPhoneLockGuessStartsHidden(t *testing.T) {
 	}
 	if strings.Contains(got, `id="tt-hold-mic" class="btn-primary" style="display:none"`) {
 		t.Fatalf("Hold to speak should start visible: %s", got)
+	}
+}
+
+// Jason Aldean mode puts an "easy, that's Jason Aldean" checkbox beside the
+// artist box of every guess form; with the mode off there is no trace of it.
+func TestCurrentCardJasonAldeanCheckbox(t *testing.T) {
+	views := map[string]currentCardView{
+		"turn player":  {IsCurrentPlayer: true},
+		"other player": {IsCurrentPlayer: false},
+		"room phone":   {IsCurrentPlayer: true, IsRoom: true},
+	}
+	for name, view := range views {
+		view.CurrentCard = database.CurrentCard{YouTubeVideoId: "abc123"}
+		view.GameStatus = database.StatusActive
+		view.RoundPhase = database.PhaseListening
+		view.LobbyId = uuid.New()
+
+		view.JasonAldeanMode = true
+		on := renderCurrentCard(t, view)
+		if !strings.Contains(on, `name="jasonAldean"`) || !strings.Contains(on, "Easy, that's Jason Aldean") {
+			t.Errorf("%s: mode on should render the checkbox: %s", name, on)
+		}
+		if !strings.Contains(on, `data-artist="tt-guess-artist`) {
+			t.Errorf("%s: the checkbox must name the artist box it controls: %s", name, on)
+		}
+
+		view.JasonAldeanMode = false
+		off := renderCurrentCard(t, view)
+		if strings.Contains(off, "jasonAldean") || strings.Contains(off, "Jason Aldean") {
+			t.Errorf("%s: mode off must not render the checkbox: %s", name, off)
+		}
 	}
 }

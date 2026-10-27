@@ -264,7 +264,7 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	}
 	// Everyone starts with exactly a steal's price, so a wrong placement opens a
 	// steal window and a claim empties the stealer's balance.
-	gameId, err := database.CreateGame(lobbyId, 5, database.StealCost, false, database.PlaybackIntro, 20)
+	gameId, err := database.CreateGame(lobbyId, 5, database.StealCost, false, false, database.PlaybackIntro, 20)
 	if err != nil {
 		t.Fatalf("create game: %v", err)
 	}

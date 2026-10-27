@@ -69,6 +69,16 @@
         <span class="stat-tile-note">none on record yet &mdash; tracked from now on</span>
         {{end}}
     </div>
+    <div class="stat-tile" title="{{.Totals.JasonAldean.Tip}}">
+        <span class="stat-tile-label">&ldquo;Easy, that's Jason Aldean&rdquo;</span>
+        {{if .Totals.JasonAldean.Has}}
+        <span class="stat-tile-value">{{.Totals.JasonAldean.Total}}</span>
+        <span class="stat-tile-note">{{.Totals.JasonAldean.Hit}} right ({{.Totals.JasonAldean.Percent}}) &middot; {{.Totals.JasonShare.Percent}} of all guesses</span>
+        {{else}}
+        <span class="stat-tile-value">&ndash;</span>
+        <span class="stat-tile-note">none on record yet &mdash; tracked from now on</span>
+        {{end}}
+    </div>
     <div class="stat-tile" title="{{.Totals.SkipRate.Tip}}">
         <span class="stat-tile-label">Songs played</span>
         <span class="stat-tile-value">{{.Totals.Songs}}</span>

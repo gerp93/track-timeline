@@ -84,7 +84,7 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 	if err := database.LogWager(userId, cardId, 1970, 1969, 5, false); err != nil {
 		t.Fatalf("log wager loss: %v", err)
 	}
-	if err := database.LogTitleGuess(userId, cardId, "render song by render artist", true, true); err != nil {
+	if err := database.LogTitleGuess(userId, cardId, "render song by render artist", true, true, false); err != nil {
 		t.Fatalf("log guess: %v", err)
 	}
 	if err := gsDatabase.AddUserDeckAccess(userId, deckId); err != nil {
@@ -103,7 +103,7 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 	if _, err := gsDatabase.AddUserToLobby(lobbyId, userId); err != nil {
 		t.Fatalf("join lobby: %v", err)
 	}
-	gameId, err := database.CreateGame(lobbyId, 10, 2, false, database.PlaybackSample, 20)
+	gameId, err := database.CreateGame(lobbyId, 10, 2, false, false, database.PlaybackSample, 20)
 	if err != nil {
 		t.Fatalf("create game: %v", err)
 	}
@@ -152,20 +152,20 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 		},
 		{
 			"TrackTimelineLobbies", apiPages.TrackTimelineLobbies, "/track-timeline/lobbies", false, nil,
-			[]string{"render deck", "Render Genre", "Never-Played Songs First", "Random clip from the middle"},
+			[]string{"render deck", "Render Genre", "Never-Played Songs First", "Jason Aldean Mode", "Random clip from the middle"},
 		},
 		{
 			"TrackTimelineLobby", apiPages.TrackTimelineLobby, "/track-timeline/{lobbyId}", false,
 			func(r *http.Request) { r.SetPathValue("lobbyId", lobbyId.String()) },
-			[]string{"render lobby", `id="tt-live-settings"`, `hx-put="/api/track-timeline/`, "Never-Played Songs First"},
+			[]string{"render lobby", `id="tt-live-settings"`, `hx-put="/api/track-timeline/`, "Never-Played Songs First", "Jason Aldean Mode", `id="tt-set-jason"`},
 		},
-		{"Stats", apiPages.Stats, "/stats", false, nil, []string{"Statistics", "Leaderboard", "Placement accuracy", "Online vs. in person", "Songs bought", "Exact-year wagers", "Broke the House", "Most Degenerate Gambler", "How to read these numbers"}},
+		{"Stats", apiPages.Stats, "/stats", false, nil, []string{"Statistics", "Leaderboard", "Placement accuracy", "Online vs. in person", "Songs bought", "Exact-year wagers", "that's Jason Aldean", "Broke the House", "Most Degenerate Gambler", "How to read these numbers"}},
 		{"StatsLeaderboard", apiPages.StatsLeaderboard, "/stats/leaderboard", false, nil, []string{"render_admin", "Win rate", "vs. chance"}},
-		{"StatsUsers", apiPages.StatsUsers, "/stats/users", false, nil, []string{"render_admin", "Strength by era", "Tokens: buys and wagers"}},
+		{"StatsUsers", apiPages.StatsUsers, "/stats/users", false, nil, []string{"render_admin", "Strength by era", "Tokens: buys and wagers", "that's Jason Aldean", "Times used"}},
 		{
 			"StatsUser", apiPages.StatsUser, "/stats/user/{userId}", false,
 			func(r *http.Request) { r.SetPathValue("userId", userId.String()) },
-			[]string{"render_admin", "Wins", "Placement accuracy", "Naming songs", "Songs bought", "Exact-year wagers"},
+			[]string{"render_admin", "Wins", "Placement accuracy", "Naming songs", "Songs bought", "Exact-year wagers", "that's Jason Aldean"},
 		},
 		{"StatsCards", apiPages.StatsCards, "/stats/cards", false, nil, []string{"Hardest to place", "Most recognised", "Least recognised", "Most skipped"}},
 		{"StatsCardsPlayed", apiPages.StatsCards, "/stats/cards?view=played", false, nil, []string{"Most placed", "Render Song", "Render Artist", "1969"}},

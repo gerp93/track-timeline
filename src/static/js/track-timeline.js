@@ -259,6 +259,12 @@ function ttApplyLiveSettings(settings) {
     if (mode) mode.value = settings.playbackMode;
     if (clip) clip.value = settings.clipSeconds;
     if (fresh) fresh.value = settings.freshSongsFirst ? "1" : "0";
+    const jasonMode = document.getElementById("tt-set-jason");
+    if (jasonMode) jasonMode.value = settings.jasonAldeanMode ? "1" : "0";
+    // Switched off while someone's box is ticked: hand them their artist box back.
+    if (!settings.jasonAldeanMode) {
+        document.querySelectorAll("input.tt-jason-aldean:checked").forEach((box) => ttJasonAldeanApply(box, false));
+    }
     ttSyncLiveClipRow();
 }
 
@@ -958,15 +964,47 @@ function ttGuessBoxes() {
     return { title: ttGuessBox("guessTitle"), artist: ttGuessBox("guessArtist") };
 }
 
+// "Easy, that's Jason Aldean": ticking it fills the artist box with the name and
+// disables it; unticking puts back whatever was typed there before (or leaves it
+// empty) and enables it again. A disabled input is
+// not submitted, so the server fills the name in itself when it sees jasonAldean=1
+// (guessFields in api/tracktimeline/round.go). The synthetic input event goes out
+// before the box is disabled so the draft is re-saved with the new state.
+const TT_JASON_ALDEAN = "Jason Aldean";
+
+function ttJasonAldeanBox() {
+    return document.querySelector('#tt-current-card input[name="jasonAldean"]');
+}
+
+function ttJasonAldeanApply(checkbox, on) {
+    const artist = document.getElementById(checkbox.dataset.artist);
+    checkbox.checked = on;
+    if (!artist) return;
+    if (on) {
+        if (!artist.disabled) artist.dataset.typedBefore = artist.value;
+        artist.value = TT_JASON_ALDEAN;
+    } else {
+        artist.value = artist.dataset.typedBefore || "";
+        delete artist.dataset.typedBefore;
+    }
+    artist.dispatchEvent(new Event("input", { bubbles: true }));
+    artist.disabled = on;
+}
+
+function ttJasonAldeanToggle(checkbox) {
+    ttJasonAldeanApply(checkbox, checkbox.checked);
+}
+
 function ttGuessCurrentCardId() {
     const marker = document.getElementById("tt-guess-card");
     return marker ? marker.dataset.cardId || "" : "";
 }
 
 // Saves the boxes as a draft guess for cardId. Resolves true if the server kept it.
-function ttSendGuessDraft(cardId, title, artist) {
+function ttSendGuessDraft(cardId, title, artist, jasonAldean) {
     if (!ttLobbyId || !cardId) return Promise.resolve(false);
     const body = new URLSearchParams({ cardId: cardId, guessTitle: title, guessArtist: artist });
+    if (jasonAldean) body.set("jasonAldean", "1");
     return fetch("/api/track-timeline/" + ttLobbyId + "/guess-draft", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -985,7 +1023,8 @@ function ttFlushGuessDraft() {
     const boxes = ttGuessBoxes();
     if (!boxes.title || !boxes.artist) return Promise.resolve(false);
     ttGuessDirty = false;
-    return ttSendGuessDraft(ttGuessCardId, boxes.title.value.trim(), boxes.artist.value.trim());
+    const jason = ttJasonAldeanBox();
+    return ttSendGuessDraft(ttGuessCardId, boxes.title.value.trim(), boxes.artist.value.trim(), !!(jason && jason.checked));
 }
 
 // Called whenever the current-card fragment is swapped. If the song under the
@@ -1005,11 +1044,12 @@ function ttSyncGuessCard() {
         clearTimeout(ttGuessTimer);
         ttGuessTimer = null;
     }
+    const jason = ttJasonAldeanBox();
     if (boxes.title && boxes.artist) {
         const title = boxes.title.value.trim();
         const artist = boxes.artist.value.trim();
         if (title || artist) {
-            ttSendGuessDraft(previous, title, artist).then((kept) => {
+            ttSendGuessDraft(previous, title, artist, !!(jason && jason.checked)).then((kept) => {
                 // The server only keeps it when that song still belongs to the
                 // round in progress, i.e. it was skipped rather than finished.
                 if (kept) showStatus("Your guess was kept for the song that was skipped.");
@@ -1017,7 +1057,10 @@ function ttSyncGuessCard() {
         }
         boxes.title.value = "";
         boxes.artist.value = "";
+        boxes.artist.disabled = false;
+        delete boxes.artist.dataset.typedBefore;
     }
+    if (jason) jason.checked = false;
     ttGuessDirty = false;
 }
 

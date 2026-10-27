@@ -266,6 +266,31 @@ the rules live in `database/challenge.go`; the HTTP side is
 - **A card claim is a free draw from the pile** (`GrantChallengeCard`), not a
   specific song, and is refused when it would reach `CardsToWin`.
 
+## Jason Aldean mode
+
+A per-lobby joke toggle (`TRACK_TIMELINE_GAME.JASON_ALDEAN_MODE`, off by default),
+set on the create-lobby form and changeable mid-game from the live settings form
+(`UpdateSettings`, broadcast in the `settings:` payload as `jasonAldeanMode`).
+
+- **With it on**, every artist guess box gets an "Easy, that's Jason Aldean"
+  checkbox (`name="jasonAldean"`). Ticking it fills the box with
+  `database.JasonAldeanName` and disables it; unticking puts back whatever was typed
+  there before and re-enables it (`ttJasonAldeanToggle`, `track-timeline.js`). The checkbox sits *outside* the
+  `hx-preserve`'d guess fields on purpose so a mid-game toggle of the setting shows
+  up on the next swap.
+- **A disabled input is never submitted**, so the server fills the artist in
+  itself: `guessFields` (`api/tracktimeline/round.go`) turns `jasonAldean=1` into
+  the artist, but only when the lobby has the mode on (the flag is ignored
+  otherwise). Don't "fix" this by trusting the artist box.
+- **It is judged like any other artist guess.** Nothing special-cases the name; it
+  is right only when the song's artist really is Jason Aldean.
+- **Usage is stored on the guess** (`TITLE_GUESS.JASON_ALDEAN`, copied to
+  `LOG_TITLE_GUESS.JASON_ALDEAN` when judged) and surfaces as `JasonAldean
+  Rate{Hit: artist was right, Total: times used}` on `PlayerStats` and
+  `StatsTotals`, plus `JasonShare()` (uses out of all guesses). Overview tile,
+  player-page tile and a table on the Players tab. Recorded only from when the
+  mode was added; earlier guesses read as "not used".
+
 ## Statistics
 
 The `/stats` pages (Overview, Leaderboard, Players, Songs) are **computed, not

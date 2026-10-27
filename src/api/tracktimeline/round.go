@@ -180,8 +180,8 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 
 	// Whatever is in the guess boxes when the placement locks in is this
 	// player's guess. Already-locked is fine: they pressed Guess first.
-	title, artist, _ := guessFields(r)
-	lockGuess(ctx, card.CardId, title, artist)
+	title, artist, _, jasonAldean := guessFields(r, ctx.Game.JasonAldeanMode)
+	lockGuess(ctx, card.CardId, title, artist, jasonAldean)
 
 	// The song stops the moment a placement is locked in: leaving it playing
 	// through a steal window would hand stealers more listening time than the
@@ -693,10 +693,11 @@ func finishRound(ctx gameContext, payload resultPayload) {
 // share: the game is running, the song is not yet revealed, the player is allowed
 // to guess, and the song the guess was typed for is part of this round.
 type guessRequest struct {
-	ctx    gameContext
-	cardId uuid.UUID
-	title  string
-	artist string
+	ctx         gameContext
+	cardId      uuid.UUID
+	title       string
+	artist      string
+	jasonAldean bool
 }
 
 // readGuessRequest reads and validates a guess or a draft, writing its own error
@@ -769,8 +770,8 @@ func readGuessRequest(w http.ResponseWriter, r *http.Request) (guessRequest, boo
 		return guessRequest{}, false
 	}
 
-	title, artist, _ := guessFields(r)
-	return guessRequest{ctx: ctx, cardId: cardId, title: title, artist: artist}, true
+	title, artist, _, jasonAldean := guessFields(r, ctx.Game.JasonAldeanMode)
+	return guessRequest{ctx: ctx, cardId: cardId, title: title, artist: artist, jasonAldean: jasonAldean}, true
 }
 
 // SubmitGuess locks in a player's free-form artist/title guess when they press
@@ -795,7 +796,7 @@ func SubmitGuess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := lockGuess(ctx, req.cardId, req.title, req.artist); err != nil {
+	if err := lockGuess(ctx, req.cardId, req.title, req.artist, req.jasonAldean); err != nil {
 		if errors.Is(err, database.ErrGuessLocked) {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte("You have already guessed this song."))
@@ -835,7 +836,7 @@ func SaveGuessDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := database.SaveGuess(req.ctx.Game.Id, req.ctx.Player.Id, req.cardId, req.title, req.artist, false); err != nil {
+	if err := database.SaveGuess(req.ctx.Game.Id, req.ctx.Player.Id, req.cardId, req.title, req.artist, req.jasonAldean, false); err != nil {
 		log.Println(err)
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Failed to save your guess."))
@@ -849,11 +850,11 @@ func SaveGuessDraft(w http.ResponseWriter, r *http.Request) {
 // lockGuess stores a player's guess about a song and locks it, returning
 // database.ErrGuessLocked if they had already locked one. Nothing is judged; see
 // database.JudgeRoundGuesses. An empty guess is a no-op.
-func lockGuess(ctx gameContext, cardId uuid.UUID, title, artist string) error {
+func lockGuess(ctx gameContext, cardId uuid.UUID, title, artist string, jasonAldean bool) error {
 	if title == "" && artist == "" {
 		return nil
 	}
-	if err := database.SaveGuess(ctx.Game.Id, ctx.Player.Id, cardId, title, artist, true); err != nil {
+	if err := database.SaveGuess(ctx.Game.Id, ctx.Player.Id, cardId, title, artist, jasonAldean, true); err != nil {
 		if !errors.Is(err, database.ErrGuessLocked) {
 			log.Println(err)
 		}
@@ -871,10 +872,18 @@ func lockGuess(ctx gameContext, cardId uuid.UUID, title, artist string) error {
 // guessFields reads the split song-name and artist boxes. Each box is capped at
 // the same 250 characters the form enforces, since a hand-built request skips the
 // form and everything typed here is sent on to the AI judge.
-func guessFields(r *http.Request) (title, artist, combined string) {
+//
+// In a lobby with Jason Aldean mode on, the "easy, that's Jason Aldean" checkbox
+// (jasonAldean=1) stands in for the artist box. The browser disables that box
+// while it is ticked, and a disabled input is not submitted, so the name is
+// filled in here rather than trusted from the form; jasonAldean reports it.
+func guessFields(r *http.Request, jasonAldeanMode bool) (title, artist, combined string, jasonAldean bool) {
 	title = truncateRunes(strings.TrimSpace(r.FormValue("guessTitle")), 250)
 	artist = truncateRunes(strings.TrimSpace(r.FormValue("guessArtist")), 250)
-	return title, artist, database.CombineGuess(title, artist)
+	if jasonAldeanMode && strings.TrimSpace(r.FormValue("jasonAldean")) == "1" {
+		artist, jasonAldean = database.JasonAldeanName, true
+	}
+	return title, artist, database.CombineGuess(title, artist), jasonAldean
 }
 
 // describePendingGuess is what a player who has locked in a guess sees in place

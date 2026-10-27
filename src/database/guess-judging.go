@@ -113,7 +113,7 @@ func JudgeRoundGuesses(gameId uuid.UUID) error {
 			// The guess still stands as judged, so this is logged loudly.
 			log.Println("failed to award guess tokens:", err)
 		}
-		if err := LogTitleGuess(g.UserId, g.CardId, g.GuessText, g.TitleCorrect, g.ArtistCorrect); err != nil {
+		if err := LogTitleGuess(g.UserId, g.CardId, g.GuessText, g.TitleCorrect, g.ArtistCorrect, g.JasonAldean); err != nil {
 			log.Println(err)
 		}
 	}
