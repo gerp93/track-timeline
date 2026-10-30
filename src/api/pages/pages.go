@@ -691,6 +691,42 @@ func StatsUser(w http.ResponseWriter, r *http.Request) {
 	statsPage(w, gsApi.GetBasePageData(r), page.Player.UserName, "stats-user.html", page)
 }
 
+// StatsTrophies is the signed-in player's own trophy case.
+func StatsTrophies(w http.ResponseWriter, r *http.Request) {
+	basePageData := gsApi.GetBasePageData(r)
+	trophiesPage(w, basePageData, basePageData.User.Id)
+}
+
+// StatsUserTrophies is one player's trophy case.
+func StatsUserTrophies(w http.ResponseWriter, r *http.Request) {
+	userId, err := uuid.Parse(r.PathValue("userId"))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Invalid player."))
+		return
+	}
+
+	trophiesPage(w, gsApi.GetBasePageData(r), userId)
+}
+
+// trophiesPage renders a player's trophy case. Only an approved account can earn
+// achievements, so a guest (or an unknown id) has none to show.
+func trophiesPage(w http.ResponseWriter, basePageData gsApi.BasePageData, userId uuid.UUID) {
+	trophyCase, found, err := database.GetTrophyCase(userId)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get the trophy case."))
+		return
+	}
+	if !found {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("No trophies for that player."))
+		return
+	}
+
+	statsPage(w, basePageData, trophyCase.UserName+" – Trophies", "stats-trophies.html", trophyCase)
+}
+
 // StatsCards ranks songs; ?view= picks the ranking.
 func StatsCards(w http.ResponseWriter, r *http.Request) {
 	list, err := database.GetSongList(r.URL.Query().Get("view"))

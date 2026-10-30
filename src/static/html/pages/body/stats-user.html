@@ -7,6 +7,7 @@
     <h3>{{$p.UserName}}</h3>
     {{if $p.Rank}}<span class="stat-badge">#{{$p.Rank}} on the leaderboard</span>{{end}}
     {{if $p.Form}}{{template "stats-form" $p.Form}}{{end}}
+    <a href="/stats/user/{{$p.UserId}}/trophies"><button type="button" class="btn-small"><i class="bi bi-trophy"></i> Trophies</button></a>
 </div>
 
 <section class="stat-tiles" aria-label="Headline numbers">

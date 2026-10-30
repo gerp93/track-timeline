@@ -116,6 +116,14 @@ func JudgeRoundGuesses(gameId uuid.UUID) error {
 		if err := LogTitleGuess(g.UserId, g.CardId, g.GuessText, g.TitleCorrect, g.ArtistCorrect, g.JasonAldean); err != nil {
 			log.Println(err)
 		}
+		// A guess the judge credited although it was spelled wrong. The artist
+		// the Jason Aldean checkbox filled in is the exact name, never a slip.
+		if g.TitleCorrect && guess.Misspelled(g.TitleGuess, g.SongTitle) ||
+			g.ArtistCorrect && !g.JasonAldean && guess.Misspelled(g.ArtistGuess, g.SongArtist) {
+			if err := LogAchievementEvent(g.UserId, gameId, EvSpellingForgiven, 1); err != nil {
+				log.Println(err)
+			}
+		}
 	}
 	return firstErr
 }

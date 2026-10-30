@@ -111,6 +111,12 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 		t.Fatalf("init draw pile: %v", err)
 	}
 
+	// Give the trophy case something earned to show: the win, the wagers and the
+	// guess above are enough for Dynasty, Nostradamus, Gambler and Encyclopedia.
+	if _, err := database.EvaluateAchievements([]uuid.UUID{userId}); err != nil {
+		t.Fatalf("evaluate achievements: %v", err)
+	}
+
 	cookieRec := httptest.NewRecorder()
 	gsAuth.SetUserId(cookieRec, userId)
 	cookies := cookieRec.Result().Cookies()
@@ -167,6 +173,15 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 			func(r *http.Request) { r.SetPathValue("userId", userId.String()) },
 			[]string{"render_admin", "Wins", "Placement accuracy", "Naming songs", "Songs bought", "Exact-year wagers", "that's Jason Aldean"},
 		},
+		{
+			"StatsTrophies", apiPages.StatsTrophies, "/stats/trophies", false, nil,
+			[]string{"render_admin", "Trophies", "Dynasty", "Nostradamus", "Gambler", "Encyclopedia", "Highway Robber", "Easy, That&#39;s Jason Aldean", "Poodle Skirt", "Secrets left"},
+		},
+		{
+			"StatsUserTrophies", apiPages.StatsUserTrophies, "/stats/user/{userId}/trophies", false,
+			func(r *http.Request) { r.SetPathValue("userId", userId.String()) },
+			[]string{"render_admin's trophies", "Dynasty", "Player stats"},
+		},
 		{"StatsCards", apiPages.StatsCards, "/stats/cards", false, nil, []string{"Hardest to place", "Most recognised", "Least recognised", "Most skipped"}},
 		{"StatsCardsPlayed", apiPages.StatsCards, "/stats/cards?view=played", false, nil, []string{"Most placed", "Render Song", "Render Artist", "1969"}},
 		{
@@ -200,6 +215,28 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 			}
 		})
 	}
+
+	// A secret achievement nobody has unlocked is not even named on the page, and
+	// a guest has no trophy case at all.
+	t.Run("TrophyCaseHidesLockedSecrets", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.StatsTrophies)).ServeHTTP(rec, get("/stats/trophies"))
+		body := rec.Body.String()
+		for _, a := range database.Achievements {
+			if a.Secret && strings.Contains(body, a.Name) {
+				t.Errorf("secret achievement %q is named on a page where it is still locked", a.Name)
+			}
+		}
+	})
+	t.Run("TrophyCaseNotFoundForAStranger", func(t *testing.T) {
+		req := get("/stats/user/{userId}/trophies")
+		req.SetPathValue("userId", uuid.New().String())
+		rec := httptest.NewRecorder()
+		gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.StatsUserTrophies)).ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("status = %d, want 404 for a player who does not exist", rec.Code)
+		}
+	})
 
 	// Telling the tab "looks fine" takes the song off it.
 	if err := database.DismissVideoMismatch(cardId); err != nil {

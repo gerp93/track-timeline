@@ -1,0 +1,77 @@
+{{define "body"}}
+{{template "stats-nav" "trophies"}}
+{{with .Stats}}
+<div class="stat-title-row">
+    <h3>{{.UserName}}'s trophies</h3>
+    <a href="/stats/user/{{.UserId}}"><button type="button" class="btn-small">Player stats</button></a>
+</div>
+
+<section class="stat-tiles" aria-label="Trophy totals">
+    <div class="stat-tile">
+        <span class="stat-tile-label">Achievements</span>
+        <span class="stat-tile-value">{{.Earned}}</span>
+        <span class="stat-tile-note">of {{.Total}} unlocked</span>
+    </div>
+    <div class="stat-tile">
+        <span class="stat-tile-label">Tiers earned</span>
+        <span class="stat-tile-value">{{.Tiers}}</span>
+        <span class="stat-tile-note">across every ladder</span>
+    </div>
+    {{if .HiddenSecrets}}
+    <div class="stat-tile">
+        <span class="stat-tile-label">Secrets left</span>
+        <span class="stat-tile-value">{{.HiddenSecrets}}</span>
+        <span class="stat-tile-note">hidden until someone unlocks them</span>
+    </div>
+    {{end}}
+</section>
+<p class="stat-hint">
+    Achievements are unlocked as a round ends and shown to everyone at the table. Some are ladders with several
+    tiers; the bar shows the way to the next one. Anything earned before achievements existed is credited without a date.
+</p>
+
+{{range .Categories}}
+<section class="stat-section">
+    <h3>{{.Name}} <span class="stat-hint">{{.Earned}} of {{len .Trophies}}</span></h3>
+    <div class="trophy-grid">
+        {{range .Trophies}}
+        <article class="trophy{{if .Unlocked}} is-earned{{else}} is-locked{{end}}{{if .Complete}} is-complete{{end}}" id="trophy-{{.Key}}">
+            <i class="bi bi-{{.Icon}} trophy-icon" aria-hidden="true"></i>
+            <div class="trophy-body">
+                <h4 class="trophy-name">
+                    {{.Name}}
+                    {{if .Medal}}<span class="trophy-medal tier-{{.MedalClass}}">{{.Medal}}</span>{{end}}
+                    {{if .Secret}}<span class="stat-badge" title="Hidden until someone unlocks it">secret</span>{{end}}
+                </h4>
+                {{if .Single}}
+                {{range .Rungs}}<p class="trophy-single">{{.Description}}</p>
+                {{if .Unlocked}}<p class="trophy-earned"><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Unlocked {{if .Backfilled}}from earlier play{{else}}{{template "stats-date" .UnlockedOn}}{{end}}</p>{{end}}
+                {{end}}
+                {{else}}
+                <ul class="trophy-rungs">
+                    {{range .Rungs}}
+                    <li class="trophy-rung{{if .Unlocked}} is-earned{{end}}">
+                        <i class="bi {{if .Unlocked}}bi-check-circle-fill{{else}}bi-circle{{end}}" aria-hidden="true"></i>
+                        <span class="trophy-rung-label tier-{{.LabelClass}}">{{.Label}}</span>
+                        <span class="trophy-rung-desc">{{.Description}}</span>
+                        {{if .Unlocked}}<span class="trophy-rung-date">{{if .Backfilled}}earlier play{{else}}{{template "stats-date" .UnlockedOn}}{{end}}</span>{{end}}
+                    </li>
+                    {{end}}
+                </ul>
+                {{end}}
+                {{if .HasBar}}
+                <div class="trophy-progress" title="{{.Progress}}">
+                    <div class="stat-bar"><div class="stat-bar-fill" style="width: {{.Percent}}%"></div></div>
+                    <span class="trophy-progress-text">{{.Progress}}</span>
+                </div>
+                {{else if .Progress}}
+                <p class="trophy-progress-text">{{.Progress}}</p>
+                {{end}}
+            </div>
+        </article>
+        {{end}}
+    </div>
+</section>
+{{end}}
+{{end}}
+{{end}}

@@ -208,6 +208,18 @@ function handleMessage(message) {
         return;
     }
 
+    if (message.startsWith("achievements:")) {
+        let unlocks;
+        try {
+            unlocks = JSON.parse(message.substring("achievements:".length));
+        } catch (e) {
+            console.error("[TrackTimeline] bad achievements payload:", e);
+            return;
+        }
+        ttQueueAchievements(unlocks);
+        return;
+    }
+
     if (message.startsWith("status:")) {
         showStatus(message.substring("status:".length));
         refreshGame();
@@ -1202,6 +1214,107 @@ function showResultPopup(payload, onDone) {
     if (payload.gameOver) dismissAfter = 6000;
     else if (hasCelebration) dismissAfter = 5000;
     setTimeout(finish, dismissAfter);
+}
+
+// ------------------------------------------------------------- achievements
+
+// Unlocks arrive in an "achievements:" message right behind the reveal that
+// earned them. They wait their turn: the reveal popup, a challenge dialog or the
+// win video may be on screen, and a pop-up stacked over any of those would cover
+// the thing everyone is meant to be reading. Whatever has piled up by the time the
+// screen is clear is shown together in one modal.
+const TT_ACHIEVEMENT_RETRY_MS = 400;
+const TT_ACHIEVEMENT_SHOW_MS = 7000;
+let ttAchievementQueue = [];
+let ttAchievementTimer = null;
+let ttAchievementOpen = false;
+
+function ttQueueAchievements(unlocks) {
+    if (!Array.isArray(unlocks) || !unlocks.length) return;
+    ttAchievementQueue = ttAchievementQueue.concat(unlocks);
+    ttPumpAchievements();
+}
+
+function ttPumpAchievements() {
+    if (ttAchievementTimer || ttAchievementOpen || !ttAchievementQueue.length) return;
+    if (document.querySelector("body > .tt-popup-backdrop")) {
+        ttAchievementTimer = setTimeout(() => {
+            ttAchievementTimer = null;
+            ttPumpAchievements();
+        }, TT_ACHIEVEMENT_RETRY_MS);
+        return;
+    }
+    const unlocks = ttAchievementQueue;
+    ttAchievementQueue = [];
+    ttShowAchievements(unlocks);
+}
+
+// ttShowAchievements builds its content with textContent throughout: player
+// names are user-authored, and this is rendered outside a Go template's escaping.
+function ttShowAchievements(unlocks) {
+    ttAchievementOpen = true;
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "tt-popup-backdrop tt-achievement-backdrop";
+
+    const popup = document.createElement("div");
+    popup.className = "tt-popup tt-achievement-popup";
+
+    const heading = document.createElement("div");
+    heading.className = "tt-achievement-heading";
+    heading.textContent = unlocks.length === 1 ? "Achievement unlocked" : "Achievements unlocked";
+    popup.appendChild(heading);
+
+    unlocks.forEach((unlock) => {
+        const card = document.createElement("div");
+        card.className = "tt-achievement";
+        if (unlock.tierLabel) card.classList.add("tt-tier-" + unlock.tierLabel.toLowerCase());
+
+        const icon = document.createElement("i");
+        icon.className = "bi bi-" + (unlock.icon || "trophy") + " tt-achievement-icon";
+        icon.setAttribute("aria-hidden", "true");
+        card.appendChild(icon);
+
+        const text = document.createElement("div");
+        text.className = "tt-achievement-text";
+
+        const name = document.createElement("div");
+        name.className = "tt-achievement-name";
+        name.textContent = unlock.name + (unlock.tierLabel ? " · " + unlock.tierLabel : "");
+        text.appendChild(name);
+
+        const player = document.createElement("div");
+        player.className = "tt-achievement-player";
+        player.textContent = unlock.player + (unlock.secret ? " found a secret achievement" : "");
+        text.appendChild(player);
+
+        const description = document.createElement("div");
+        description.className = "tt-achievement-desc";
+        description.textContent = unlock.description;
+        text.appendChild(description);
+
+        card.appendChild(text);
+        popup.appendChild(card);
+    });
+
+    const hint = document.createElement("div");
+    hint.className = "tt-achievement-hint";
+    hint.textContent = "Click anywhere to continue";
+    popup.appendChild(hint);
+
+    backdrop.appendChild(popup);
+    document.body.appendChild(backdrop);
+
+    let finished = false;
+    const finish = () => {
+        if (finished) return;
+        finished = true;
+        backdrop.remove();
+        ttAchievementOpen = false;
+        ttPumpAchievements();
+    };
+    backdrop.addEventListener("click", finish);
+    setTimeout(finish, TT_ACHIEVEMENT_SHOW_MS + 2000 * (unlocks.length - 1));
 }
 
 // showWinVideoModal forces the lobby to watch the game winner's account Win

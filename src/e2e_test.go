@@ -1175,6 +1175,8 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	alice := players[0]
 	sawGameOverCelebration := false
 	sawGameOverWinVideo := false
+	// What every client was told was unlocked while the game was played out.
+	var unlockMessages, unlockChat []string
 	safety := 0
 	for {
 		if aliceTl, _ := database.GetPlayerTimeline(gameId, alice.playerId); len(aliceTl) >= 5 {
@@ -1217,7 +1219,14 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 		// this loop can run many iterations.
 		exhaustStealWithMiss(acting, actingCard.ReleaseYear)
 		for _, p := range players {
-			for _, pl := range resultPayloads(drain(p)) {
+			msgs := drain(p)
+			for _, m := range msgs {
+				if strings.HasPrefix(m, "achievements:") {
+					unlockMessages = append(unlockMessages, m)
+				}
+			}
+			unlockChat = append(unlockChat, chatLines(msgs)...)
+			for _, pl := range resultPayloads(msgs) {
 				if pl["gameOver"] == true &&
 					pl["celebration"] == "GET REKT" &&
 					pl["hasGif"] == true &&
@@ -1294,6 +1303,57 @@ func TestTrackTimelineEndToEnd(t *testing.T) {
 	}
 	if mode := database.LobbyModeForLog(lobbyId); !mode.Valid || mode.Bool {
 		t.Errorf("an ordinary lobby should read as online, got %+v", mode)
+	}
+	// Winning a game against two opponents is Alice's first Dynasty rung: it is
+	// stored, announced in chat, and sent to every client for the pop-up.
+	{
+		var dynasty int
+		rows, err := gsDatabase.Query(
+			"SELECT COUNT(*) FROM TRACK_TIMELINE_ACHIEVEMENT_UNLOCK WHERE USER_ID = ? AND ACHIEVEMENT_KEY = 'dynasty' AND TIER = 1 AND BACKFILLED = 0",
+			alice.userId)
+		if err != nil {
+			t.Fatalf("read alice's unlocks: %v", err)
+		}
+		if rows.Next() {
+			_ = rows.Scan(&dynasty)
+		}
+		rows.Close()
+		if dynasty != 1 {
+			t.Errorf("alice won a game against two opponents and should hold Dynasty tier 1 once, found %d", dynasty)
+		}
+		announced := false
+		for _, l := range unlockChat {
+			if strings.Contains(l, "unlocked") && strings.Contains(l, "Dynasty") && strings.Contains(l, "e2e_alice") {
+				announced = true
+			}
+		}
+		if !announced {
+			t.Errorf("expected a chat line saying e2e_alice unlocked Dynasty, chat was %v", unlockChat)
+		}
+		sentToAll := 0
+		for _, m := range unlockMessages {
+			if strings.Contains(m, `"name":"Dynasty"`) && strings.Contains(m, `"player":"e2e_alice"`) {
+				sentToAll++
+			}
+		}
+		if sentToAll != len(players) {
+			t.Errorf("the Dynasty unlock should reach all %d clients, reached %d", len(players), sentToAll)
+		}
+		// The game was won with a timeline, so the span was recorded for it.
+		var spans int
+		rows, err = gsDatabase.Query(
+			"SELECT COUNT(*) FROM TRACK_TIMELINE_LOG_ACHIEVEMENT_EVENT WHERE USER_ID = ? AND GAME_ID = ? AND EVENT_TYPE = 'win_span'",
+			alice.userId, gameId)
+		if err != nil {
+			t.Fatalf("read alice's win span: %v", err)
+		}
+		if rows.Next() {
+			_ = rows.Scan(&spans)
+		}
+		rows.Close()
+		if spans != 1 {
+			t.Errorf("expected one win_span event for the winner, found %d", spans)
+		}
 	}
 	if !sawGameOverCelebration {
 		t.Errorf("every client should have received Alice's win celebration on the game-over payload")

@@ -41,6 +41,11 @@ var SQLFiles = []string{
 	"sql/tables/TRACK_TIMELINE_LOG_WAGER.sql",
 	"sql/tables/TRACK_TIMELINE_LOG_CHAT.sql",
 	"sql/tables/TRACK_TIMELINE_LOG_GENRE_ASSIGN.sql",
+	"sql/tables/TRACK_TIMELINE_LOG_ACHIEVEMENT_EVENT.sql",
+
+	// achievement unlocks, one row per tier earned (also FK-free: they outlive
+	// the game they were earned in)
+	"sql/tables/TRACK_TIMELINE_ACHIEVEMENT_UNLOCK.sql",
 
 	// migrations
 	"sql/migrations/MIG_TRACK_TIMELINE_TITLE_GUESS_CREATED_ON_DATE_PRECISION.sql",
@@ -80,6 +85,7 @@ var SQLFiles = []string{
 	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_JASON_ALDEAN_MODE.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_TITLE_GUESS_ADD_JASON_ALDEAN.sql",
 	"sql/migrations/MIG_TRACK_TIMELINE_LOG_TITLE_GUESS_ADD_JASON_ALDEAN.sql",
+	"sql/migrations/MIG_TRACK_TIMELINE_GAME_ADD_STARTED_ON_DATE.sql",
 
 	// triggers
 	"sql/triggers/TR_AUDIT_CARD_DELETE.sql",

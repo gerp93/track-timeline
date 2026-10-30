@@ -407,6 +407,7 @@ a.no-style {
 
 .library-tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
     margin: 0.75rem 0 1rem;
     border-bottom: 1px solid currentColor;
@@ -857,4 +858,128 @@ a.no-style {
 
 .stat-title-row h3 {
     margin: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Trophy case (/stats/trophies) and the achievement pop-up. A tier is always
+   named in words beside its colour, so the medal hues are decoration only.
+   --------------------------------------------------------------------------- */
+
+.tier-bronze { --tier: #cd7f32; }
+.tier-silver { --tier: #b4bcc8; }
+.tier-gold { --tier: #e6b422; }
+.tier-platinum { --tier: #5fd0d6; }
+.tier-diamond { --tier: #7aa7ff; }
+.tier-master { --tier: #d36bff; }
+
+.trophy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.trophy {
+    display: flex;
+    gap: 0.75rem;
+    min-width: 0;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+}
+
+.trophy.is-locked {
+    opacity: 0.7;
+    border-style: dashed;
+}
+
+.trophy.is-complete {
+    background-color: var(--color-bg-hover);
+}
+
+.trophy-icon {
+    flex: none;
+    font-size: 1.8rem;
+    line-height: 1.2;
+}
+
+.trophy.is-earned .trophy-icon {
+    color: var(--color-accent-green);
+}
+
+.trophy-body {
+    min-width: 0;
+    flex: 1;
+}
+
+.trophy-name {
+    margin: 0 0 0.25rem;
+    font-size: 1.05rem;
+}
+
+.trophy-medal,
+.trophy-rung-label {
+    padding: 0 0.4rem;
+    border: 1px solid var(--tier, currentColor);
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: bold;
+    letter-spacing: 0.03em;
+    color: var(--tier, inherit);
+}
+
+.trophy-single,
+.trophy-earned {
+    margin: 0.15rem 0;
+    font-size: 0.9rem;
+}
+
+.trophy-earned {
+    color: var(--color-accent-green);
+    font-size: 0.8rem;
+}
+
+.trophy-rungs {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.85rem;
+}
+
+.trophy-rung {
+    display: grid;
+    grid-template-columns: auto 4.7rem 1fr;
+    align-items: baseline;
+    column-gap: 0.4rem;
+    margin: 0.3rem 0;
+    opacity: 0.75;
+}
+
+.trophy-rung-label {
+    justify-self: start;
+}
+
+.trophy-rung.is-earned {
+    opacity: 1;
+}
+
+.trophy-rung.is-earned > .bi {
+    color: var(--color-accent-green);
+}
+
+.trophy-rung-date {
+    grid-column: 3;
+    font-size: 0.75rem;
+    opacity: 0.8;
+}
+
+.trophy-progress {
+    display: grid;
+    gap: 0.2rem;
+    margin-top: 0.4rem;
+}
+
+.trophy-progress-text {
+    font-size: 0.8rem;
+    opacity: 0.85;
 }

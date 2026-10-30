@@ -80,6 +80,14 @@ func main() {
 		return
 	}
 
+	// Whatever players have already earned is unlocked silently, so switching
+	// achievements on (or adding one to the catalog) never lands as a flood of
+	// pop-ups at the next round's reveal. A failure only costs that: the next
+	// round's evaluation unlocks the same tiers, just out loud.
+	if err := database.BackfillAchievements(); err != nil {
+		log.Println("failed to backfill achievements:", err)
+	}
+
 	// static files (game's own at /static/, shared framework assets at /gs/)
 	gsBootstrap.MountStaticAssets(static.StaticFiles)
 
@@ -169,6 +177,8 @@ func main() {
 	http.Handle("GET /stats/leaderboard", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.StatsLeaderboard)))
 	http.Handle("GET /stats/users", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.StatsUsers)))
 	http.Handle("GET /stats/user/{userId}", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.StatsUser)))
+	http.Handle("GET /stats/trophies", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.StatsTrophies)))
+	http.Handle("GET /stats/user/{userId}/trophies", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.StatsUserTrophies)))
 	http.Handle("GET /stats/cards", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.StatsCards)))
 	http.Handle("GET /stats/card/{cardId}", gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.StatsCard)))
 
