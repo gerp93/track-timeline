@@ -248,4 +248,33 @@ func TestAchievementsAgainstARealDatabase(t *testing.T) {
 	if _, found, _ := database.GetTrophyCase(guest); found {
 		t.Error("a guest has no trophy case")
 	}
+
+	// Rarity is a share of the players, and anyone's case can be looked at.
+	var names []string
+	for _, p := range trophyCase.Players {
+		names = append(names, p.Name)
+		if p.Name == "ach_alice" && !p.Current {
+			t.Error("the case being viewed is marked as the current player")
+		}
+	}
+	joined := strings.Join(names, ",")
+	if !strings.Contains(joined, "ach_alice") || !strings.Contains(joined, "ach_bob") || strings.Contains(joined, "ach_guest") {
+		t.Errorf("the players listed should be alice and bob and no guest, got %v", names)
+	}
+	if trophyCase.PlayerCount != len(trophyCase.Players) || trophyCase.PlayerCount < 2 {
+		t.Errorf("player count = %d for %d listed", trophyCase.PlayerCount, len(trophyCase.Players))
+	}
+	// Alice holds On Fire's first two rungs and Bob none: the second rung is no
+	// more common than the first, and both are at least Alice herself.
+	bronze, silver := onFire.Rungs[0].Rarity, onFire.Rungs[1].Rarity
+	if bronze.Total != trophyCase.PlayerCount || bronze.Hit < 1 || silver.Hit < 1 || silver.Hit > bronze.Hit {
+		t.Errorf("On Fire rarity: bronze %+v, silver %+v of %d players", bronze, silver, trophyCase.PlayerCount)
+	}
+	bobCase, found, err := database.GetTrophyCase(bob)
+	if err != nil || !found {
+		t.Fatalf("bob's trophy case: found=%v err=%v", found, err)
+	}
+	if bobCase.UserName != "ach_bob" || len(bobCase.Players) != len(trophyCase.Players) {
+		t.Errorf("bob sees %q and %d players", bobCase.UserName, len(bobCase.Players))
+	}
 }

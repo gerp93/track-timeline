@@ -967,9 +967,43 @@ a.no-style {
     color: var(--color-accent-green);
 }
 
-.trophy-rung-date {
+.trophy-rung-meta {
     grid-column: 3;
     font-size: 0.75rem;
+    opacity: 0.8;
+}
+
+.trophy-rarity {
+    margin: 0.15rem 0 0;
+    font-size: 0.75rem;
+    opacity: 0.8;
+}
+
+.trophy-players {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0.25rem 0 0.5rem;
+}
+
+.trophy-player {
+    padding: 0.15rem 0.7rem;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    color: inherit;
+    text-decoration: none;
+    opacity: 0.75;
+}
+
+.trophy-player.is-current {
+    background-color: var(--color-bg-hover);
+    font-weight: bold;
+    opacity: 1;
+}
+
+.trophy-player-count {
+    margin-left: 0.2rem;
+    font-size: 0.8rem;
     opacity: 0.8;
 }
 

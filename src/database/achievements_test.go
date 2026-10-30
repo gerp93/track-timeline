@@ -399,12 +399,14 @@ func TestMetricsEventsAndBought(t *testing.T) {
 
 func noUnlocks(int) (time.Time, bool, bool) { return time.Time{}, false, false }
 
+func noRarity(int) Rate { return Rate{} }
+
 func TestBuildTrophyProgress(t *testing.T) {
 	dynasty, _ := AchievementByKey("dynasty")
 
 	// Three wins unlocked two rungs; the bar is toward the third (10).
 	earned := func(tier int) (time.Time, bool, bool) { return at(tier), tier == 1, tier <= 2 }
-	trophy := buildTrophy(dynasty, Metrics{MetricWins: 4}, earned)
+	trophy := buildTrophy(dynasty, Metrics{MetricWins: 4}, earned, noRarity)
 	if trophy.Reached != 2 || trophy.Medal() != "Silver" || trophy.Complete {
 		t.Fatalf("reached=%d medal=%q complete=%v", trophy.Reached, trophy.Medal(), trophy.Complete)
 	}
@@ -416,12 +418,12 @@ func TestBuildTrophyProgress(t *testing.T) {
 	}
 
 	// What was unlocked stays unlocked even if the number later dips.
-	if got := buildTrophy(dynasty, Metrics{}, earned); got.Reached != 2 {
+	if got := buildTrophy(dynasty, Metrics{}, earned, noRarity); got.Reached != 2 {
 		t.Errorf("a dipped metric took a trophy back: reached %d", got.Reached)
 	}
 
 	// A finished ladder has nothing left to chase.
-	done := buildTrophy(dynasty, Metrics{MetricWins: 99}, func(int) (time.Time, bool, bool) { return at(0), false, true })
+	done := buildTrophy(dynasty, Metrics{MetricWins: 99}, func(int) (time.Time, bool, bool) { return at(0), false, true }, noRarity)
 	if !done.Complete || done.HasBar || done.Progress != "" || done.Next != "" {
 		t.Errorf("a complete ladder should show no progress: %+v", done)
 	}
@@ -429,29 +431,29 @@ func TestBuildTrophyProgress(t *testing.T) {
 
 func TestBuildTrophySingleAndTimed(t *testing.T) {
 	heist, _ := AchievementByKey("the_heist")
-	got := buildTrophy(heist, Metrics{}, noUnlocks)
+	got := buildTrophy(heist, Metrics{}, noUnlocks, noRarity)
 	if got.Unlocked() || got.HasBar || got.Progress != "" || !got.Single {
 		t.Errorf("a locked single of 1 has no bar: %+v", got)
 	}
 
 	cold, _ := AchievementByKey("cold_snap")
-	got = buildTrophy(cold, Metrics{MetricMissStreak: 3}, noUnlocks)
+	got = buildTrophy(cold, Metrics{MetricMissStreak: 3}, noUnlocks, noRarity)
 	if !got.HasBar || got.Progress != "3 / 5" {
 		t.Errorf("a single that asks for 5 shows how close: %+v", got)
 	}
 
 	quick, _ := AchievementByKey("quick_draw")
-	if got := buildTrophy(quick, Metrics{}, noUnlocks); got.Progress != "no time yet · aim for 25:00" || got.HasBar {
+	if got := buildTrophy(quick, Metrics{}, noUnlocks, noRarity); got.Progress != "no time yet · aim for 25:00" || got.HasBar {
 		t.Errorf("no time yet reads %q", got.Progress)
 	}
 	long, _ := AchievementByKey("long_haul")
-	if got := buildTrophy(long, Metrics{}, noUnlocks); got.Progress != "no time yet · aim for 40:00" || got.HasBar {
+	if got := buildTrophy(long, Metrics{}, noUnlocks, noRarity); got.Progress != "no time yet · aim for 40:00" || got.HasBar {
 		t.Errorf("a slow game not yet won reads %q, not a time of 0:00", got.Progress)
 	}
-	if got := buildTrophy(long, Metrics{EvWinSeconds + metricEventMaxSuffix: 1800}, noUnlocks); got.Progress != "30:00 / 40:00" || got.Percent != 75 {
+	if got := buildTrophy(long, Metrics{EvWinSeconds + metricEventMaxSuffix: 1800}, noUnlocks, noRarity); got.Progress != "30:00 / 40:00" || got.Percent != 75 {
 		t.Errorf("a 30-minute game on the way to 40 reads %q at %d%%", got.Progress, got.Percent)
 	}
-	got = buildTrophy(quick, Metrics{EvWinSeconds + metricEventMinSuffix: 1800}, noUnlocks)
+	got = buildTrophy(quick, Metrics{EvWinSeconds + metricEventMinSuffix: 1800}, noUnlocks, noRarity)
 	if got.Progress != "best 30:00 · aim for 25:00" || !got.HasBar || got.Percent != 83 {
 		t.Errorf("a time reads %q at %d%%", got.Progress, got.Percent)
 	}
@@ -463,5 +465,54 @@ func TestUnlockTitle(t *testing.T) {
 	}
 	if got := (AchievementUnlock{Name: "The Heist"}).Title(); got != "The Heist" {
 		t.Errorf("a single achievement carries no tier, got %q", got)
+	}
+}
+
+// Anything a player can do on purpose, with no luck or skill in it, is secret, so
+// it is found by accident rather than farmed from a list. This pins which
+// achievements that is, so a new one added without a thought for it shows up in a
+// diff.
+func TestPurposelyDoableAchievementsAreSecret(t *testing.T) {
+	want := map[string]bool{}
+	for _, key := range []string{
+		// found by the cost of a token, a typo or a tick of a box
+		"gambler", "sunk_cost", "spelling_beent", "easy_aldean", "aldean_devotee", "wrong_aldean",
+		// found by throwing a game or a round away
+		"rock_bottom", "house_always_wins", "cold_snap", "bounce_back", "flat_broke", "nothing_to_lose",
+		// found by guessing only half of a song
+		"hit_and_miss",
+		// found by raising a challenge for nothing, or creating lobbies
+		"objection", "sore_loser", "party_host",
+		// found by dawdling, or by a record that is far out of reach
+		"long_haul", "endurance", "lightning",
+	} {
+		want[key] = true
+	}
+	for _, a := range Achievements {
+		if a.Secret != want[a.Key] {
+			t.Errorf("%s: secret = %v, want %v", a.Key, a.Secret, want[a.Key])
+		}
+	}
+}
+
+func TestEveryLadderGoesPastSilver(t *testing.T) {
+	// A ladder of exactly two rungs would stop at Silver, which reads as unfinished.
+	for _, a := range Achievements {
+		if len(a.Tiers) == 2 {
+			t.Errorf("%s has two tiers (%v): add a Gold, or make it a single", a.Key, a.Tiers)
+		}
+	}
+}
+
+func TestBuildTrophyCarriesRarityPerRung(t *testing.T) {
+	dynasty, _ := AchievementByKey("dynasty")
+	// Four players, fewer holding each higher rung.
+	share := func(tier int) Rate { return Rate{Hit: 5 - tier, Total: 4} }
+	trophy := buildTrophy(dynasty, Metrics{}, noUnlocks, share)
+	if trophy.Rungs[0].Rarity != (Rate{Hit: 4, Total: 4}) || trophy.Rungs[3].Rarity != (Rate{Hit: 1, Total: 4}) {
+		t.Errorf("rarity per rung wrong: %+v", trophy.Rungs)
+	}
+	if got := trophy.Rungs[3].Rarity.Percent(); got != "25%" {
+		t.Errorf("a rung one of four players holds reads %q, want 25%%", got)
 	}
 }

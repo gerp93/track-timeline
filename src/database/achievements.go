@@ -98,7 +98,12 @@ type Achievement struct {
 	Lower bool
 	// Seconds says the metric and thresholds are in seconds and read in minutes.
 	Seconds bool
-	// Secret achievements stay out of the trophy case until a tier is unlocked.
+	// Secret achievements stay out of the trophy case until a tier is unlocked,
+	// and are not counted as held by anyone until then. Anything a player can do
+	// on purpose, with no luck or skill involved, is secret: ticking the Jason
+	// Aldean box on a song that isn't his, wagering a token, misspelling a guess,
+	// dawdling through a game. Being listed would only invite farming it; finding
+	// it by accident is the point.
 	Secret bool
 	// Describe says what a tier asks for, in a sentence without a full stop.
 	Describe func(threshold int) string
@@ -144,7 +149,7 @@ var Achievements = []Achievement{
 		Describe: func(n int) string { return "Nail the exact year on " + count(n, "wager", "wagers") },
 	},
 	{
-		Key: "gambler", Name: "Gambler", Icon: "dice-5", Category: CategoryWagering,
+		Key: "gambler", Name: "Gambler", Icon: "dice-5", Category: CategoryWagering, Secret: true,
 		Metric: MetricWagers, Tiers: []int{1, 5, 15, 40},
 		Describe: func(n int) string { return "Place " + count(n, "exact-year wager", "exact-year wagers") },
 	},
@@ -159,7 +164,7 @@ var Achievements = []Achievement{
 		Describe: func(n int) string { return fmt.Sprintf("Hit an exact-year wager with a stake of %d tokens or more", n) },
 	},
 	{
-		Key: "sunk_cost", Name: "Sunk Cost", Icon: "graph-down-arrow", Category: CategoryWagering,
+		Key: "sunk_cost", Name: "Sunk Cost", Icon: "graph-down-arrow", Category: CategoryWagering, Secret: true,
 		Metric: MetricWagerBigLoss, Tiers: []int{10, 15, 25},
 		Describe: func(n int) string {
 			return fmt.Sprintf("Miss an exact-year wager with a stake of %d tokens or more", n)
@@ -255,7 +260,7 @@ var Achievements = []Achievement{
 	},
 	{
 		Key: "quick_draw", Name: "Quick Draw", Icon: "stopwatch", Category: CategoryGames,
-		Metric: EvWinSeconds + metricEventMinSuffix, Tiers: []int{25 * 60, 20 * 60}, Lower: true, Seconds: true,
+		Metric: EvWinSeconds + metricEventMinSuffix, Tiers: []int{25 * 60, 20 * 60, 18 * 60}, Lower: true, Seconds: true,
 		Describe: func(n int) string {
 			return fmt.Sprintf("Win a %d-card game in %d minutes or less", StandardCardsToWin, n/60)
 		},
@@ -268,8 +273,8 @@ var Achievements = []Achievement{
 		},
 	},
 	{
-		Key: "long_haul", Name: "Long Haul", Icon: "hourglass-bottom", Category: CategoryGames,
-		Metric: EvWinSeconds + metricEventMaxSuffix, Tiers: []int{40 * 60, 50 * 60}, Seconds: true,
+		Key: "long_haul", Name: "Long Haul", Icon: "hourglass-bottom", Category: CategoryGames, Secret: true,
+		Metric: EvWinSeconds + metricEventMaxSuffix, Tiers: []int{40 * 60, 50 * 60, 55 * 60}, Seconds: true,
 		Describe: func(n int) string {
 			return fmt.Sprintf("Win a %d-card game that lasts %d minutes or more", StandardCardsToWin, n/60)
 		},
@@ -294,7 +299,7 @@ var Achievements = []Achievement{
 		Describe: func(n int) string { return fmt.Sprintf("Miss %d placements in a row on your turn", n) },
 	},
 	{
-		Key: "bounce_back", Name: "Bounce Back", Icon: "arrow-up-circle", Category: CategoryStreaks,
+		Key: "bounce_back", Name: "Bounce Back", Icon: "arrow-up-circle", Category: CategoryStreaks, Secret: true,
 		Metric: MetricBounceBack, Tiers: []int{1},
 		Describe: func(int) string { return "Land a correct placement straight after missing three or more in a row" },
 	},
@@ -335,7 +340,7 @@ var Achievements = []Achievement{
 		},
 	},
 	{
-		Key: "nothing_to_lose", Name: "Nothing to Lose", Icon: "exclamation-triangle", Category: CategoryEconomy,
+		Key: "nothing_to_lose", Name: "Nothing to Lose", Icon: "exclamation-triangle", Category: CategoryEconomy, Secret: true,
 		Metric: EvNothingToLose, Tiers: []int{1},
 		Describe: func(int) string { return "Spend your last tokens on a steal" },
 	},
@@ -359,12 +364,12 @@ var Achievements = []Achievement{
 		Describe: func(n int) string { return fmt.Sprintf("Name both the title and the artist on %d songs in a row", n) },
 	},
 	{
-		Key: "hit_and_miss", Name: "Hit and Miss", Icon: "mic", Category: CategoryGuessing,
+		Key: "hit_and_miss", Name: "Hit and Miss", Icon: "mic", Category: CategoryGuessing, Secret: true,
 		Metric: MetricArtistOnly, Tiers: []int{25, 75, 200},
 		Describe: func(n int) string { return fmt.Sprintf("Name the artist but not the title, %d times", n) },
 	},
 	{
-		Key: "spelling_beent", Name: "Spelling Bee-n't", Icon: "spellcheck", Category: CategoryGuessing,
+		Key: "spelling_beent", Name: "Spelling Bee-n't", Icon: "spellcheck", Category: CategoryGuessing, Secret: true,
 		Metric: EvSpellingForgiven, Tiers: []int{1, 10, 50},
 		Describe: func(n int) string {
 			return "Get credit for " + count(n, "guess", "guesses") + " despite misspelling it"
@@ -373,17 +378,17 @@ var Achievements = []Achievement{
 
 	// ---- Jason Aldean
 	{
-		Key: "easy_aldean", Name: "Easy, That's Jason Aldean", Icon: "emoji-sunglasses", Category: CategoryAldean,
+		Key: "easy_aldean", Name: "Easy, That's Jason Aldean", Icon: "emoji-sunglasses", Category: CategoryAldean, Secret: true,
 		Metric: MetricJasonTotal, Tiers: []int{1},
 		Describe: func(int) string { return "Tick “easy, that's Jason Aldean” for the first time" },
 	},
 	{
-		Key: "aldean_devotee", Name: "Aldean Devotee", Icon: "heart", Category: CategoryAldean,
+		Key: "aldean_devotee", Name: "Aldean Devotee", Icon: "heart", Category: CategoryAldean, Secret: true,
 		Metric: MetricJasonTotal, Tiers: []int{5, 15, 30, 60, 120, 250},
 		Describe: func(n int) string { return fmt.Sprintf("Tick “easy, that's Jason Aldean” %d times", n) },
 	},
 	{
-		Key: "wrong_aldean", Name: "Wrong Aldean", Icon: "x-circle", Category: CategoryAldean,
+		Key: "wrong_aldean", Name: "Wrong Aldean", Icon: "x-circle", Category: CategoryAldean, Secret: true,
 		Metric: MetricJasonWrong, Tiers: []int{3, 10, 25, 50, 100},
 		Describe: func(n int) string {
 			return fmt.Sprintf("Tick “easy, that's Jason Aldean” on a song that isn't his, %d times", n)
@@ -431,7 +436,7 @@ var Achievements = []Achievement{
 
 	// ---- Challenges
 	{
-		Key: "objection", Name: "Objection!", Icon: "megaphone", Category: CategoryChallenges,
+		Key: "objection", Name: "Objection!", Icon: "megaphone", Category: CategoryChallenges, Secret: true,
 		Metric: EvChallengeRaised, Tiers: []int{1, 5, 15, 40},
 		Describe: func(n int) string { return "Raise " + count(n, "challenge", "challenges") },
 	},
@@ -453,7 +458,7 @@ var Achievements = []Achievement{
 
 	// ---- Hosting
 	{
-		Key: "party_host", Name: "Party Host", Icon: "balloon", Category: CategoryHosting,
+		Key: "party_host", Name: "Party Host", Icon: "balloon", Category: CategoryHosting, Secret: true,
 		Metric: EvLobbyHosted, Tiers: []int{1, 5, 15, 40},
 		Describe: func(n int) string { return "Host " + count(n, "lobby", "lobbies") },
 	},

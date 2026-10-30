@@ -368,7 +368,13 @@ guesses, eras, challenges, Jason Aldean ticks, game length. Like the statistics,
   regularly, with the top ones a long haul. `Lower: true` (the game-length
   achievements) means a best time, where each rung asks for no more than its
   threshold. `Secret` achievements are not named anywhere until a tier is
-  unlocked; the trophy case only counts them ("Secrets left"). To add one: add the
+  unlocked; the trophy case only counts them ("Secrets left"). **Anything a player
+  can do on purpose, with no luck or skill in it, is secret** (ticking the Jason
+  Aldean box on the wrong song, wagering a token, misspelling a guess, dawdling,
+  raising a challenge for nothing, creating lobbies), so it is found by accident
+  rather than farmed from a list; `TestPurposelyDoableAchievementsAreSecret` pins
+  which, so a new one added without a thought for it shows in a diff. Every ladder
+  has at least three rungs (`TestEveryLadderGoesPastSilver`). To add one: add the
   entry, and a metric if none measures it. `TestAchievementCatalogIsWellFormed`
   fails on a typo'd metric, a ladder that does not get harder, or a description
   with a full stop.
@@ -427,7 +433,13 @@ A challenge's verdict evaluates the challenger and the voters in `settleChalleng
 - **The trophy case** (`/stats/trophies` for the signed-in player,
   `/stats/user/{userId}/trophies` for anyone; `Trophies` tab in `stats-nav`) is
   built by `GetTrophyCase`/`buildTrophy`: every rung with its unlock date, a bar
-  toward the next, and locked secrets counted but never described.
+  toward the next, and locked secrets counted but never described. Anyone's case can
+  be opened from the row of players at the top (`TrophyCase.Players`).
+- **Rarity.** Each rung shows how many players hold it or a higher one, a `Rate`
+  of the players (`TrophyRung.Rarity`). "Players" are approved accounts that have
+  done anything at all, so an account that never played does not make everything
+  look rarer; it is computed from the stored unlocks, so a secret nobody has found
+  is held by nobody and is not shown to anyone who hasn't unlocked it.
 
 ## Metadata hiding
 
