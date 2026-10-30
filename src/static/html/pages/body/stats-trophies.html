@@ -6,6 +6,14 @@
     <a href="/stats/user/{{.UserId}}"><button type="button" class="btn-small">Player stats</button></a>
 </div>
 
+{{if .Players}}
+<nav class="trophy-players" aria-label="Whose trophies">
+    {{range .Players}}
+    <a href="/stats/user/{{.UserId}}/trophies" class="trophy-player{{if .Current}} is-current{{end}}"{{if .Current}} aria-current="page"{{end}} title="{{.Earned}} achievements unlocked">{{.Name}} <span class="trophy-player-count">{{.Earned}}</span></a>
+    {{end}}
+</nav>
+{{end}}
+
 <section class="stat-tiles" aria-label="Trophy totals">
     <div class="stat-tile">
         <span class="stat-tile-label">Achievements</span>
@@ -27,7 +35,8 @@
 </section>
 <p class="stat-hint">
     Achievements are unlocked as a round ends and shown to everyone at the table. Some are ladders with several
-    tiers; the bar shows the way to the next one. Anything earned before achievements existed is credited without a date.
+    tiers; the bar shows the way to the next one. Beside each is the share of the {{.PlayerCount}} player{{if ne .PlayerCount 1}}s{{end}}
+    who have it. Anything earned before achievements existed is credited without a date.
 </p>
 
 {{range .Categories}}
@@ -46,6 +55,7 @@
                 {{if .Single}}
                 {{range .Rungs}}<p class="trophy-single">{{.Description}}</p>
                 {{if .Unlocked}}<p class="trophy-earned"><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Unlocked {{if .Backfilled}}from earlier play{{else}}{{template "stats-date" .UnlockedOn}}{{end}}</p>{{end}}
+                <p class="trophy-rarity" title="{{.Rarity.Hit}} of {{.Rarity.Total}} players">{{template "trophy-rarity" .Rarity}}</p>
                 {{end}}
                 {{else}}
                 <ul class="trophy-rungs">
@@ -54,7 +64,7 @@
                         <i class="bi {{if .Unlocked}}bi-check-circle-fill{{else}}bi-circle{{end}}" aria-hidden="true"></i>
                         <span class="trophy-rung-label tier-{{.LabelClass}}">{{.Label}}</span>
                         <span class="trophy-rung-desc">{{.Description}}</span>
-                        {{if .Unlocked}}<span class="trophy-rung-date">{{if .Backfilled}}earlier play{{else}}{{template "stats-date" .UnlockedOn}}{{end}}</span>{{end}}
+                        <span class="trophy-rung-meta" title="{{.Rarity.Hit}} of {{.Rarity.Total}} players">{{if .Unlocked}}{{if .Backfilled}}earlier play{{else}}{{template "stats-date" .UnlockedOn}}{{end}} &middot; {{end}}{{template "trophy-rarity" .Rarity}}</span>
                     </li>
                     {{end}}
                 </ul>
@@ -75,3 +85,7 @@
 {{end}}
 {{end}}
 {{end}}
+
+{{/* How many of the players hold a trophy, as the share and the count. Takes a
+     database.Rate: Hit players of Total. */}}
+{{define "trophy-rarity"}}{{if .Has}}{{.Percent}} of players{{else}}no players yet{{end}}{{end}}

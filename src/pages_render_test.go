@@ -175,7 +175,7 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 		},
 		{
 			"StatsTrophies", apiPages.StatsTrophies, "/stats/trophies", false, nil,
-			[]string{"render_admin", "Trophies", "Dynasty", "Nostradamus", "Gambler", "Encyclopedia", "Highway Robber", "Easy, That&#39;s Jason Aldean", "Poodle Skirt", "Secrets left"},
+			[]string{"render_admin", "Trophies", "Dynasty", "Nostradamus", "Gambler", "Encyclopedia", "Highway Robber", "Poodle Skirt", "Secrets left", "Whose trophies", "of players"},
 		},
 		{
 			"StatsUserTrophies", apiPages.StatsUserTrophies, "/stats/user/{userId}/trophies", false,
@@ -222,9 +222,14 @@ func TestSharedPageTemplatesRender(t *testing.T) {
 		rec := httptest.NewRecorder()
 		gsApi.MiddlewareForPages(http.HandlerFunc(apiPages.StatsTrophies)).ServeHTTP(rec, get("/stats/trophies"))
 		body := rec.Body.String()
-		for _, a := range database.Achievements {
-			if a.Secret && strings.Contains(body, a.Name) {
-				t.Errorf("secret achievement %q is named on a page where it is still locked", a.Name)
+		// render_admin has made wagers, so Gambler (a secret) is theirs and is
+		// shown; nothing else secret has been unlocked, so none of it is named.
+		if !strings.Contains(body, "Gambler") {
+			t.Error("an unlocked secret should appear in the trophy case")
+		}
+		for _, name := range []string{"Sore Loser", "Wrong Aldean", "Rock Bottom", "Cold Snap", "Party Host"} {
+			if strings.Contains(body, name) {
+				t.Errorf("secret achievement %q is named on a page where it is still locked", name)
 			}
 		}
 	})

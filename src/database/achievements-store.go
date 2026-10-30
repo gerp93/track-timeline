@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -171,6 +172,9 @@ type TrophyRung struct {
 	Unlocked    bool
 	UnlockedOn  time.Time
 	Backfilled  bool // unlocked from earlier play, so the date is not known
+
+	// Rarity is how many of the table's players hold this rung or a higher one.
+	Rarity Rate
 }
 
 // Trophy is one achievement as the trophy case shows it for a player.
@@ -216,6 +220,14 @@ func (t Trophy) MedalClass() string { return strings.ToLower(t.Medal()) }
 // LabelClass is the rung's tier as a CSS class suffix: "gold".
 func (r TrophyRung) LabelClass() string { return strings.ToLower(r.Label) }
 
+// TrophyPlayer is one player in the trophy case's list of whose to look at.
+type TrophyPlayer struct {
+	UserId  uuid.UUID
+	Name    string
+	Earned  int // achievements with at least one tier
+	Current bool
+}
+
 // TrophyCategory groups a player's trophies.
 type TrophyCategory struct {
 	Name     string
@@ -237,6 +249,12 @@ type TrophyCase struct {
 	Tiers int
 	// HiddenSecrets is how many secret achievements are still locked.
 	HiddenSecrets int
+
+	// Players is everyone whose trophy case can be looked at, by name, and
+	// PlayerCount how many of them there are: the whole that every rarity is a
+	// share of.
+	Players     []TrophyPlayer
+	PlayerCount int
 }
 
 // GetTrophyCase builds a player's trophy case. found is false for an account
@@ -287,6 +305,35 @@ func GetTrophyCase(userId uuid.UUID) (TrophyCase, bool, error) {
 	trophyCase.UserId = userId
 	trophyCase.UserName = user.Name
 
+	// Rarity is a share of the players: approved accounts that have done
+	// anything at all. An approved account that has never played is not a player
+	// who failed to earn a trophy, and counting it would make everything look rarer.
+	held, err := loadHeldTiers()
+	if err != nil {
+		return trophyCase, false, err
+	}
+	for id, other := range metrics {
+		if len(other) == 0 {
+			continue
+		}
+		trophyCase.Players = append(trophyCase.Players, TrophyPlayer{
+			UserId: id, Name: snapshot.users[id].Name, Earned: len(held[id]), Current: id == userId,
+		})
+	}
+	sort.Slice(trophyCase.Players, func(a, b int) bool {
+		return strings.ToLower(trophyCase.Players[a].Name) < strings.ToLower(trophyCase.Players[b].Name)
+	})
+	trophyCase.PlayerCount = len(trophyCase.Players)
+	holders := func(key string, tier int) int {
+		n := 0
+		for _, p := range trophyCase.Players {
+			if held[p.UserId][key] >= tier {
+				n++
+			}
+		}
+		return n
+	}
+
 	byCategory := make(map[string]*TrophyCategory)
 	for _, name := range AchievementCategories {
 		byCategory[name] = &TrophyCategory{Name: name}
@@ -296,6 +343,8 @@ func GetTrophyCase(userId uuid.UUID) (TrophyCase, bool, error) {
 		trophy := buildTrophy(a, m, func(tier int) (time.Time, bool, bool) {
 			row, ok := unlocks[a.Key][tier]
 			return row.on, row.backfilled, ok
+		}, func(tier int) Rate {
+			return Rate{Hit: holders(a.Key, tier), Total: trophyCase.PlayerCount}
 		})
 		if trophy.Secret && !trophy.Unlocked() {
 			trophyCase.HiddenSecrets++
@@ -321,8 +370,9 @@ func GetTrophyCase(userId uuid.UUID) (TrophyCase, bool, error) {
 
 // buildTrophy turns a catalog entry, a player's metrics and what they have
 // unlocked into the trophy case's view of it. unlocked reports a tier's unlock
-// date, whether it was a backfill, and whether it is unlocked at all.
-func buildTrophy(a Achievement, m Metrics, unlocked func(tier int) (time.Time, bool, bool)) Trophy {
+// date, whether it was a backfill, and whether it is unlocked at all; rarity
+// reports how many players hold a rung.
+func buildTrophy(a Achievement, m Metrics, unlocked func(tier int) (time.Time, bool, bool), rarity func(tier int) Rate) Trophy {
 	trophy := Trophy{
 		Key:      a.Key,
 		Name:     a.Name,
@@ -337,7 +387,7 @@ func buildTrophy(a Achievement, m Metrics, unlocked func(tier int) (time.Time, b
 	// take a trophy back. The metric only drives the progress toward the next rung.
 	for i := range a.Tiers {
 		tier := i + 1
-		rung := TrophyRung{Number: tier, Label: a.TierLabel(tier), Description: a.TierDescription(tier)}
+		rung := TrophyRung{Number: tier, Label: a.TierLabel(tier), Description: a.TierDescription(tier), Rarity: rarity(tier)}
 		if on, backfilled, ok := unlocked(tier); ok {
 			rung.Unlocked, rung.UnlockedOn, rung.Backfilled = true, on, backfilled
 			trophy.Reached = tier
