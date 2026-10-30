@@ -80,6 +80,9 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 	var position int
 	var exactYearGuess int
 	var yearWager int
+	// tokensBeforeWager is the balance a wager was staked from, to tell a stake
+	// that was the player's whole stash.
+	var tokensBeforeWager int
 	usedExactYear := strings.TrimSpace(r.FormValue("year")) != ""
 	if usedExactYear {
 		yearRaw := strings.TrimSpace(r.FormValue("year"))
@@ -107,6 +110,7 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("Failed to check your tokens."))
 			return
 		}
+		tokensBeforeWager = tokens
 		if yearWager > tokens {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte("You do not have enough tokens for that wager."))
@@ -202,7 +206,17 @@ func PlaceCard(w http.ResponseWriter, r *http.Request) {
 		if logErr := database.LogWager(ctx.UserId, card.CardId, exactYearGuess, card.ReleaseYear, yearWager, exactYearCorrect); logErr != nil {
 			log.Println(logErr)
 		}
+		// Staking the whole stash: all in if the year was right, rock bottom if not.
+		if yearWager == tokensBeforeWager {
+			switch {
+			case exactYearCorrect && yearWager >= database.AllInMinStake:
+				logEvent(ctx.UserId, ctx.Game.Id, database.EvAllIn, 1)
+			case !exactYearCorrect && yearWager >= database.RockBottomMinStake:
+				logEvent(ctx.UserId, ctx.Game.Id, database.EvRockBottom, 1)
+			}
+		}
 	}
+	logPlacementEvents(ctx.UserId, ctx.Game.Id, yearRange, card.ReleaseYear, correct)
 
 	eligible, err := database.AnyEligibleToSteal(ctx.Game.Id)
 	if err != nil {
@@ -350,6 +364,9 @@ func ClaimSteal(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("Someone already claimed it."))
 		return
 	}
+	if tokens == database.StealCost {
+		logEvent(ctx.UserId, ctx.Game.Id, database.EvNothingToLose, 1)
+	}
 
 	announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> %s to steal", esc(ctx.Player.Name), tokensSpent(database.StealCost)))
 	beginStealTurnBroadcast(ctx.LobbyId, ctx.Game.Id, ctx.Player.Id, ctx.Player.Name)
@@ -417,6 +434,7 @@ func AttemptSteal(w http.ResponseWriter, r *http.Request) {
 	if logErr := database.LogPlacement(ctx.UserId, card.CardId, card.ReleaseYear, true, correct); logErr != nil {
 		log.Println(logErr)
 	}
+	logPlacementEvents(ctx.UserId, ctx.Game.Id, database.PlacementYearRangeOf(timeline, position), card.ReleaseYear, correct)
 
 	// If the stealer and the original are both correct for the year, that is
 	// not a steal — the card stays with the player on turn. Only a correct
@@ -612,7 +630,7 @@ func announceAndFinish(ctx gameContext, outcome database.RoundOutcome) {
 		}
 	}
 
-	finishRound(ctx, payload)
+	finishRound(ctx, payload, roundFacts{outcome: outcome, stealerPlayerId: ctx.Game.StealerPlayerId})
 }
 
 // attachWinCelebration stamps the winner's account-page celebration onto the
@@ -640,7 +658,7 @@ func attachLoseCelebration(payload *resultPayload, gameId uuid.UUID, playerId uu
 // finishRound is the tail both a judged round (resolveAndAnnounce) and a
 // bought card (BuyCard) share once they have an outcome: check for a game
 // winner and either end the game or advance the turn, then send the result.
-func finishRound(ctx gameContext, payload resultPayload) {
+func finishRound(ctx gameContext, payload resultPayload, facts roundFacts) {
 	// Marks the end of this turn's chat cluster (guesses, tokens earned, the
 	// placement/steal verdict, and whichever of this function's own
 	// announcements below) regardless of which of the three exit paths below
@@ -651,6 +669,9 @@ func finishRound(ctx gameContext, payload resultPayload) {
 	if err != nil {
 		log.Println(err)
 	}
+	// Worked out now, sent below with the reveal: nothing is unlocked on screen
+	// before the round it was earned in is over.
+	unlocks := awardRound(ctx, facts, winnerUserId)
 
 	if winnerUserId != uuid.Nil {
 		payload.GameOver = true
@@ -668,6 +689,7 @@ func finishRound(ctx gameContext, payload resultPayload) {
 		payload.Celebration, payload.HasGif = winCelebrationFor(winnerUserId)
 		payload.WinVideoId, payload.WinVideoStartSeconds = winVideoFor(winnerUserId)
 		sendResult(ctx.LobbyId, payload)
+		sendUnlocks(ctx.LobbyId, unlocks)
 		gsWebsocket.LobbyBroadcast(ctx.LobbyId, "reload")
 		apiRoom.MirrorBroadcast(ctx.LobbyId, "reload")
 		return
@@ -678,6 +700,7 @@ func finishRound(ctx gameContext, payload resultPayload) {
 		// A dry draw pile is the expected way to get here.
 		payload.BottomMessage += " No songs left — the game is over."
 		sendResult(ctx.LobbyId, payload)
+		sendUnlocks(ctx.LobbyId, unlocks)
 		announce(ctx.LobbyId, "<red>The draw pile is empty</> — no more songs to play")
 		gsWebsocket.LobbyBroadcast(ctx.LobbyId, "reload")
 		apiRoom.MirrorBroadcast(ctx.LobbyId, "reload")
@@ -686,6 +709,7 @@ func finishRound(ctx gameContext, payload resultPayload) {
 
 	payload.NextPlayerName = currentPlayerName(ctx.Game.Id)
 	sendResult(ctx.LobbyId, payload)
+	sendUnlocks(ctx.LobbyId, unlocks)
 	refresh(ctx.LobbyId)
 }
 

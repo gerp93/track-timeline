@@ -551,6 +551,24 @@ func (r PlacementYearRange) Contains(year int) bool {
 	return true
 }
 
+// MissBy is how many years releaseYear falls outside this slot: 0 when the slot
+// contains it, 1 for a year just beyond a neighbour, and so on.
+func (r PlacementYearRange) MissBy(year int) int {
+	if r.HasLower && year < r.Lower {
+		return r.Lower - year
+	}
+	if r.HasUpper && year > r.Upper {
+		return year - r.Upper
+	}
+	return 0
+}
+
+// Narrow reports whether the slot is squeezed between two neighbours no more
+// than a year apart, so landing in it takes knowing the song's year closely.
+func (r PlacementYearRange) Narrow() bool {
+	return r.HasLower && r.HasUpper && r.Upper-r.Lower <= 1
+}
+
 // Format is a short human label for chat: "any year", "before 1970",
 // "after 1989", or "1971–1989".
 func (r PlacementYearRange) Format() string {

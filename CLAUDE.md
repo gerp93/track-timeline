@@ -64,6 +64,8 @@ src/
     log.go                   FK-free append-only stats logs
     stats.go, stats-games.go, stats-rate.go
                              the statistics engine (see "Statistics" below)
+    achievements*.go         the achievements catalog, metrics, event log
+                             helpers and unlock store (see "Achievements")
     seed.go                  SeedAdminIfNoUsers
     youtube.go                ParseYouTubeVideoId
   static/                 embedded assets (//go:embed)
@@ -351,6 +353,82 @@ database. Definitions that hold on every page:
   figures are methods on `Rate`/`HeatCell`. Moments are emitted as UTC `<time>`
   elements and localised by `global.js`.
 
+## Achievements
+
+Players unlock achievements for what they do: wagers, wins, streaks, steals,
+guesses, eras, challenges, Jason Aldean ticks, game length. Like the statistics,
+**progress is computed, not stored; only the unlocks are.** The pieces:
+
+- **Catalog** (`database/achievements.go`, the `Achievements` slice): each entry is
+  a `Metric` key plus a ladder of `Tiers` (thresholds, easiest first; one rung is a
+  single achievement). `Describe(threshold)` writes what a rung asks for, with no
+  full stop. Tier names are Bronze/Silver/Gold/Platinum/Diamond/Master by rung; a
+  single has none. Thresholds were set against the first seven weeks of real play
+  (15 games, four players); a rung should be reachable by someone who plays
+  regularly, with the top ones a long haul. `Lower: true` (the game-length
+  achievements) means a best time, where each rung asks for no more than its
+  threshold. `Secret` achievements are not named anywhere until a tier is
+  unlocked; the trophy case only counts them ("Secrets left"). To add one: add the
+  entry, and a metric if none measures it. `TestAchievementCatalogIsWellFormed`
+  fails on a typo'd metric, a ladder that does not get harder, or a description
+  with a full stop.
+- **Metrics** (`database/achievements-metrics.go`, `buildAchievementMetrics`) are a
+  pure function of the stats snapshot, the games rebuilt from it
+  (`reconstructGames`) and the event log, so `database/achievements_test.go` covers
+  the arithmetic with no database. The definitions match the statistics pages:
+  placements are own-turn unless they say steal, solo games count toward nothing but
+  accuracy, only approved accounts earn anything (a room guest has no trophy case).
+- **The event log** (`TRACK_TIMELINE_LOG_ACHIEVEMENT_EVENT`, `Ev*` constants in
+  `database/achievements-events.go`) keeps the moments no other log does: a steal
+  that took a card (`stolen_from`), a steal defended, a spelling slip the judge
+  forgave, an all-in wager, a win's span or seconds, a challenge raised or voted on,
+  a lobby hosted. `VALUE` carries a number where one means something and `GAME_ID`
+  lets a game-scoped question be asked ("trailed by three at some point in the game
+  they won"). Each metric from it is the count, plus `_max`/`_min` of `VALUE`.
+  Like every `LOG_*` table it is FK-free and has **no history before it was
+  added**: never infer those from older rows. A new moment is recorded where it
+  happens (`logEvent`, `api/tracktimeline/achievements.go`).
+- **Unlocks** (`TRACK_TIMELINE_ACHIEVEMENT_UNLOCK`, one row per tier, FK-free,
+  `UNIQUE(USER_ID, ACHIEVEMENT_KEY, TIER)`) are written once by
+  `database.EvaluateAchievements`, under one process-wide lock so two rounds
+  ending at once cannot announce a tier twice. A player who jumps two rungs gets a
+  row for each and one announcement (the highest). What was unlocked stays
+  unlocked even if its number later dips (a song's year corrected).
+- **Backfill.** `database.BackfillAchievements` runs on every start (`main.go`) and
+  silently unlocks everything already earned (`BACKFILLED = 1`, shown as "earlier
+  play", no date). That is what keeps switching achievements on, or adding one to
+  the catalog, from landing as a flood of pop-ups at the next reveal.
+
+**Nothing is unlocked on screen before the round that earned it is over.**
+Events that depend on correctness (a narrow gap, a miss by one year, an all-in
+that hit or missed) are logged at lock-in, silently, but evaluation happens once, in
+`finishRound` (`awardRound`), after the winner check and before the result is sent
+- so an unlock can never say a placement was right while the steal window was
+still open. `awardRound` records what the round adds (steal victims, double dips,
+triple crowns, token peaks and a stash lost entirely, how far behind each player
+is, and for a won game its span, its seconds, flawlessness, comeback, photo
+finish, heist and fort knox), then evaluates every player at the table.
+A challenge's verdict evaluates the challenger and the voters in `settleChallenge`.
+
+- **Game-length achievements only count the standard first-to-ten**
+  (`StandardCardsToWin`), measured from `TRACK_TIMELINE_GAME.STARTED_ON_DATE`
+  (stamped by `StartGame`, cleared by `ResetGame`) to the winning placement. A game
+  started before that column existed has no time and earns nothing for it.
+- **Game-scoped answers** come from `GameSeconds` and `GameOwnTurnMisses`
+  (own-turn misses since the start; a missed steal is not one) and the event log's
+  `GAME_ID`.
+- **Announcing.** `sendUnlocks` writes one chat line per unlock through
+  `announce` (so it is logged) and sends one `achievements:<json>` message.
+  `track-timeline.js` queues it and shows one modal listing everything pending once
+  no other `body > .tt-popup-backdrop` is on screen (the reveal, a challenge, the
+  win video), so a pop-up never covers what everyone is meant to be reading. Room
+  mode mirrors the message to the TV (`room-host.js`), which waits for the reveal
+  popup to clear; room phones ignore it, and the chat line reaches the TV's log.
+- **The trophy case** (`/stats/trophies` for the signed-in player,
+  `/stats/user/{userId}/trophies` for anyone; `Trophies` tab in `stats-nav`) is
+  built by `GetTrophyCase`/`buildTrophy`: every rung with its unlock date, a bar
+  toward the next, and locked secrets counted but never described.
+
 ## Metadata hiding
 
 `database.CurrentCard` has no `Title`/`Artist`/`ReleaseYear` field at all —
@@ -442,11 +520,12 @@ boundary. See "Real-time" below for the same caveat applied to the DOM.
 ## Real-time (websocket) pattern
 
 Messages over the socket are **short control strings, not structured
-payloads**, except `result:`, `song:`, `steal:`, `stealTurn:`, `challenge:` and `challengeEnd:`,
-whose payloads are JSON. Control
+payloads**, except `result:`, `song:`, `steal:`, `stealTurn:`, `challenge:`,
+`challengeEnd:` and `achievements:`, whose payloads are JSON. Control
 strings: `refresh`, `reload`, `result:<json>`, `song:<json>`, `songStop`,
 `status:<text>`, `steal:<json>`, `stealTurn:<json>`, `challenge:<json>`,
-`challengeEnd:<json>`, `chat:...`, `alert:...`, `lobbyMessage:<text>`, `kick`. The
+`challengeEnd:<json>`, `achievements:<json>`, `chat:...`, `alert:...`,
+`lobbyMessage:<text>`, `kick`. The
 server broadcasts a hint and the browser (`src/static/js/track-timeline.js`)
 reacts by re-fetching the relevant HTML fragment via `htmx.ajax`/`fetch` from
 `/api/track-timeline/{lobbyId}/...` routes, or by driving the YouTube IFrame
@@ -472,7 +551,7 @@ reveal — that gives everyone time to read the answer, and a song never starts
 underneath a popup.
 
 **Full-screen overlays are blocking, for the keyboard too.** The steal countdown,
-the reveal popup and the challenge dialogs are all `body > .tt-popup-backdrop`
+the reveal popup, the challenge dialogs and the achievement modal are all `body > .tt-popup-backdrop`
 elements. A `MutationObserver` in `track-timeline.js` (`ttSyncBlockingOverlay`)
 sets `inert` on `#tt-page` while any is up (flushing the guess draft first), so a
 focused guess box can't be typed into behind them and Tab can't walk through. A

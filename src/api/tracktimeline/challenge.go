@@ -223,6 +223,7 @@ func OpenChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logEvent(ctx.UserId, ctx.Game.Id, database.EvChallengeRaised, 1)
 	announce(ctx.LobbyId, fmt.Sprintf("<blue>%s</> raised a challenge — wants %s: “%s”",
 		esc(challenge.PlayerName), claimText(challenge), esc(challenge.Reason)))
 	sendChallenge(ctx.LobbyId, buildChallengePayload(challenge, voters, nil))
@@ -298,6 +299,7 @@ func VoteChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logEvent(ctx.UserId, ctx.Game.Id, database.EvChallengeVote, 1)
 	settleChallenge(ctx.LobbyId, open.Id, false)
 
 	w.WriteHeader(http.StatusOK)
@@ -448,6 +450,23 @@ func settleChallenge(lobbyId uuid.UUID, challengeId uuid.UUID, timedOut bool) {
 	announce(lobbyId, message.chat)
 	sendChallengeEnd(lobbyId, challenge, status, message.plain)
 	refresh(lobbyId)
+
+	// Whatever the verdict earned the challenger and the voters is told once the
+	// vote's own dialog has been dismissed by the challengeEnd above.
+	involved := make([]uuid.UUID, 0, len(voters)+1)
+	if challengerUser := userIdForPlayer(challenge.GameId, challenge.PlayerId); challengerUser != uuid.Nil {
+		involved = append(involved, challengerUser)
+		switch status {
+		case database.ChallengeStatusUpheld:
+			logEvent(challengerUser, challenge.GameId, database.EvChallengeUpheld, 1)
+		case database.ChallengeStatusRejected:
+			logEvent(challengerUser, challenge.GameId, database.EvChallengeRejected, 1)
+		}
+	}
+	for _, voter := range voters {
+		involved = append(involved, voter.UserId)
+	}
+	awardUsers(lobbyId, involved)
 }
 
 type challengeMessage struct {

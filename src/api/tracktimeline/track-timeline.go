@@ -519,10 +519,14 @@ func Create(w http.ResponseWriter, r *http.Request) {
 
 	if isRoom {
 		created = apiRoom.Finish(w, lobbyId, userId, roomCode)
+		if created {
+			logEvent(userId, gameId, database.EvLobbyHosted, 1)
+		}
 		return
 	}
 
 	created = true
+	logEvent(userId, gameId, database.EvLobbyHosted, 1)
 	w.Header().Add("HX-Redirect", "/track-timeline/"+lobbyId.String())
 	w.WriteHeader(http.StatusCreated)
 }

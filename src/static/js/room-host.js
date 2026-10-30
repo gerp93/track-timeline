@@ -101,6 +101,10 @@ function roomHostOnMessage(message) {
         document.body.dispatchEvent(new Event("room-refresh"));
         return;
     }
+    if (message.startsWith("achievements:")) {
+        try { roomHostShowUnlocks(JSON.parse(message.slice(13))); } catch (e) {}
+        return;
+    }
     if (message.startsWith("result:")) {
         try {
             const r = JSON.parse(message.slice(7));
@@ -110,7 +114,9 @@ function roomHostOnMessage(message) {
             }
             if (r.guessTokenGuessText) parts.push("Guessed: “" + r.guessTokenGuessText + "”");
             if (r.bottomMessage) parts.push(r.bottomMessage);
-            roomHostShowPopup(r.gameOver ? "Game over" : "Reveal", parts.join("<br>"), r.gameOver ? ROOM_POPUP_GAME_OVER_MS : ROOM_POPUP_REVEAL_MS);
+            const revealMs = r.gameOver ? ROOM_POPUP_GAME_OVER_MS : ROOM_POPUP_REVEAL_MS;
+            roomHostRevealUntil = Date.now() + revealMs;
+            roomHostShowPopup(r.gameOver ? "Game over" : "Reveal", parts.join("<br>"), revealMs);
         } catch (e) {}
         document.body.dispatchEvent(new Event("room-refresh"));
         return;
@@ -136,6 +142,10 @@ function roomHostAppendLog(text) {
 // to click OK. Game over lingers a little longer since it ends the night. A tap
 // anywhere on the popup dismisses it early.
 const ROOM_POPUP_REVEAL_MS = 5000;
+const ROOM_POPUP_UNLOCK_MS = 6000;
+// When the reveal popup now on the TV is due to clear: an achievement waits for it
+// rather than replacing it, since the TV has one popup slot.
+let roomHostRevealUntil = 0;
 const ROOM_POPUP_GAME_OVER_MS = 8000;
 let roomPopupTimer = null;
 
@@ -145,6 +155,25 @@ function roomHostShowPopup(title, bodyHtml, durationMs) {
     document.getElementById("room-popup").hidden = false;
     clearTimeout(roomPopupTimer);
     roomPopupTimer = setTimeout(roomHostDismissPopup, durationMs || ROOM_POPUP_REVEAL_MS);
+}
+
+// roomHostShowUnlocks puts what a round unlocked on the TV once the reveal has
+// had its turn. Names are user-authored and the popup body is HTML, so each is
+// escaped.
+function roomHostShowUnlocks(unlocks) {
+    if (!Array.isArray(unlocks) || !unlocks.length) return;
+    const escape = (text) => {
+        const el = document.createElement("div");
+        el.textContent = text;
+        return el.innerHTML;
+    };
+    const lines = unlocks.map((u) =>
+        "<strong>" + escape(u.player) + "</strong> — " + escape(u.name + (u.tierLabel ? " (" + u.tierLabel + ")" : "")) +
+        "<br>" + escape(u.description));
+    const wait = Math.max(0, roomHostRevealUntil - Date.now()) + 300;
+    setTimeout(() => {
+        roomHostShowPopup(unlocks.length === 1 ? "Achievement unlocked" : "Achievements unlocked", lines.join("<br><br>"), ROOM_POPUP_UNLOCK_MS);
+    }, wait);
 }
 
 function roomHostDismissPopup() {

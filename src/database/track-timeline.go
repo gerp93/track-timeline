@@ -1365,7 +1365,8 @@ func StartGame(gameId uuid.UUID) error {
 
 	sqlStart := `
 		UPDATE TRACK_TIMELINE_GAME
-		SET GAME_STATUS = ?, ROUND_PHASE = ?, PHASE_STARTED_ON_DATE = NULL, CURRENT_PLAYER_ID = ?
+		SET GAME_STATUS = ?, ROUND_PHASE = ?, PHASE_STARTED_ON_DATE = NULL, CURRENT_PLAYER_ID = ?,
+			STARTED_ON_DATE = NOW()
 		WHERE ID = ?
 	`
 	if err := execute(sqlStart, StatusActive, PhaseListening, firstPlayer, gameId); err != nil {
@@ -1468,7 +1469,7 @@ func ResetGame(gameId uuid.UUID) error {
 		UPDATE TRACK_TIMELINE_GAME
 		SET GAME_STATUS = ?, ROUND_PHASE = ?, PHASE_STARTED_ON_DATE = NULL,
 			CURRENT_PLAYER_ID = NULL, WINNER_ID = NULL, BETWEEN_ROUNDS = 0,
-			TOTAL_CORRECT = 0, TOTAL_INCORRECT = 0
+			TOTAL_CORRECT = 0, TOTAL_INCORRECT = 0, STARTED_ON_DATE = NULL
 		WHERE ID = ?
 	`
 	return execute(sqlResetGame, StatusWaiting, PhaseListening, gameId)
