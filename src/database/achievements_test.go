@@ -516,3 +516,28 @@ func TestBuildTrophyCarriesRarityPerRung(t *testing.T) {
 		t.Errorf("a rung one of four players holds reads %q, want 25%%", got)
 	}
 }
+
+func TestTrophyCategoriesAreListedInTheChosenOrder(t *testing.T) {
+	want := []string{
+		"Games & wins", "Guessing", "Eras & genres", "Streaks", "Steals & tokens",
+		"Wagering", "Jason Aldean", "Challenges", "Hosting",
+	}
+	if len(AchievementCategories) != len(want) {
+		t.Fatalf("categories = %v, want %v", AchievementCategories, want)
+	}
+	for i, name := range want {
+		if AchievementCategories[i] != name {
+			t.Errorf("category %d is %q, want %q", i+1, AchievementCategories[i], name)
+		}
+	}
+	// Every category the catalog uses is in the list, or its trophies never show.
+	listed := make(map[string]bool)
+	for _, c := range AchievementCategories {
+		listed[c] = true
+	}
+	for _, a := range Achievements {
+		if !listed[a.Category] {
+			t.Errorf("%s is in %q, which the trophy case does not list", a.Key, a.Category)
+		}
+	}
+}

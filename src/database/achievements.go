@@ -20,26 +20,28 @@ import (
 
 // Achievement categories, in the order the trophy case lists them.
 const (
-	CategoryWagering   = "Wagering"
 	CategoryGames      = "Games & wins"
+	CategoryGuessing   = "Guessing"
+	CategoryEras       = "Eras & genres"
 	CategoryStreaks    = "Streaks"
 	CategoryEconomy    = "Steals & tokens"
-	CategoryGuessing   = "Guessing"
+	CategoryWagering   = "Wagering"
 	CategoryAldean     = "Jason Aldean"
-	CategoryEras       = "Eras & genres"
 	CategoryChallenges = "Challenges"
 	CategoryHosting    = "Hosting"
 )
 
-// AchievementCategories is the display order of the categories.
+// AchievementCategories is the display order of the categories: what the game
+// is about first (winning, then knowing the songs and the years), then the ways
+// of playing it, and the novelties last.
 var AchievementCategories = []string{
-	CategoryWagering,
 	CategoryGames,
+	CategoryGuessing,
+	CategoryEras,
 	CategoryStreaks,
 	CategoryEconomy,
-	CategoryGuessing,
+	CategoryWagering,
 	CategoryAldean,
-	CategoryEras,
 	CategoryChallenges,
 	CategoryHosting,
 }
