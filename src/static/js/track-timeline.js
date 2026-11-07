@@ -217,6 +217,7 @@ function handleMessage(message) {
             return;
         }
         ttQueueAchievements(unlocks);
+        ttRefreshTrophies();
         return;
     }
 
@@ -301,6 +302,7 @@ function refreshGame() {
 
     htmx.ajax("GET", base + "/current-card", { target: "#tt-current-card", swap: "innerHTML" });
     htmx.ajax("GET", base + "/decks", { target: "#tt-deck-info", swap: "innerHTML" });
+    ttRefreshTrophies();
 
     // The board is fetched rather than htmx.ajax'd so htmx.process can re-arm
     // the placement buttons in the new markup.
@@ -1215,6 +1217,45 @@ function showResultPopup(payload, onDone) {
     else if (hasCelebration) dismissAfter = 5000;
     setTimeout(finish, dismissAfter);
 }
+
+// ------------------------------------------------------------ trophy drawer
+
+// The drawer on the right lists every achievement unlocked since this game
+// started. It is only fetched while open (and on open), so a closed drawer costs
+// nothing on each refresh.
+function ttTrophiesOpen() {
+    const drawer = document.getElementById("tt-trophy-drawer");
+    return !!drawer && drawer.classList.contains("is-open");
+}
+
+function ttRefreshTrophies() {
+    if (!ttLobbyId || !ttTrophiesOpen()) return;
+    fetch("/api/track-timeline/" + ttLobbyId + "/trophies", { cache: "no-store" })
+        .then((r) => (r.ok ? r.text() : Promise.reject(new Error("HTTP " + r.status))))
+        .then((html) => {
+            const list = document.getElementById("tt-trophy-list");
+            if (list && ttTrophiesOpen()) list.innerHTML = html;
+        })
+        .catch((e) => console.error("[TrackTimeline] trophy refresh failed:", e));
+}
+
+// ttToggleTrophies opens or closes the drawer; pass true/false to force it.
+function ttToggleTrophies(open) {
+    const drawer = document.getElementById("tt-trophy-drawer");
+    const handle = document.getElementById("tt-trophy-handle");
+    if (!drawer || !handle) return;
+    const show = typeof open === "boolean" ? open : !ttTrophiesOpen();
+    drawer.classList.toggle("is-open", show);
+    handle.classList.toggle("is-open", show);
+    handle.setAttribute("aria-expanded", show ? "true" : "false");
+    drawer.setAttribute("aria-hidden", show ? "false" : "true");
+    drawer.toggleAttribute("inert", !show);
+    if (show) ttRefreshTrophies();
+}
+
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && ttTrophiesOpen()) ttToggleTrophies(false);
+});
 
 // ------------------------------------------------------------- achievements
 
