@@ -156,6 +156,31 @@
 
 </div><!-- #tt-page -->
 
+<!--
+    The trophy drawer: every achievement unlocked by any player since this game
+    started. Outside #tt-page on purpose, like the dialogs, so it is not swapped
+    or made inert with the board. Filled from /trophies when it is opened.
+-->
+<button
+    type="button"
+    id="tt-trophy-handle"
+    class="tt-trophy-handle"
+    aria-controls="tt-trophy-drawer"
+    aria-expanded="false"
+    title="Trophies won this game"
+    onclick="ttToggleTrophies()"
+>
+    <span class="bi bi-trophy-fill" aria-hidden="true"></span>
+    <span class="tt-trophy-handle-text">Trophies</span>
+</button>
+<aside id="tt-trophy-drawer" class="tt-trophy-drawer" aria-label="Trophies won this game" aria-hidden="true" inert>
+    <div class="tt-trophy-drawer-header">
+        <h3><span class="bi bi-trophy-fill" aria-hidden="true"></span> Trophies this game</h3>
+        <button type="button" class="tt-trophy-close bi bi-x-lg" aria-label="Close trophies" onclick="ttToggleTrophies(false)"></button>
+    </div>
+    <div id="tt-trophy-list" class="tt-trophy-drawer-body"></div>
+</aside>
+
 <dialog id="lobby-message-dialog">
     <div style="display: grid; grid-auto-flow: column">
         <div><h3>Lobby Message</h3></div>

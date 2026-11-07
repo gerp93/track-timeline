@@ -311,3 +311,28 @@ func GetDecks(w http.ResponseWriter, r *http.Request) {
 
 	_ = tmpl.Execute(w, struct{ Decks []database.DeckInfo }{Decks: decks})
 }
+
+// GetTrophies renders the trophies any player has won since this game started,
+// for the drawer on the right of the lobby.
+func GetTrophies(w http.ResponseWriter, r *http.Request) {
+	ctx, ok := loadContext(w, r)
+	if !ok {
+		return
+	}
+
+	trophies, err := database.GetGameTrophies(ctx.Game.Id)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to get the trophies."))
+		return
+	}
+
+	tmpl, err := template.ParseFS(static.StaticFiles, "html/components/tracktimeline/trophy-drawer.html")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Failed to parse template."))
+		return
+	}
+
+	_ = tmpl.Execute(w, struct{ Trophies []database.GameTrophy }{Trophies: trophies})
+}

@@ -217,6 +217,7 @@ func main() {
 	http.Handle("GET /api/track-timeline/{lobbyId}/challenge", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.GetChallenge)))
 	http.Handle("GET /api/track-timeline/{lobbyId}/draw-pile", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.GetDrawPile)))
 	http.Handle("GET /api/track-timeline/{lobbyId}/decks", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.GetDecks)))
+	http.Handle("GET /api/track-timeline/{lobbyId}/trophies", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiTrackTimeline.GetTrophies)))
 
 	// access gates
 	http.Handle("POST /api/access/lobby/{lobbyId}", gsApi.MiddlewareForAPIs(http.HandlerFunc(apiAccess.Lobby)))

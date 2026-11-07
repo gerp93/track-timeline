@@ -1,0 +1,16 @@
+{{if .Trophies}}
+<ul class="tt-trophy-list">
+    {{range .Trophies}}
+    <li class="tt-trophy{{if .TierClass}} tt-tier-{{.TierClass}}{{end}}">
+        <i class="bi bi-{{if .Icon}}{{.Icon}}{{else}}trophy{{end}} tt-trophy-icon" aria-hidden="true"></i>
+        <div class="tt-trophy-text">
+            <div class="tt-trophy-name">{{.Name}}{{if .TierLabel}} <span class="tt-trophy-tier">{{.TierLabel}}</span>{{end}}</div>
+            <div class="tt-trophy-player">{{.UserName}}{{if .Secret}} found a secret achievement{{end}}</div>
+            <div class="tt-trophy-desc">{{.Description}}</div>
+        </div>
+    </li>
+    {{end}}
+</ul>
+{{else}}
+<p class="hint">No trophies yet this game. They appear here as players unlock them.</p>
+{{end}}
