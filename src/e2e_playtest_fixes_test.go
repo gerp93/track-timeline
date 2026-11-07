@@ -1157,6 +1157,38 @@ func TestJasonAldeanGuessIsFilledInJudgedAndCounted(t *testing.T) {
 	if got := usage(current); got.Has() {
 		t.Errorf("an unticked guess must not count: %+v", got)
 	}
+
+	// The achievements follow: the first tick is Easy, That's Jason Aldean at
+	// once, but Wrong Aldean's first rung asks for three ticks on songs that are
+	// not his, so one wrong tick is progress toward it and not the trophy.
+	unlockKeys := func(p *player) map[string]int {
+		t.Helper()
+		unlocks, err := database.EvaluateAchievements([]uuid.UUID{p.userId})
+		if err != nil {
+			t.Fatalf("evaluate %s: %v", p.name, err)
+		}
+		keys := make(map[string]int)
+		for _, u := range unlocks {
+			keys[u.Key] = u.Tier
+		}
+		return keys
+	}
+	first := unlockKeys(others[1])
+	if first["easy_aldean"] != 1 {
+		t.Errorf("the first tick should unlock Easy, That's Jason Aldean, got %v", first)
+	}
+	if _, ok := first["wrong_aldean"]; ok {
+		t.Errorf("one wrong tick is short of Wrong Aldean's first rung, got %v", first)
+	}
+	wrong, _ := database.AchievementByKey("wrong_aldean")
+	for i := 0; i < wrong.Tiers[0]-1; i++ {
+		if err := database.LogTitleGuess(others[1].userId, card.CardId, "x by Jason Aldean", false, false, true); err != nil {
+			t.Fatalf("log a wrong tick: %v", err)
+		}
+	}
+	if again := unlockKeys(others[1]); again["wrong_aldean"] != 1 {
+		t.Errorf("%d wrong ticks should unlock Wrong Aldean, got %v", wrong.Tiers[0], again)
+	}
 }
 
 // TestGuessPaysEachPartOnItsOwn guards the token rule: the right title and the
